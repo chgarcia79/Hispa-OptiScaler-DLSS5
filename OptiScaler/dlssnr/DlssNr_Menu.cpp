@@ -85,33 +85,30 @@ void RenderMenu(Config* config, float menuResScale)
 
     // DLSS Neural Rendering -----------------------------
     ImGui::Spacing();
-    if (auto ch = ScopedCollapsingHeader("DLSS Neural Rendering"); ch.IsHeaderOpen())
+    if (auto ch = ScopedCollapsingHeader("DLSS 5 - Neural Rendering (HispaGameControl)"); ch.IsHeaderOpen())
     {
         ScopedIndent indent {};
         ImGui::Spacing();
 
         bool enabled = config->DlssNrEnabled.value_or_default();
-        if (ImGui::Checkbox("Enable Neural Rendering", &enabled))
+        if (ImGui::Checkbox("Activar Neural Rendering (DLSS 5)", &enabled))
             config->DlssNrEnabled = enabled;
 
-        HelpMarker("Synthesises detail in the upscaler's output, before frame generation sees it."
-                       "\n\nNeeds two similarly named files beside OptiScaler, one character apart:"
-                       "\n  nvngx_dlssnr.dll       NVIDIA's model (~165 MB) -- you supply it"
-                       "\n  nvngx.dll_dlssnr.dll   the forwarder (~13 KB) -- ships in this package"
-                       "\nUndocumented and driven directly, so none of this is officially supported.");
+        HelpMarker("Sintetiza microdetalle y reconstruccion neuronal en la salida del escalador,\n"
+                   "antes de la generacion de fotogramas.\n\n"
+                   "Requiere dos archivos junto a OptiScaler:\n"
+                   "  nvngx_dlssnr.dll       Modelo de NVIDIA (~165 MB)\n"
+                   "  nvngx.dll_dlssnr.dll   Forwarder puente (~108 KB)");
 
-        // The toggle can be bound to a key, and nobody would think to look for it under Keybinds
-        // unless told. Dimmed, because it is a note rather than a setting.
-        ImGui::TextDisabled("Can be toggled with a key -- bind it under Keybinds, \"Neural Rendering\".");
+        ImGui::TextDisabled("Se puede activar/desactivar con tecla en Keybinds (\"Neural Rendering\").");
 
         bool applyModel = config->DlssNrApplyModel.value_or_default();
-        if (ImGui::Checkbox("Apply the model", &applyModel))
+        if (ImGui::Checkbox("Aplicar modelo de IA (Neural Model)", &applyModel))
             config->DlssNrApplyModel = applyModel;
 
-        HelpMarker("Whether the model's edit is applied. Off shows the clean upscaler frame while the"
-                       "\npass keeps running -- so with Hold frame (under Compare) you can freeze a"
-                       "\nframe and toggle this to see the same frozen frame with and without Neural"
-                       "\nRendering. Leave it on for normal use.");
+        HelpMarker("Aplica la edicion del modelo neuronal sobre la imagen.\n"
+                   "Desactivado muestra la imagen limpia del escalador sin pausar el modelo,\n"
+                   "ideal para usarlo junto a Congelar fotograma.");
 
         // Either backend. The two keep separate state, and on a native Vulkan game the D3D12 side
         // is never touched -- so asking only that one reports "waiting for the upscaler" over a pass
@@ -193,7 +190,7 @@ void RenderMenu(Config* config, float menuResScale)
                                ? pendingScale
                                : (int) lroundf(config->DlssNrWorkingScale.value_or_default() * 100.0f);
 
-        if (ImGui::SliderInt("Model resolution", &scalePercent, 25, 200, "%d%%"))
+        if (ImGui::SliderInt("Resolucion del modelo IA", &scalePercent, 25, 200, "%d%%"))
             pendingScale = scalePercent;
 
         if (ImGui::IsItemDeactivatedAfterEdit() && pendingScale >= 0)
@@ -203,8 +200,8 @@ void RenderMenu(Config* config, float menuResScale)
         }
 
         if (scalePercent > 100)
-            ImGui::TextDisabled("Supersampling %.2fx: the model runs ABOVE native, then\n"
-                                "is sampled back down. Experimental, and costly -- time grows with the area.",
+            ImGui::TextDisabled("Supersampling Neuronal %.2fx: el modelo opera por ENCIMA de nativo,\n"
+                                "luego se reescala con filtro. Maxima nitidez en RTX 5090.",
                                 scalePercent / 100.0f);
 
         if (scalePercent > 100)
@@ -215,14 +212,11 @@ void RenderMenu(Config* config, float menuResScale)
             if (ds < 0 || ds >= IM_ARRAYSIZE(dsNames))
                 ds = (int) Scaler::Lanczos3;
 
-            if (ImGui::Combo("Downscaler (NR)", &ds, dsNames, IM_ARRAYSIZE(dsNames)))
+            if (ImGui::Combo("Filtro de Reescalado (Downscaler NR)", &ds, dsNames, IM_ARRAYSIZE(dsNames)))
                 config->DlssNrScalingDownscaler = (Scaler) ds;
 
-            HelpMarker("The filter that averages the model's above-native answer back to display size --"
-                           "\nthis is what turns supersampling into LESS noise rather than more. Sharper"
-                           "\nfilters (Lanczos3, Kaiser3) keep the most detail; softer ones (Bicubic,"
-                           "\nCatmull-Rom) are gentler on ringing. Independent of the Output Scaling"
-                           "\ndownscaler, so the two can differ and run at the same time.");
+            HelpMarker("Filtro que promedia la respuesta del modelo por encima de nativo a la resolucion de pantalla.\n"
+                       "Lanczos3 y Kaiser3 mantienen la maxima nitidez y detalle fino sin artefactos.");
         }
 
         HelpMarker("What fraction of the frame the model works at. Cost falls with the square of"
@@ -267,99 +261,66 @@ void RenderMenu(Config* config, float menuResScale)
                        "\n\nFrom hhkbble's multi-pass work on this fork.");
         }
 
-        ImGui::SeparatorText("How much of it lands");
+        ImGui::SeparatorText("Fuerza e Intensidad");
 
         float transfer = config->DlssNrTransferStrength.value_or_default();
-        if (ImGui::SliderFloat("Detail strength", &transfer, 0.0f, 2.0f, "%.2f"))
+        if (ImGui::SliderFloat("Fuerza de detalle (Detail)", &transfer, 0.0f, 2.0f, "%.2f"))
             config->DlssNrTransferStrength = transfer;
 
         ImGui::SameLine();
         if (ImGui::SmallButton("Reset##detail"))
             config->DlssNrTransferStrength = 1.0f;
 
-        HelpMarker("How far the frame moves toward the model's picture."
-                       "\n\nThe model's answer is not added to the frame -- it is a complete picture of its"
-                       "\nown, rescaled so its luminance sits where the original says it should. This"
-                       "\nblends between the two, so both ends are real pictures and everything between"
-                       "\nthem is one too."
-                       "\n\n0 gives back exactly what the upscaler produced. 1 is the model's picture."
-                       "\n\nAbove 1 carries on past it in the same direction, which is not something the"
-                       "\nmodel asked for -- use it to see what it is doing, then come back down. This"
-                       "\nis the control to push if you want more effect: Intensity belongs to the model"
-                       "\nand it decides what to do with it.");
+        HelpMarker("Cuanto se acerca el fotograma a la salida del modelo de IA.\n"
+                   "0 = Mantiene la salida exacta del escalador.\n"
+                   "1 = Imagen procesada por la red neuronal al 100%.\n"
+                   "> 1 = Acentua el efecto de la IA.");
 
         float colour = config->DlssNrColourStrength.value_or_default();
-        if (ImGui::SliderFloat("Colour strength", &colour, 0.0f, 4.0f, "%.2f"))
+        if (ImGui::SliderFloat("Fuerza de color (Colour)", &colour, 0.0f, 4.0f, "%.2f"))
             config->DlssNrColourStrength = colour;
 
         ImGui::SameLine();
         if (ImGui::SmallButton("Reset##colour"))
             config->DlssNrColourStrength = 1.0f;
 
-        HelpMarker("Whether the model's colour arrives with its light."
-                       "\n\n0 keeps the game's own hue exactly -- every pixel is the original colour with"
-                       "\nonly its brightness carrying the model's verdict. Game-accurate colour, with"
-                       "\nthe detail. 1 brings the model's colour as well, in its own hue, clamped into"
-                       "\nAP1 so nothing unreachable is asked for."
-                       "\n\nThis cannot shift hue on its own: it interpolates between two finished"
-                       "\npictures rather than adding a colour difference to one, which is what used to"
-                       "\nlet a warm subject come back green."
-                       "\n\nAbove 1 it OVER-SATURATES: the colour keeps its hue but grows more vivid,"
-                       "\nand rolls off at the edge of what the display can show rather than clipping"
-                       "\ninto a flat blown patch. 1 is the model's own colour; push past it for punch.");
+        HelpMarker("Intensidad del color aportado por el modelo neuronal.\n"
+                   "0 = Mantiene exactamente el tono y tono original del juego.\n"
+                   "1 = Color de la red neuronal adaptado.\n"
+                   "> 1 = Mayor saturacion y viveza en altas luces.");
 
-        // Experimental. 0 off (soft knee), 1 Neutwo + our composition, 2 Neutwo + pure-inverse replace,
-        // 3 hybrid+composed, 4 hybrid+replace (identity midtones + unclipped highlights). Always shown.
-        static const char* reversibleNames[] = { "Off (soft knee)", "Neutwo proxy + composed",
-                                                 "Neutwo proxy + replace", "Hybrid proxy + composed",
-                                                 "Hybrid proxy + replace" };
+        static const char* reversibleNames[] = { "Desactivado (Soft knee)", "Neutwo proxy + compuesto",
+                                                 "Neutwo proxy + reemplazo", "Proxy Hibrido + compuesto (Recomendado)",
+                                                 "Proxy Hibrido + reemplazo" };
         int reversible = (int) config->DlssNrReversibleMode.value_or_default();
         if (reversible < 0 || reversible > 4)
             reversible = 0;
-        if (ImGui::Combo("Reversible proxy (experimental)", &reversible, reversibleNames,
+        if (ImGui::Combo("Proxy Reversible HDR (Anti-quemado)", &reversible, reversibleNames,
                          IM_ARRAYSIZE(reversibleNames)))
             config->DlssNrReversibleMode = (uint32_t) reversible;
 
-        HelpMarker("What the model is shown, and how its answer comes back."
-                       "\n\nOff (soft knee): the default. It rolls highlights off so hard the model"
-                       "\ncannot resolve detail in them -- fine in soft-lit scenes, weak in bright ones."
-                       "\n\nNeutwo composed: an unclipped curve so the model sees highlight detail, then"
-                       "\neverything above (Detail/Colour strength, highlight guard, palette). It wins in"
-                       "\nbright scenes, but the curve compresses MIDTONES too, so in soft-lit content it"
-                       "\ncan be worse than Off. It also shifts paper white -- re-check it when you switch."
-                       "\n\nHybrid composed: the best of both, and the one to use. Identity in the"
-                       "\nmidtones -- as good as Off there -- and the unclipped roll only in the"
-                       "\nhighlights, so it recovers the detail Off crushes without giving up the"
-                       "\nmidtones Neutwo does. It barely shifts paper white."
-                       "\n\nReplace: the raw model straight back through the exact inverse, none of the"
-                       "\ncomposition -- no guard, no palette, no strengths. Gorgeous where there are no"
-                       "\nbright lights, but they FLASH in motion. A reference, not a daily setting."
-                       "\n\nHybrid replace: the raw model like Replace, but on the hybrid curve -- the"
-                       "\ndecode is identity in the midtones, so the flashing is confined to genuine"
-                       "\nbright highlights instead of everywhere. Most of Replace's detail, far more"
-                       "\nstable. If you love the Replace look but the flicker bothers you, use this."
-                       "\n\nOff is byte-identical to before.");
+        HelpMarker("Controla como se alimentan las luces altas a la red neuronal.\n"
+                   "Proxy Hibrido + compuesto evita que los neones o reflejos brillantes\n"
+                   "se quemen o salgan en blanco y negro sin alterar los tonos medios.");
 
-        ImGui::SeparatorText("Model");
+        ImGui::SeparatorText("Modelo Neuronal IA");
 
-        ImGui::TextUnformatted("Read when the model is built, so a change rebuilds it after a moment.");
+        ImGui::TextUnformatted("Se aplica al compilar el modelo de IA en GPU.");
 
-        static const char* nrPresetNames[] = { "Default", "Preset 1", "Preset 2", "Preset 3" };
+        static const char* nrPresetNames[] = { "Por defecto (Default)", "Preset 1", "Preset 2", "Preset 3" };
         int preset = (int) config->DlssNrPreset.value_or_default();
-        if (ImGui::Combo("Model preset", &preset, nrPresetNames, IM_ARRAYSIZE(nrPresetNames)))
+        if (ImGui::Combo("Preset del modelo IA", &preset, nrPresetNames, IM_ARRAYSIZE(nrPresetNames)))
             config->DlssNrPreset = (uint32_t) preset;
 
-        HelpMarker("Default leaves the choice to the model."
-                       "\n\nNot the same scale as the super resolution or ray reconstruction presets --"
-                       "\nthe same number means something different here.");
+        HelpMarker("Preset de pesos internos del modelo DLSS 5.");
 
-        static const char* nrStyleNames[] = { "Default (standard)", "Natural", "Cinematic" };
+        static const char* nrStyleNames[] = { "Estandar (Standard)", "Natural", "Cinematografico (Cinematic)" };
         int style = (int) config->DlssNrStyle.value_or_default();
 
         if (style > 2)
             style = 2;
 
-        if (ImGui::Combo("Style", &style, nrStyleNames, IM_ARRAYSIZE(nrStyleNames)))
+        if (ImGui::Combo("Estilo visual (Style)", &style, nrStyleNames, IM_ARRAYSIZE(nrStyleNames)))
             config->DlssNrStyle = (uint32_t) style;
 
         HelpMarker("The model's own processing profiles."
@@ -960,48 +921,32 @@ void RenderMenu(Config* config, float menuResScale)
 
         }
 
-        ImGui::SeparatorText("Compare");
+        ImGui::SeparatorText("Comparativa A/B");
 
-        // Freeze the frame the model works on, so a setting change re-renders it in place -- the only
-        // clean way to A/B our own settings (a moving scene confounds every other comparison). See
-        // design/frame-hold.md.
+        // Freeze the frame the model works on, so a setting change re-renders it in place
         bool held = config->DlssNrHoldFrame.value_or_default();
-        if (ImGui::Checkbox("Hold frame", &held))
+        if (ImGui::Checkbox("Congelar fotograma (Hold frame)", &held))
             config->DlssNrHoldFrame = held;
 
-        HelpMarker("Freezes the frame the model works on. While held, change paper white, the"
-                       "\nstrengths, the reversible mode, the model preset -- anything below the"
-                       "\nupscaler -- and only that setting moves; the scene does not."
-                       "\n\nWhat it CANNOT show: DLSS/FSR/XeSS upscaler presets or anything upstream"
-                       "\n(the upscaler is not re-run on a held frame), and the game's own HUD and"
-                       "\npost-processing, which run after this pass and keep updating. The white"
-                       "\npoint stops being measured and holds its value while frozen, so it cannot"
-                       "\ndrift and confound the comparison."
-                       "\n\nHide the menu and it stays held. Untoggle to resume.");
+        HelpMarker("Pausa la escena del juego en caliente para ajustar los parametros de IA y ver la diferencia en vivo.\n"
+                   "Cierra el menu y sigue pausado; desmarca la casilla para continuar jugando normalmente.");
 
-        static const char* compareNames[] = { "Off", "Side by side", "Wipe" };
+        static const char* compareNames[] = { "Desactivado", "Lado a lado (Side by side)", "Cortinilla (Wipe)" };
         int compare = (int) config->DlssNrCompare.value_or_default();
-        if (ImGui::Combo("Compare", &compare, compareNames, IM_ARRAYSIZE(compareNames)))
+        if (ImGui::Combo("Modo comparativa", &compare, compareNames, IM_ARRAYSIZE(compareNames)))
             config->DlssNrCompare = (uint32_t) compare;
 
-        HelpMarker("Shows the pass against itself, so the two can be seen at once rather than"
-                       "\ntoggled and remembered."
-                       "\n\nSide by side puts the whole frame in each half, untouched on the left and"
-                       "\nedited on the right. Both halves are squeezed horizontally to fit, so it is"
-                       "\nfor looking at rather than playing in."
-                       "\n\nWipe cuts a single frame at the split and resamples nothing, so the picture"
-                       "\nis the right shape and can be played normally. Drag the split below; it is a"
-                       "\nstored setting and stays put once the menu is closed."
-                       "\n\nNeither needs the menu open to keep working. A hairline marks the join.");
+        HelpMarker("Muestra la comparativa con y sin el modelo de DLSS 5 en pantalla.\n"
+                   "Cortinilla (Wipe) corta la pantalla por la mitad para ver el antes y el despues.");
 
         if (compare != 0)
         {
             bool swap = config->DlssNrCompareSwap.value_or_default();
-            if (ImGui::Checkbox("Swap sides", &swap))
+            if (ImGui::Checkbox("Invertir lados (Swap sides)", &swap))
                 config->DlssNrCompareSwap = swap;
 
             bool tags = config->DlssNrCompareTags.value_or_default();
-            if (ImGui::Checkbox("Label the sides", &tags))
+            if (ImGui::Checkbox("Etiquetar lados en pantalla", &tags))
                 config->DlssNrCompareTags = tags;
 
             HelpMarker("Writes which side is which onto the frame itself, so a screenshot still"

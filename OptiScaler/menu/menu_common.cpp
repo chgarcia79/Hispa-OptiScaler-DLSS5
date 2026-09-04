@@ -1,4 +1,4 @@
-﻿#include "pch.h"
+#include "pch.h"
 #include "menu_common.h"
 #include <dlssnr/DlssNr_ExposureScan.h>
 
@@ -72,88 +72,7 @@ static ImVec2 splashPosition(-1000.0f, -1000.0f);
 static ImVec2 splashSize(0.0f, 0.0f);
 static double splashStart = 0.0;
 static double splashLimit = 0.0;
-static std::vector<std::string> splashText = { "Cope smarter, not harder",
-                                               "Coping is strong with this one...",
-                                               "This is where the fun begins...",
-                                               "Got any more of them scalers?...",
-                                               "Fake pixels and even faker frames...",
-                                               "Fake frames, get your fake frames...",
-                                               "I'm here to kick pixels and chew frames...",
-                                               "I find your lack of supersampling disturbing...",
-                                               "Frame by frame, I scale-up!",
-                                               "Resistance is futile. Your pixels will be upscaled.",
-                                               "I've got 99 problems, but low-res ain't one.",
-                                               "It's over, DLSS, I have the higher ground!",
-                                               "This isn't the resolution you're looking for",
-                                               "To infinity and beyond... with ray tracing off",
-                                               "I have a bad feeling about this frame pacing",
-                                               "It's Dangerous to Go Alone-Take This Upscaler",
-                                               "Upscaled beyond recognition.",
-                                               "Trust the process. Ignore the shimmer.",
-                                               "Real fake frames. Certified.",
-                                               "The illusion of performance",
-                                               "This upscaler belongs in a museum!",
-                                               "Because native rendering is overrated.",
-                                               "The more you upscaler, the more you save",
-                                               "It's never too late to buy a better GPU",
-                                               "We don't need real pixels where we're going",
-                                               "Did you know that Intel released XeFG for everyone?",
-                                               "MFG totally works with Nukem's 100%% no scam",
-                                               "Some of those pixels might even be real!",
-                                               "Just don't look too closely at the image",
-                                               "Even supports \"software\" XeSS!",
-                                               "It's too blurry to go alone, take RCAS with you",
-                                               "Thanks nitec, back to you nitec",
-                                               "Tested and approved by By-U",
-                                               "0.8 was an inside job",
-                                               "FSR4 DP4a wenETA, AMD plz",
-                                               "OptiCopers, assemble!",
-                                               "The Way It's Meant To Be Upscaled",
-                                               "Your game may not even crash today",
-                                               "Expanded and Enhanced",
-                                               "It's only my 5th crash today",
-                                               "Latency with FG? But I have good internet",
-                                               "Console peasants can't do that",
-                                               "Hope you don't have a good eyesight",
-                                               "Such an aggressive upscaling? A bold move",
-                                               "I almost don't feel the input lag",
-                                               "And that's how you get to 60 FPS",
-                                               "Together We Upscale",
-                                               "For upscalers, by upscalers",
-                                               "Opti Sports, it's in the sampling",
-                                               "Render in your world. Upscale in ours",
-                                               "All your pixels are belong to us",
-                                               "Upscaling for the masses, not the classes",
-                                               "Generating discord since 2023",
-                                               "Enabling DLSS since 2023",
-                                               "[REDACTED] never looked better",
-                                               "Free and always free",
-                                               "Getting unshackled from green chains in progress...",
-                                               "Who's Nukem anyway?",
-                                               "Compiling shaders... ETA: 05h:49m",
-                                               "Did you really just pay 70 EUR for this game?!",
-                                               "Guess who forgot about a nullptr check again",
-                                               "AI can't outslop this",
-                                               "Guess we're pre-alpha build demos now",
-                                               "New app on the block - TH",
-                                               "One more stutter and I might lose it",
-                                               "Mostly stable, unlike the driver",
-                                               "Vul... what? ~AMD",
-                                               "My 8 points are floating",
-                                               "No floating here - I'm strictly between -128 and 127",
-                                               "Fake it til you bake it",
-                                               "Worst case just turn it off and on",
-                                               "*On a generative damage control mode at geometry level*",
-                                               "Deep Learning Slop Sampling 5",
-                                               "2D AI filters, now powered by just 2x 5090s",
-                                               "Neural Slop Sampling with DLSS5",
-                                               "DLSS 5 - the way it's meant to be slopped",
-                                               "Just when I think I'm out, they scale me back in",
-                                               "Like going in the first gear on the highway",
-                                               "Nitec's Bizarre Upscaling",
-                                               "\"Framegen really attracts some strange clientelle\"",
-                                               "How to remove those corny messages?!",
-                                               "<Your funny text goes here>" };
+static std::vector<std::string> splashText = { "HispaGameControl OptiScaler cargado correctamente" };
 
 static std::string updateNoticeTag;
 static std::string updateNoticeUrl;
@@ -1441,10 +1360,7 @@ void MenuCommon::UpdateVersionAndStartupNotifications(RenderMenuContext& ctx)
 
         if (state.postCodes & PostCode::TryingFsr4Fp8OnUnsupported)
         {
-            ImGuiToast notification { ImGuiToastType::Warning, 10000 };
-            notification.setTitle("Silly goose detected");
-            notification.setContent("FSR 4 FP8 only works on AMD");
-            ImGui::InsertNotification(notification);
+            // Silenced notification
         }
 
         state.postDone = true;
@@ -1550,9 +1466,9 @@ void MenuCommon::RenderSplashWindow(RenderMenuContext& ctx)
                 else
                     ImGui::SetWindowFontScale(splashScale);
 
-                ImGui::Text("OptiScaler - %s for menu",
+                ImGui::TextColored(toneMapColor(ImVec4(0.2f, 0.8f, 1.0f, 1.0f)), "HispaGameControl OptiScaler - DLSS 5");
+                ImGui::Text("Cargado correctamente - Presione [%s] para el menu",
                             Keybind::KeyNameFromVirtualKeyCode(config->ShortcutKey.value_or_default()).c_str());
-                ImGui::TextColored(toneMapColor(ImVec4(1.0f, 1.0f, 1.0f, 0.7f)), splashMessage.c_str());
 
                 splashSize = ImGui::GetWindowSize();
 
@@ -2917,11 +2833,12 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
 
             if (overridden)
             {
-                ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.8f, 0.f, 1.f)), "Presets are overridden externally");
-                ShowHelpMarker("This usually happens due to using tools\n"
-                               "such as Nvidia App or Nvidia Inspector");
-                // ImGui::Text("Selecting setting below will disable that external override\n"
-                //             "but you need to Save Settings and restart the game");
+                auto extPreset = usesDlssd ? state.dlssdRenderPresetExternal : state.dlssRenderPresetExternal;
+                char presetLetter = (extPreset >= 1 && extPreset <= 26) ? (char)('A' + extPreset - 1) : '?';
+                ImGui::TextColored(toneMapColor(ImVec4(0.2f, 1.0f, 0.4f, 1.0f)), "Preset activo desde Nvidia Inspector: Preset %c", presetLetter);
+                ShowHelpMarker("Detectado y forzado desde Nvidia Profile Inspector / Nvidia App.\n"
+                               "Puedes sobreescribirlo marcando 'Render Presets Override' abajo\n"
+                               "o desmarcarlo para volver al preset de tu Inspector.");
 
                 ImGui::Spacing();
             }
@@ -5134,9 +5051,9 @@ void MenuCommon::RenderFakenvapiSettings(RenderMenuContext& ctx)
         PopulateCombo("LatencyFlex mode", config->FN_LatencyFlexMode, lfx_modes);
         ImGui::EndDisabled();
 
-        static std::vector<MenuOption<ForceReflex>> reflex_modes = { { ForceReflex::InGame, "Follow in-game" },
-                                                                { ForceReflex::ForceDisable, "Force Disable" },
-                                                                { ForceReflex::ForceEnable, "Force Enable" } };
+        static std::vector<MenuOption<ForceReflex>> reflex_modes = { { ForceReflex::InGame, "Seguir juego / Inspector" },
+                                                                { ForceReflex::ForceDisable, "Forzar Desactivado" },
+                                                                { ForceReflex::ForceEnable, "Forzar Activado" } };
 
         PopulateCombo("Force Reflex", config->FN_ForceReflex, reflex_modes);
         // clang-format on
@@ -5244,9 +5161,9 @@ void MenuCommon::RenderLowLatencySettings(RenderMenuContext& ctx)
         PopulateCombo("LatencyFlex mode", config->FN_LatencyFlexMode, lfx_modes);
     }
 
-    static std::vector<MenuOption<ForceReflex>> lowlatency_states = { { ForceReflex::InGame, "Follow in-game" },
-                                                                      { ForceReflex::ForceDisable, "Force Disable" },
-                                                                      { ForceReflex::ForceEnable, "Force Enable" } };
+    static std::vector<MenuOption<ForceReflex>> lowlatency_states = { { ForceReflex::InGame, "Seguir juego / Inspector" },
+                                                                      { ForceReflex::ForceDisable, "Forzar Desactivado" },
+                                                                      { ForceReflex::ForceEnable, "Forzar Activado" } };
 
     ImGui::SetNextItemWidth(150.0f * ctx.menuResScale);
     PopulateCombo("Force State", config->FN_ForceReflex, lowlatency_states);
@@ -5555,34 +5472,49 @@ void MenuCommon::RenderActiveImageSettings(RenderMenuContext& ctx)
         if (config->UpscaleRatioOverrideEnabled.value_or_default())
         {
             float urOverride = config->UpscaleRatioOverrideValue.value_or_default();
-            ImGui::SliderFloat("All Ratios", &urOverride, minSliderLimit, maxSliderLimit, "%.3f");
+            int minPct = config->ExtendedLimits.value_or_default() ? 15 : 25;
+            int maxPct = config->ExtendedLimits.value_or_default() ? 200 : 100;
+            int renderPct = (int) std::round(100.0f / (urOverride > 0.01f ? urOverride : 1.0f));
+            renderPct = std::clamp(renderPct, minPct, maxPct);
+            if (ImGui::SliderInt("Resolución de Render (%)", &renderPct, minPct, maxPct, "%d%%"))
+            {
+                urOverride = 100.0f / (float) renderPct;
+                config->UpscaleRatioOverrideValue = urOverride;
+            }
+            ImGui::SliderFloat("Factor de escala (Ratio)", &urOverride, minSliderLimit, maxSliderLimit, "%.3fx");
             config->UpscaleRatioOverrideValue = urOverride;
         }
 
         if (config->QualityRatioOverrideEnabled.value_or_default())
         {
             float qDlaa = config->QualityRatio_DLAA.value_or_default();
-            if (ImGui::SliderFloat("DLAA", &qDlaa, minSliderLimit, maxSliderLimit, "%.3f"))
+            auto strDlaa = StrFmt("DLAA (%.0f%%)", 100.0f / (qDlaa > 0.01f ? qDlaa : 1.0f));
+            if (ImGui::SliderFloat(strDlaa.c_str(), &qDlaa, minSliderLimit, maxSliderLimit, "%.3f"))
                 config->QualityRatio_DLAA = qDlaa;
 
             float qUq = config->QualityRatio_UltraQuality.value_or_default();
-            if (ImGui::SliderFloat("Ultra Quality", &qUq, minSliderLimit, maxSliderLimit, "%.3f"))
+            auto strUq = StrFmt("Ultra Quality (%.0f%%)", 100.0f / (qUq > 0.01f ? qUq : 1.0f));
+            if (ImGui::SliderFloat(strUq.c_str(), &qUq, minSliderLimit, maxSliderLimit, "%.3f"))
                 config->QualityRatio_UltraQuality = qUq;
 
             float qQ = config->QualityRatio_Quality.value_or_default();
-            if (ImGui::SliderFloat("Quality", &qQ, minSliderLimit, maxSliderLimit, "%.3f"))
+            auto strQ = StrFmt("Calidad / Quality (%.0f%%)", 100.0f / (qQ > 0.01f ? qQ : 1.0f));
+            if (ImGui::SliderFloat(strQ.c_str(), &qQ, minSliderLimit, maxSliderLimit, "%.3f"))
                 config->QualityRatio_Quality = qQ;
 
             float qB = config->QualityRatio_Balanced.value_or_default();
-            if (ImGui::SliderFloat("Balanced", &qB, minSliderLimit, maxSliderLimit, "%.3f"))
+            auto strB = StrFmt("Equilibrado / Balanced (%.0f%%)", 100.0f / (qB > 0.01f ? qB : 1.0f));
+            if (ImGui::SliderFloat(strB.c_str(), &qB, minSliderLimit, maxSliderLimit, "%.3f"))
                 config->QualityRatio_Balanced = qB;
 
             float qP = config->QualityRatio_Performance.value_or_default();
-            if (ImGui::SliderFloat("Performance", &qP, minSliderLimit, maxSliderLimit, "%.3f"))
+            auto strP = StrFmt("Rendimiento / Performance (%.0f%%)", 100.0f / (qP > 0.01f ? qP : 1.0f));
+            if (ImGui::SliderFloat(strP.c_str(), &qP, minSliderLimit, maxSliderLimit, "%.3f"))
                 config->QualityRatio_Performance = qP;
 
             float qUp = config->QualityRatio_UltraPerformance.value_or_default();
-            if (ImGui::SliderFloat("Ultra Performance", &qUp, minSliderLimit, maxSliderLimit, "%.3f"))
+            auto strUp = StrFmt("Ultra Rendimiento (%.0f%%)", 100.0f / (qUp > 0.01f ? qUp : 1.0f));
+            if (ImGui::SliderFloat(strUp.c_str(), &qUp, minSliderLimit, maxSliderLimit, "%.3f"))
                 config->QualityRatio_UltraPerformance = qUp;
         }
 

@@ -3,17 +3,14 @@
 # separate terms of service, privacy policy, and support
 # documentation.
 
-name: Scheduled Build
+name: Build Hispa-OptiScaler-DLSS5
 
 on:
+  workflow_dispatch:
+  push:
+    branches: [ "main", "dlss-neural-rendering", "master" ]
   schedule:
     - cron: '0 4 * * *' 
-
-  workflow_dispatch:
-#  push:
-#    branches: [ "master" ]
-#  pull_request:
-#    branches: [ "master" ]
     
 env:
   # Path to the solution file relative to the root of the project.
@@ -138,53 +135,52 @@ jobs:
     - name: Add MSBuild to PATH
       uses: microsoft/setup-msbuild@v2
 
-    - name: Build
+    - name: Build Forwarder and Solution
       working-directory: ${{env.GITHUB_WORKSPACE}}
-      # Add additional options to the MSBuild command line here (like platform or verbosity level).
-      # See https://docs.microsoft.com/visualstudio/msbuild/msbuild-command-line-reference
-      run: msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} ${{env.SOLUTION_FILE_PATH}} /verbosity:minimal
+      run: |
+        msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} /p:Platform=x64 .\OptiScaler\dlssnr\forwarder\dlssnr_forwarder.vcxproj /verbosity:minimal
+        msbuild /m /p:Configuration=${{env.BUILD_CONFIGURATION}} /p:Platform=x64 ${{env.SOLUTION_FILE_PATH}}\OptiScaler.sln /verbosity:minimal
+
+    - name: Ensure Forwarder in Release Layout
+      working-directory: ${{env.GITHUB_WORKSPACE}}
+      shell: powershell
+      run: |
+        $fwd = ".\OptiScaler\dlssnr\forwarder\x64\Release\a\nvngx.dll_dlssnr.dll"
+        $dst = ".\x64\Release\a\nvngx.dll_dlssnr.dll"
+        if ((Test-Path $fwd) -and -not (Test-Path $dst)) {
+            Copy-Item $fwd $dst -Force
+        }
+        Write-Output "Files in release layout:"
+        Get-ChildItem .\x64\Release\a
       
     - name: Compress the artifact 
+      shell: powershell
       run: |
-        $zipName = "${{ steps.get_version.outputs.filename }}.7z"
-        7z a -r ${{ github.workspace }}\$zipName ${{ github.workspace }}\x64\Release\a\*.*
+        $zipName = "${{ steps.get_version.outputs.filename }}.zip"
+        $7zName = "${{ steps.get_version.outputs.filename }}.7z"
+        7z a -r "${{ github.workspace }}\$zipName" "${{ github.workspace }}\x64\Release\a\*.*"
+        7z a -r "${{ github.workspace }}\$7zName" "${{ github.workspace }}\x64\Release\a\*.*"
 
       continue-on-error: false
         
     - uses: actions/upload-artifact@v7.0.0
       with:
         name: ${{ steps.get_version.outputs.filename }}
-        path: ${{ github.workspace }}\${{ steps.get_version.outputs.filename }}.7z
+        path: |
+          ${{ github.workspace }}\${{ steps.get_version.outputs.filename }}.zip
+          ${{ github.workspace }}\${{ steps.get_version.outputs.filename }}.7z
         compression-level: 0
         archive: false
         if-no-files-found: error
-       
-   # - name: Remove Previous Artifacts
-   #    if: steps.check_release.outputs.release_exists == 'true'
-   #    uses: actions/github-script@v8
-   #    with:
-   #      script: |
-   #        const releaseId = ${{ steps.check_release.outputs.release_id }};
-   #        const assets = await github.rest.repos.listReleaseAssets({
-   #          owner: context.repo.owner,
-   #          repo: context.repo.repo,
-   #          release_id: releaseId,
-   #        });
-
-   #        for (const asset of assets.data) {
-   #          await github.rest.repos.deleteReleaseAsset({
-   #            owner: context.repo.owner,
-   #            repo: context.repo.repo,
-   #            asset_id: asset.id,
-   #          });
-   #          console.log(`Deleted asset: ${asset.name}`);
-   #        }
 
     - name: Upload Artifact to Release
       uses: softprops/action-gh-release@v2
       with:
         tag_name: nightly
-        files: ${{ github.workspace }}/${{ steps.get_version.outputs.filename }}.7z
+        name: "Hispa-OptiScaler-DLSS5 (v0.2.0)"
+        files: |
+          ${{ github.workspace }}/${{ steps.get_version.outputs.filename }}.zip
+          ${{ github.workspace }}/${{ steps.get_version.outputs.filename }}.7z
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
             
