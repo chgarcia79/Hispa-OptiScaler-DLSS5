@@ -67,24 +67,24 @@ HMODULE LibraryLoadHooks::LoadLibraryCheckW(std::wstring libName, LPCWSTR lpLibF
     for (size_t i = 0; i < exePath.size(); i++)
         exePath[i] = std::tolower(exePath[i]);
 
+    if (normalizedPath.find(L"\\models\\sl_") != std::wstring::npos ||
+        normalizedPath.find(L"_e658703.dll") != std::wstring::npos)
+    {
+        LOG_INFO("PureDarkBridge: blocked loading OTA plugin from ProgramData: {}", libNameA);
+        return NULL;
+    }
+
     auto pos = libName.rfind(exePath);
 
     if (Config::Instance()->EnableDlssInputs.value_or_default() && CheckDllNameW(&libName, &nvngxNamesW) &&
         (!Config::Instance()->HookOriginalNvngxOnly.value_or_default() || pos == std::string::npos))
     {
-        if (Config::Instance()->PureDarkBridge.value_or(false))
-        {
-            LOG_INFO("PureDarkBridge active: bypassing interception of {0} so Streamline/PureDark can load original NGX driver", libNameA);
-        }
-        else
-        {
-            LOG_INFO("nvngx call: {0}, returning this dll!", libNameA);
+        LOG_INFO("nvngx call: {0}, returning this dll!", libNameA);
 
-            // if (!dontCount)
-            // loadCount++;
+        // if (!dontCount)
+        // loadCount++;
 
-            return dllModule;
-        }
+        return dllModule;
     }
 
     if ((State::Instance().workingMode != WorkingMode::Dxgi || !State::Instance().skipDxgiLoadChecks) &&
