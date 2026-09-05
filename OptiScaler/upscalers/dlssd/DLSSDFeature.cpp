@@ -94,8 +94,11 @@ void DLSSDFeature::ProcessInitParams(NVSDK_NGX_Parameter* InParameters)
         }
     }
 
-    InParameters->Set(NVSDK_NGX_Parameter_Width, RenderWidth());
-    InParameters->Set(NVSDK_NGX_Parameter_Height, RenderHeight());
+    unsigned int maxWidth = std::max({ RenderWidth(), TargetWidth(), DisplayWidth() });
+    unsigned int maxHeight = std::max({ RenderHeight(), TargetHeight(), DisplayHeight() });
+
+    InParameters->Set(NVSDK_NGX_Parameter_Width, maxWidth);
+    InParameters->Set(NVSDK_NGX_Parameter_Height, maxHeight);
     InParameters->Set(NVSDK_NGX_Parameter_OutWidth, TargetWidth());
     InParameters->Set(NVSDK_NGX_Parameter_OutHeight, TargetHeight());
 

@@ -93,7 +93,8 @@ bool DLSSFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList,
 
         if (nvResult != NVSDK_NGX_Result_Success)
         {
-            LOG_ERROR("_EvaluateFeature result: {0:X}", (unsigned int) nvResult);
+            LOG_ERROR("_EvaluateFeature result: {0:X} (Render: {1}x{2}, Target: {3}x{4})", (unsigned int) nvResult,
+                      RenderWidth(), RenderHeight(), TargetWidth(), TargetHeight());
             return false;
         }
     }

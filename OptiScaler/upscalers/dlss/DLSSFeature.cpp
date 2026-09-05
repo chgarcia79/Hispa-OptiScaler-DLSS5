@@ -26,6 +26,16 @@ void DLSSFeature::ProcessEvaluateParams(NVSDK_NGX_Parameter* InParameters)
     unsigned int height;
     GetRenderResolution(InParameters, &width, &height);
 
+    if (RenderWidth() == TargetWidth() && RenderHeight() == TargetHeight())
+    {
+        InParameters->Set(NVSDK_NGX_Parameter_PerfQualityValue, 5); // DLAA
+        InParameters->Set(NVSDK_NGX_Parameter_Scale, 1.0f);
+        InParameters->Set(NVSDK_NGX_Parameter_SuperSampling_ScaleFactor, 1.0f);
+    }
+
+    InParameters->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, RenderWidth());
+    InParameters->Set(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, RenderHeight());
+
     LOG_DEBUG("Render Size: {}x{}, Target Size: {}x{}, Display Size: {}x{}", RenderWidth(), RenderHeight(),
               TargetWidth(), TargetHeight(), DisplayWidth(), DisplayHeight());
 }
@@ -99,8 +109,11 @@ void DLSSFeature::ProcessInitParams(NVSDK_NGX_Parameter* InParameters)
         }
     }
 
-    InParameters->Set(NVSDK_NGX_Parameter_Width, RenderWidth());
-    InParameters->Set(NVSDK_NGX_Parameter_Height, RenderHeight());
+    unsigned int maxWidth = std::max({ RenderWidth(), TargetWidth(), DisplayWidth() });
+    unsigned int maxHeight = std::max({ RenderHeight(), TargetHeight(), DisplayHeight() });
+
+    InParameters->Set(NVSDK_NGX_Parameter_Width, maxWidth);
+    InParameters->Set(NVSDK_NGX_Parameter_Height, maxHeight);
     InParameters->Set(NVSDK_NGX_Parameter_OutWidth, TargetWidth());
     InParameters->Set(NVSDK_NGX_Parameter_OutHeight, TargetHeight());
 
