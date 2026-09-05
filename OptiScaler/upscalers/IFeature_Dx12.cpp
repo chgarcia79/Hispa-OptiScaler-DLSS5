@@ -95,6 +95,23 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
     InParameters->Get(NVSDK_NGX_Parameter_MotionVectors, &paramMotion);
     InParameters->Get(NVSDK_NGX_Parameter_Depth, &paramDepth);
 
+    bool allowComputePostPasses = true;
+    if (paramOutput != nullptr)
+    {
+        auto outDesc = paramOutput->GetDesc();
+        if ((outDesc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0)
+        {
+            LOG_DEBUG("paramOutput lacks D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS (flags: 0x{:X}); skipping compute post-passes", (unsigned int) outDesc.Flags);
+            allowComputePostPasses = false;
+        }
+    }
+
+    if (!allowComputePostPasses)
+    {
+        useOutputScaling = false;
+        useRcas = false;
+    }
+
     // Order is important as that's the order of shader dispatch
     std::vector<ShaderPass> pipeline;
 
@@ -196,7 +213,7 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
               } });
     }
 
-    if (Magnifier->ShouldRun())
+    if (allowComputePostPasses && Magnifier->ShouldRun())
     {
         pipeline.push_back(
             { // Setup

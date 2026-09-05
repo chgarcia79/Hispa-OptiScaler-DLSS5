@@ -263,8 +263,8 @@ void Shader_Dx12::CreateUnorderedAccessView(ID3D12Device* device, ID3D12Resource
 
     if ((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0)
     {
-        LOG_ERROR("ERROR: CreateUnorderedResourceView called on a resource created without support for UAV.");
-        throw std::runtime_error("Requires D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS");
+        LOG_ERROR("ERROR: CreateUnorderedResourceView called on a resource created without support for UAV (Flags: 0x{:X}).", (unsigned int) desc.Flags);
+        return;
     }
 
     D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};

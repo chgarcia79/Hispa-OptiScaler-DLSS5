@@ -127,6 +127,12 @@ bool RCAS_Dx12::Dispatch(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* I
         InMotionVectors == nullptr)
         return false;
 
+    if ((OutResource->GetDesc().Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0)
+    {
+        LOG_WARN("[{0}] OutResource lacks D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS, skipping dispatch!", _name);
+        return false;
+    }
+
     LOG_DEBUG("[{0}] Start!", _name);
 
     ScopedGpuTime_Dx12 scopedGpuTime(GpuTime.get(), InCmdList);
