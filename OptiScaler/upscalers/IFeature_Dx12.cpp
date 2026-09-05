@@ -95,19 +95,63 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
     InParameters->Get(NVSDK_NGX_Parameter_MotionVectors, &paramMotion);
     InParameters->Get(NVSDK_NGX_Parameter_Depth, &paramDepth);
 
-    bool allowComputePostPasses = true;
-    if (paramOutput != nullptr)
+    ID3D12Resource* originalOutput = paramOutput;
+    bool needsUavWorkaround = (paramOutput != nullptr && (paramOutput->GetDesc().Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0);
+
+    if (needsUavWorkaround)
     {
         auto outDesc = paramOutput->GetDesc();
-        if ((outDesc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0)
+        if (_uavOutputBuffer != nullptr)
         {
-            LOG_DEBUG("paramOutput lacks D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS (flags: 0x{:X}); skipping compute post-passes", (unsigned int) outDesc.Flags);
-            allowComputePostPasses = false;
+            auto bufDesc = _uavOutputBuffer->GetDesc();
+            if (bufDesc.Width != outDesc.Width || bufDesc.Height != outDesc.Height || bufDesc.Format != outDesc.Format)
+            {
+                _uavOutputBuffer->Release();
+                _uavOutputBuffer = nullptr;
+            }
         }
-    }
 
-    if (!allowComputePostPasses)
-    {
+        if (_uavOutputBuffer == nullptr)
+        {
+            D3D12_HEAP_PROPERTIES heapProperties {};
+            D3D12_HEAP_FLAGS heapFlags {};
+            HRESULT hr = paramOutput->GetHeapProperties(&heapProperties, &heapFlags);
+            if (FAILED(hr))
+            {
+                heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
+                heapProperties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
+                heapProperties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
+                heapProperties.CreationNodeMask = 1;
+                heapProperties.VisibleNodeMask = 1;
+            }
+
+            D3D12_RESOURCE_DESC uavDesc = outDesc;
+            uavDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+
+            hr = Device->CreateCommittedResource(
+                &heapProperties, D3D12_HEAP_FLAG_NONE, &uavDesc,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
+                IID_PPV_ARGS(&_uavOutputBuffer));
+
+            if (FAILED(hr))
+            {
+                LOG_ERROR("Failed to create UAV output workaround buffer: 0x{:X}", (uint32_t) hr);
+            }
+            else
+            {
+                _uavOutputState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+                _uavOutputBuffer->SetName(L"OptiScaler_UAVOutputWorkaround");
+                LOG_INFO("Created UAV intermediate output buffer: {}x{}, format {}", uavDesc.Width, uavDesc.Height, (int) uavDesc.Format);
+            }
+        }
+
+        if (_uavOutputBuffer != nullptr)
+        {
+            ResourceBarrier(InCommandList, _uavOutputBuffer, _uavOutputState, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+            _uavOutputState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+            paramOutput = _uavOutputBuffer;
+        }
+
         useOutputScaling = false;
         useRcas = false;
     }
@@ -213,7 +257,7 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
               } });
     }
 
-    if (allowComputePostPasses && Magnifier->ShouldRun())
+    if (!needsUavWorkaround && Magnifier->ShouldRun())
     {
         pipeline.push_back(
             { // Setup
@@ -296,6 +340,23 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
         }
     }
 
+    if (needsUavWorkaround && _uavOutputBuffer != nullptr && originalOutput != nullptr)
+    {
+        ResourceBarrier(InCommandList, _uavOutputBuffer, _uavOutputState, D3D12_RESOURCE_STATE_COPY_SOURCE);
+        _uavOutputState = D3D12_RESOURCE_STATE_COPY_SOURCE;
+
+        ResourceBarrier(InCommandList, originalOutput, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_DEST);
+
+        InCommandList->CopyResource(originalOutput, _uavOutputBuffer);
+
+        ResourceBarrier(InCommandList, originalOutput, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RENDER_TARGET);
+
+        ResourceBarrier(InCommandList, _uavOutputBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        _uavOutputState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+
+        paramOutput = originalOutput;
+    }
+
     InParameters->Set(NVSDK_NGX_Parameter_Output, paramOutput);
 
     return evalResult;
@@ -345,4 +406,10 @@ IFeature_Dx12::~IFeature_Dx12()
     OutputScaler.reset();
     RCAS.reset();
     Bias.reset();
+
+    if (_uavOutputBuffer != nullptr)
+    {
+        _uavOutputBuffer->Release();
+        _uavOutputBuffer = nullptr;
+    }
 }
