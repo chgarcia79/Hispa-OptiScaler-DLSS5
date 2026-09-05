@@ -237,39 +237,44 @@ sl::Result StreamlineHooks::hkslInit(const sl::Preferences& pref, uint64_t sdkVe
         }
     }
 
+    // PureDark Bridge & DLSSG: Disable OTA to prevent incompatible downloaded plugins (e.g. 2.14.0 inside 2.4.0)
     if (State::Instance().activeFgInput == FGInput::DLSSG || State::Instance().activeFgOutput == FGOutput::DLSSG ||
         Config::Instance()->PureDarkBridge.value_or(false))
     {
+        localPref.flags &= ~sl::PreferenceFlags::eAllowOTA;
+        localPref.flags &= ~sl::PreferenceFlags::eLoadDownloadedPlugins;
+
         std::vector<sl::Feature> localFeaturesToLoad(pref.featuresToLoad, pref.featuresToLoad + pref.numFeaturesToLoad);
         std::erase(localFeaturesToLoad, sl::kFeatureDLSS_G);
 
+        if (Config::Instance()->PureDarkBridge.value_or(false))
+        {
+            std::erase(localFeaturesToLoad, sl::kFeatureDeepDVC);
+            LOG_INFO("PureDarkBridge: blocked DeepDVC and DLSS_G from featuresToLoad, disabled OTA");
+        }
+
         localPref.featuresToLoad = localFeaturesToLoad.data();
-        localPref.numFeaturesToLoad = localFeaturesToLoad.size();
+        localPref.numFeaturesToLoad = (uint32_t) localFeaturesToLoad.size();
 
         // return so that localFeaturesToLoad is valid
         return o_slInit(localPref, sdkVersion);
     }
-
-    // bool hookSetTag =
-    //     (State::Instance().activeFgInput == FGInput::NvngxFG || State::Instance().activeFgInput == FGInput::DLSSG);
-
-    // if (hookSetTag)
-    //     localPref->flags &= ~(sl::PreferenceFlags::eAllowOTA | sl::PreferenceFlags::eLoadDownloadedPlugins);
-
-    // To prevent mixed up OTA situations
-    // if (State::Instance().activeFgOutput == FGOutput::DLSSG)
-    //{
-    //    localPref.flags &= ~sl::PreferenceFlags::eAllowOTA;
-    //    localPref.flags &= ~sl::PreferenceFlags::eLoadDownloadedPlugins;
-    //}
 
     return o_slInit(localPref, sdkVersion);
 }
 
 sl::Result StreamlineHooks::hkslIsFeatureSupported(sl::Feature feature, const sl::AdapterInfo& adapterInfo)
 {
-    if (feature == sl::kFeatureDLSS_G ||
-        (feature == sl::kFeatureDLSS && Config::Instance()->PureDarkBridge.value_or(false)))
+    if (Config::Instance()->PureDarkBridge.value_or(false))
+    {
+        if (feature == sl::kFeatureDeepDVC)
+            return sl::Result::eErrorFeatureNotSupported;
+
+        if (feature == sl::kFeatureDLSS || feature == sl::kFeatureDLSS_G)
+            return sl::Result::eOk;
+    }
+
+    if (feature == sl::kFeatureDLSS_G)
         return sl::Result::eOk;
 
     return o_slIsFeatureSupported(feature, adapterInfo);
@@ -277,8 +282,22 @@ sl::Result StreamlineHooks::hkslIsFeatureSupported(sl::Feature feature, const sl
 
 sl::Result StreamlineHooks::hkslIsFeatureLoaded(sl::Feature feature, bool& loaded)
 {
-    if (feature == sl::kFeatureDLSS_G ||
-        (feature == sl::kFeatureDLSS && Config::Instance()->PureDarkBridge.value_or(false)))
+    if (Config::Instance()->PureDarkBridge.value_or(false))
+    {
+        if (feature == sl::kFeatureDeepDVC)
+        {
+            loaded = false;
+            return sl::Result::eErrorFeatureNotSupported;
+        }
+
+        if (feature == sl::kFeatureDLSS || feature == sl::kFeatureDLSS_G)
+        {
+            loaded = true;
+            return sl::Result::eOk;
+        }
+    }
+
+    if (feature == sl::kFeatureDLSS_G)
     {
         loaded = true;
         return sl::Result::eOk;
@@ -289,8 +308,16 @@ sl::Result StreamlineHooks::hkslIsFeatureLoaded(sl::Feature feature, bool& loade
 
 sl::Result StreamlineHooks::hkslGetFeatureRequirements(sl::Feature feature, sl::FeatureRequirements& requirements)
 {
-    if (feature == sl::kFeatureDLSS_G ||
-        (feature == sl::kFeatureDLSS && Config::Instance()->PureDarkBridge.value_or(false)))
+    if (Config::Instance()->PureDarkBridge.value_or(false))
+    {
+        if (feature == sl::kFeatureDeepDVC)
+            return sl::Result::eErrorFeatureNotSupported;
+
+        if (feature == sl::kFeatureDLSS || feature == sl::kFeatureDLSS_G)
+            return sl::Result::eOk;
+    }
+
+    if (feature == sl::kFeatureDLSS_G)
         return sl::Result::eOk;
 
     return o_slGetFeatureRequirements(feature, requirements);
@@ -298,12 +325,26 @@ sl::Result StreamlineHooks::hkslGetFeatureRequirements(sl::Feature feature, sl::
 
 sl::Result StreamlineHooks::hkslGetFeatureVersion(sl::Feature feature, sl::FeatureVersion& version)
 {
-    if (feature == sl::kFeatureDLSS_G ||
-        (feature == sl::kFeatureDLSS && Config::Instance()->PureDarkBridge.value_or(false)))
+    if (Config::Instance()->PureDarkBridge.value_or(false))
+    {
+        if (feature == sl::kFeatureDeepDVC)
+            return sl::Result::eErrorFeatureNotSupported;
+
+        if (feature == sl::kFeatureDLSS || feature == sl::kFeatureDLSS_G)
+        {
+            version.versionSL = { State::Instance().streamlineVersion.major, State::Instance().streamlineVersion.minor,
+                                  State::Instance().streamlineVersion.patch };
+            version.versionNGX = { 5, 0, 0 };
+
+            return sl::Result::eOk;
+        }
+    }
+
+    if (feature == sl::kFeatureDLSS_G)
     {
         version.versionSL = { State::Instance().streamlineVersion.major, State::Instance().streamlineVersion.minor,
                               State::Instance().streamlineVersion.patch };
-        version.versionNGX = { 5, 0, 0 };
+        version.versionNGX = { 4, 2, 0 };
 
         return sl::Result::eOk;
     }
@@ -550,14 +591,19 @@ sl::Result StreamlineHooks::hkslEvaluateFeature(sl::Feature feature, const sl::F
         }
     }
 
+    if (Config::Instance()->PureDarkBridge.value_or(false))
+    {
+        if (feature == sl::kFeatureDeepDVC)
+        {
+            LOG_DEBUG("PureDarkBridge: blocked slEvaluateFeature(DeepDVC)");
+            return sl::Result::eOk;
+        }
+    }
+
     auto result = o_slEvaluateFeature(feature, frame, inputs, numInputs, cmdBuffer);
     if (Config::Instance()->PureDarkBridge.value_or(false) && feature == sl::kFeatureDLSS)
     {
-        if (result != sl::Result::eOk)
-        {
-            LOG_DEBUG("PureDarkBridge: overriding slEvaluateFeature(DLSS) result {:X} to eOk", (uint32_t) result);
-            return sl::Result::eOk;
-        }
+        LOG_DEBUG("PureDarkBridge: slEvaluateFeature(DLSS) returned {:X}", (uint32_t) result);
     }
     return result;
 }
