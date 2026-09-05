@@ -847,6 +847,34 @@ bool Config::Reload(std::filesystem::path iniPath)
             XeSSDx11Library.set_from_config(readWString("Libraries", "XeSSDx11Path"));
         }
 
+        // Compatibility
+        {
+            PureDarkBridge.set_from_config(readBool("Compatibility", "PureDarkBridge"));
+
+            // Auto-detect PureDark mod presence if not explicitly set
+            if (!PureDarkBridge.has_value())
+            {
+                auto exeFolder = Util::ExePath().parent_path();
+                bool puredarkFound = std::filesystem::exists(exeFolder / "mods" / "ACVUpscaler.dll") ||
+                                     std::filesystem::exists(exeFolder / "mods" / "UpscalerBasePlugin.dll") ||
+                                     std::filesystem::exists(exeFolder / "UpscalerBasePlugin.dll");
+
+                if (puredarkFound)
+                {
+                    LOG_INFO("PureDark mod detected in game directory! Enabling PureDarkBridge automatically.");
+                    PureDarkBridge.set_volatile_value(true);
+                }
+                else
+                {
+                    PureDarkBridge.set_volatile_value(false);
+                }
+            }
+            else
+            {
+                LOG_INFO("PureDarkBridge explicitly configured: {}", PureDarkBridge.value());
+            }
+        }
+
         // Reading old configs for compatibility reasons
         {
             _DONTUSE_Fsr4ForceEnableInt8.set_from_config(readBool("FSR", "Fsr4ForceEnableInt8"));
@@ -1647,6 +1675,12 @@ bool Config::SaveIni()
         ini.SetValue("Inputs", "EnableFsr3Inputs",
                      GetBoolValue(Instance()->EnableFsr3Inputs.value_for_config()).c_str());
         ini.SetValue("Inputs", "EnableFfxInputs", GetBoolValue(Instance()->EnableFfxInputs.value_for_config()).c_str());
+    }
+
+    // Compatibility
+    {
+        ini.SetValue("Compatibility", "PureDarkBridge",
+                     GetBoolValue(Instance()->PureDarkBridge.value_for_config()).c_str());
     }
 
     // V-Sync

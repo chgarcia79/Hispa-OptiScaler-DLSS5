@@ -237,7 +237,8 @@ sl::Result StreamlineHooks::hkslInit(const sl::Preferences& pref, uint64_t sdkVe
         }
     }
 
-    if (State::Instance().activeFgInput == FGInput::DLSSG || State::Instance().activeFgOutput == FGOutput::DLSSG)
+    if (State::Instance().activeFgInput == FGInput::DLSSG || State::Instance().activeFgOutput == FGOutput::DLSSG ||
+        Config::Instance()->PureDarkBridge.value_or(false))
     {
         std::vector<sl::Feature> localFeaturesToLoad(pref.featuresToLoad, pref.featuresToLoad + pref.numFeaturesToLoad);
         std::erase(localFeaturesToLoad, sl::kFeatureDLSS_G);
@@ -267,7 +268,8 @@ sl::Result StreamlineHooks::hkslInit(const sl::Preferences& pref, uint64_t sdkVe
 
 sl::Result StreamlineHooks::hkslIsFeatureSupported(sl::Feature feature, const sl::AdapterInfo& adapterInfo)
 {
-    if (feature == sl::kFeatureDLSS_G)
+    if (feature == sl::kFeatureDLSS_G ||
+        (feature == sl::kFeatureDLSS && Config::Instance()->PureDarkBridge.value_or(false)))
         return sl::Result::eOk;
 
     return o_slIsFeatureSupported(feature, adapterInfo);
@@ -275,7 +277,8 @@ sl::Result StreamlineHooks::hkslIsFeatureSupported(sl::Feature feature, const sl
 
 sl::Result StreamlineHooks::hkslIsFeatureLoaded(sl::Feature feature, bool& loaded)
 {
-    if (feature == sl::kFeatureDLSS_G)
+    if (feature == sl::kFeatureDLSS_G ||
+        (feature == sl::kFeatureDLSS && Config::Instance()->PureDarkBridge.value_or(false)))
     {
         loaded = true;
         return sl::Result::eOk;
@@ -286,7 +289,8 @@ sl::Result StreamlineHooks::hkslIsFeatureLoaded(sl::Feature feature, bool& loade
 
 sl::Result StreamlineHooks::hkslGetFeatureRequirements(sl::Feature feature, sl::FeatureRequirements& requirements)
 {
-    if (feature == sl::kFeatureDLSS_G)
+    if (feature == sl::kFeatureDLSS_G ||
+        (feature == sl::kFeatureDLSS && Config::Instance()->PureDarkBridge.value_or(false)))
         return sl::Result::eOk;
 
     return o_slGetFeatureRequirements(feature, requirements);
@@ -294,11 +298,12 @@ sl::Result StreamlineHooks::hkslGetFeatureRequirements(sl::Feature feature, sl::
 
 sl::Result StreamlineHooks::hkslGetFeatureVersion(sl::Feature feature, sl::FeatureVersion& version)
 {
-    if (feature == sl::kFeatureDLSS_G)
+    if (feature == sl::kFeatureDLSS_G ||
+        (feature == sl::kFeatureDLSS && Config::Instance()->PureDarkBridge.value_or(false)))
     {
         version.versionSL = { State::Instance().streamlineVersion.major, State::Instance().streamlineVersion.minor,
                               State::Instance().streamlineVersion.patch };
-        version.versionNGX = { 4, 2, 0 };
+        version.versionNGX = { 5, 0, 0 };
 
         return sl::Result::eOk;
     }
@@ -412,11 +417,13 @@ sl::Result StreamlineHooks::hkslSetTag(const sl::ViewportHandle& viewport, const
             LOG_TRACE("Changing hudless resource state");
         }
 
-        if (State::Instance().activeFgInput == FGInput::DLSSG &&
+        if ((State::Instance().activeFgInput == FGInput::DLSSG ||
+             Config::Instance()->PureDarkBridge.value_or(false)) &&
             (tags[i].type == sl::kBufferTypeHUDLessColor || tags[i].type == sl::kBufferTypeDepth ||
              tags[i].type == sl::kBufferTypeHiResDepth || tags[i].type == sl::kBufferTypeLinearDepth ||
              tags[i].type == sl::kBufferTypeMotionVectors || tags[i].type == sl::kBufferTypeUIColorAndAlpha ||
-             tags[i].type == sl::kBufferTypeBidirectionalDistortionField))
+             tags[i].type == sl::kBufferTypeBidirectionalDistortionField ||
+             tags[i].type == sl::kBufferTypeScalingInputColor || tags[i].type == sl::kBufferTypeScalingOutputColor))
         {
             State::Instance().slFGInputs.reportResource(tags[i], (ID3D12GraphicsCommandList*) cmdBuffer, 0);
         }
@@ -491,11 +498,13 @@ sl::Result StreamlineHooks::hkslSetTagForFrame(const sl::FrameToken& frame, cons
             continue;
         }
 
-        if (State::Instance().activeFgInput == FGInput::DLSSG &&
+        if ((State::Instance().activeFgInput == FGInput::DLSSG ||
+             Config::Instance()->PureDarkBridge.value_or(false)) &&
             (resources[i].type == sl::kBufferTypeHUDLessColor || resources[i].type == sl::kBufferTypeDepth ||
              resources[i].type == sl::kBufferTypeHiResDepth || resources[i].type == sl::kBufferTypeLinearDepth ||
              resources[i].type == sl::kBufferTypeMotionVectors || resources[i].type == sl::kBufferTypeUIColorAndAlpha ||
-             resources[i].type == sl::kBufferTypeBidirectionalDistortionField))
+             resources[i].type == sl::kBufferTypeBidirectionalDistortionField ||
+             resources[i].type == sl::kBufferTypeScalingInputColor || resources[i].type == sl::kBufferTypeScalingOutputColor))
         {
             State::Instance().slFGInputs.reportResource(resources[i], (ID3D12GraphicsCommandList*) cmdBuffer,
                                                         (uint32_t) frame);
@@ -516,7 +525,8 @@ sl::Result StreamlineHooks::hkslEvaluateFeature(sl::Feature feature, const sl::F
 {
     LOG_DEBUG("frameIndex: {}", static_cast<uint32_t>(frame));
 
-    if (State::Instance().activeFgInput == FGInput::DLSSG && numInputs > 0 && inputs != nullptr)
+    if ((State::Instance().activeFgInput == FGInput::DLSSG ||
+         Config::Instance()->PureDarkBridge.value_or(false)) && numInputs > 0 && inputs != nullptr)
     {
         for (uint32_t i = 0; i < numInputs; i++)
         {
@@ -530,7 +540,8 @@ sl::Result StreamlineHooks::hkslEvaluateFeature(sl::Feature feature, const sl::F
                 if (tag->type == sl::kBufferTypeHUDLessColor || tag->type == sl::kBufferTypeDepth ||
                     tag->type == sl::kBufferTypeHiResDepth || tag->type == sl::kBufferTypeLinearDepth ||
                     tag->type == sl::kBufferTypeMotionVectors || tag->type == sl::kBufferTypeUIColorAndAlpha ||
-                    tag->type == sl::kBufferTypeBidirectionalDistortionField)
+                    tag->type == sl::kBufferTypeBidirectionalDistortionField ||
+                    tag->type == sl::kBufferTypeScalingInputColor || tag->type == sl::kBufferTypeScalingOutputColor)
                 {
                     State::Instance().slFGInputs.reportResource(*tag, (ID3D12GraphicsCommandList*) cmdBuffer,
                                                                 (uint32_t) frame);
@@ -540,6 +551,14 @@ sl::Result StreamlineHooks::hkslEvaluateFeature(sl::Feature feature, const sl::F
     }
 
     auto result = o_slEvaluateFeature(feature, frame, inputs, numInputs, cmdBuffer);
+    if (Config::Instance()->PureDarkBridge.value_or(false) && feature == sl::kFeatureDLSS)
+    {
+        if (result != sl::Result::eOk)
+        {
+            LOG_DEBUG("PureDarkBridge: overriding slEvaluateFeature(DLSS) result {:X} to eOk", (uint32_t) result);
+            return sl::Result::eOk;
+        }
+    }
     return result;
 }
 
@@ -1880,7 +1899,8 @@ void StreamlineHooks::hookInterposer(HMODULE slInterposer)
                     DetourAttach(&(PVOID&) o_slEvaluateFeature, hkslEvaluateFeature);
 
                 if (State::Instance().activeFgInput == FGInput::NvngxFG ||
-                    State::Instance().activeFgInput == FGInput::DLSSG)
+                    State::Instance().activeFgInput == FGInput::DLSSG ||
+                    Config::Instance()->PureDarkBridge.value_or(false))
                 {
                     if (o_slSetTag != nullptr)
                         DetourAttach(&(PVOID&) o_slSetTag, hkslSetTag);
@@ -1892,7 +1912,8 @@ void StreamlineHooks::hookInterposer(HMODULE slInterposer)
                         DetourAttach(&(PVOID&) o_slSetConstants, hkslSetConstants);
                 }
 
-                if (State::Instance().activeFgInput == FGInput::DLSSG)
+                if (State::Instance().activeFgInput == FGInput::DLSSG ||
+                    Config::Instance()->PureDarkBridge.value_or(false))
                 {
                     if (o_slIsFeatureSupported != nullptr)
                         DetourAttach(&(PVOID&) o_slIsFeatureSupported, hkslIsFeatureSupported);

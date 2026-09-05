@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "SysUtils.h"
 #include "State.h"
@@ -898,6 +898,9 @@ class Config
     CustomOptional<bool> OverrideVsync { false };
     CustomOptional<bool, NoDefault> ForceVsync;
     CustomOptional<UINT> VsyncInterval { 0 };
+
+    // Compatibility
+    CustomOptional<bool, NoDefault> PureDarkBridge;
 
     // Old configs for compat reasons
     CustomOptional<bool, NoDefault> _DONTUSE_Fsr4ForceEnableInt8;
