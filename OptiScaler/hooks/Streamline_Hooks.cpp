@@ -1,4 +1,4 @@
-#include <pch.h>
+﻿#include <pch.h>
 
 #include "Streamline_Hooks.h"
 
@@ -267,10 +267,10 @@ sl::Result StreamlineHooks::hkslIsFeatureSupported(sl::Feature feature, const sl
 {
     if (Config::Instance()->PureDarkBridge.value_or(false))
     {
-        if (feature == sl::kFeatureDeepDVC)
+        if (feature == sl::kFeatureDeepDVC || feature == sl::kFeatureDLSS_G)
             return sl::Result::eErrorFeatureNotSupported;
 
-        if (feature == sl::kFeatureDLSS || feature == sl::kFeatureDLSS_G)
+        if (feature == sl::kFeatureDLSS)
             return sl::Result::eOk;
     }
 
@@ -284,13 +284,13 @@ sl::Result StreamlineHooks::hkslIsFeatureLoaded(sl::Feature feature, bool& loade
 {
     if (Config::Instance()->PureDarkBridge.value_or(false))
     {
-        if (feature == sl::kFeatureDeepDVC)
+        if (feature == sl::kFeatureDeepDVC || feature == sl::kFeatureDLSS_G)
         {
             loaded = false;
             return sl::Result::eErrorFeatureNotSupported;
         }
 
-        if (feature == sl::kFeatureDLSS || feature == sl::kFeatureDLSS_G)
+        if (feature == sl::kFeatureDLSS)
         {
             loaded = true;
             return sl::Result::eOk;
@@ -310,10 +310,10 @@ sl::Result StreamlineHooks::hkslGetFeatureRequirements(sl::Feature feature, sl::
 {
     if (Config::Instance()->PureDarkBridge.value_or(false))
     {
-        if (feature == sl::kFeatureDeepDVC)
+        if (feature == sl::kFeatureDeepDVC || feature == sl::kFeatureDLSS_G)
             return sl::Result::eErrorFeatureNotSupported;
 
-        if (feature == sl::kFeatureDLSS || feature == sl::kFeatureDLSS_G)
+        if (feature == sl::kFeatureDLSS)
             return sl::Result::eOk;
     }
 
@@ -327,10 +327,10 @@ sl::Result StreamlineHooks::hkslGetFeatureVersion(sl::Feature feature, sl::Featu
 {
     if (Config::Instance()->PureDarkBridge.value_or(false))
     {
-        if (feature == sl::kFeatureDeepDVC)
+        if (feature == sl::kFeatureDeepDVC || feature == sl::kFeatureDLSS_G)
             return sl::Result::eErrorFeatureNotSupported;
 
-        if (feature == sl::kFeatureDLSS || feature == sl::kFeatureDLSS_G)
+        if (feature == sl::kFeatureDLSS)
         {
             version.versionSL = { State::Instance().streamlineVersion.major, State::Instance().streamlineVersion.minor,
                                   State::Instance().streamlineVersion.patch };
@@ -370,6 +370,9 @@ static sl::Result dummy_slDLSSGSetOptions(const sl::ViewportHandle& viewport, co
 
 sl::Result StreamlineHooks::hkslGetFeatureFunction(sl::Feature feature, const char* functionName, void*& function)
 {
+    if (Config::Instance()->PureDarkBridge.value_or(false) && feature == sl::kFeatureDLSS_G)
+        return sl::Result::eErrorFeatureNotSupported;
+
     if (feature == sl::kFeatureDLSS_G)
     {
         if (strcmp(functionName, "slDLSSGSetOptions") == 0)

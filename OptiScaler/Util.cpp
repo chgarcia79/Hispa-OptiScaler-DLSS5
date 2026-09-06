@@ -12,6 +12,10 @@
 
 #include <hooks/Gdi32_Hooks.h>
 
+#include <dxgi1_6.h>
+#include <dxgidebug.h>
+#pragma comment(lib, "dxguid.lib")
+
 typedef LONG(WINAPI* RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
 typedef decltype(&GetFileVersionInfoSizeW) PFN_GetFileVersionInfoSizeW;
 typedef decltype(&GetFileVersionInfoW) PFN_GetFileVersionInfoW;
@@ -753,6 +757,66 @@ void Util::GetDeviceRemovedReason(ID3D12Device* pDevice)
 
     default:
         LOG_ERROR("Device removed reason: Unknown ({:X})", (UINT) reason);
+    }
+
+    // Dump DXGI InfoQueue messages
+    typedef HRESULT(WINAPI* PFN_DXGIGetDebugInterface1)(UINT Flags, REFIID riid, void** pDebug);
+    HMODULE hDxgiDebug = GetModuleHandleW(L"dxgidebug.dll");
+    if (!hDxgiDebug)
+        hDxgiDebug = LoadLibraryW(L"dxgidebug.dll");
+
+    if (hDxgiDebug != nullptr)
+    {
+        auto pfn = (PFN_DXGIGetDebugInterface1) GetProcAddress(hDxgiDebug, "DXGIGetDebugInterface1");
+        if (pfn != nullptr)
+        {
+            IDXGIInfoQueue* dxgiInfoQueue = nullptr;
+            if (SUCCEEDED(pfn(0, IID_PPV_ARGS(&dxgiInfoQueue))) && dxgiInfoQueue != nullptr)
+            {
+                UINT64 numMessages = dxgiInfoQueue->GetNumStoredMessages(DXGI_DEBUG_ALL);
+                LOG_ERROR("DXGI InfoQueue has {} stored messages:", numMessages);
+                for (UINT64 i = 0; i < numMessages; i++)
+                {
+                    SIZE_T msgLen = 0;
+                    dxgiInfoQueue->GetMessage(DXGI_DEBUG_ALL, i, nullptr, &msgLen);
+                    if (msgLen > 0)
+                    {
+                        std::vector<char> buf(msgLen);
+                        auto* msg = (DXGI_INFO_QUEUE_MESSAGE*) buf.data();
+                        dxgiInfoQueue->GetMessage(DXGI_DEBUG_ALL, i, msg, &msgLen);
+                        if (msg != nullptr && msg->pDescription != nullptr)
+                        {
+                            LOG_ERROR("DXGI_DEBUG [{}]: {}", msg->ID, msg->pDescription);
+                        }
+                    }
+                }
+                dxgiInfoQueue->Release();
+            }
+        }
+    }
+
+    // Dump D3D12 InfoQueue messages
+    ID3D12InfoQueue* d3d12InfoQueue = nullptr;
+    if (SUCCEEDED(pDevice->QueryInterface(IID_PPV_ARGS(&d3d12InfoQueue))) && d3d12InfoQueue != nullptr)
+    {
+        UINT64 numMessages = d3d12InfoQueue->GetNumStoredMessages();
+        LOG_ERROR("D3D12 InfoQueue has {} stored messages:", numMessages);
+        for (UINT64 i = 0; i < numMessages; i++)
+        {
+            SIZE_T msgLen = 0;
+            d3d12InfoQueue->GetMessage(i, nullptr, &msgLen);
+            if (msgLen > 0)
+            {
+                std::vector<char> buf(msgLen);
+                auto* msg = (D3D12_MESSAGE*) buf.data();
+                d3d12InfoQueue->GetMessage(i, msg, &msgLen);
+                if (msg != nullptr && msg->pDescription != nullptr)
+                {
+                    LOG_ERROR("D3D12_DEBUG [{:X}]: {}", (uint32_t) msg->ID, msg->pDescription);
+                }
+            }
+        }
+        d3d12InfoQueue->Release();
     }
 }
 

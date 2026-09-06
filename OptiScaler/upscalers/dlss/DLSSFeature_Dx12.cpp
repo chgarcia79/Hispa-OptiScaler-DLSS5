@@ -122,53 +122,59 @@ bool DLSSFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList,
     auto cmdType = InCommandList->GetType();
     bool isPureDark = Config::Instance()->PureDarkBridge.value_or(false);
 
-    auto transitionInput = [&](ID3D12Resource* res, std::optional<int32_t> configBarrier, D3D12_RESOURCE_STATES defaultState, const char* name)
+    if (!isPureDark)
     {
-        if (res == nullptr || res == paramOutput)
-            return;
-
-        for (const auto& b : restoredBarriers)
+        auto transitionInput = [&](ID3D12Resource* res, std::optional<int32_t> configBarrier, D3D12_RESOURCE_STATES defaultState, const char* name)
         {
-            if (b.first == res)
+            if (res == nullptr || res == paramOutput)
                 return;
-        }
 
-        D3D12_RESOURCE_STATES arrivalState = D3D12_RESOURCE_STATE_COMMON;
-        if (!GetArrivalResourceState(res, configBarrier, defaultState, arrivalState))
-            return;
+            for (const auto& b : restoredBarriers)
+            {
+                if (b.first == res)
+                    return;
+            }
 
-        if (cmdType == D3D12_COMMAND_LIST_TYPE_COMPUTE)
-        {
-            if (arrivalState & (D3D12_RESOURCE_STATE_RENDER_TARGET | D3D12_RESOURCE_STATE_DEPTH_WRITE | D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE))
+            D3D12_RESOURCE_STATES arrivalState = D3D12_RESOURCE_STATE_COMMON;
+            if (!GetArrivalResourceState(res, configBarrier, defaultState, arrivalState))
                 return;
-        }
 
-        if (arrivalState != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
-        {
-            ResourceBarrier(InCommandList, res, arrivalState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-            restoredBarriers.push_back({ res, arrivalState });
-            LOG_INFO("DLSSFeatureDx12::EvaluateInternal transitioned {} ({:p}) from 0x{:X} to NON_PIXEL_SHADER_RESOURCE (0x{:X})",
-                     name, (void*) res, (uint32_t) arrivalState, (uint32_t) D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
-        }
-    };
+            if (cmdType == D3D12_COMMAND_LIST_TYPE_COMPUTE)
+            {
+                if (arrivalState & (D3D12_RESOURCE_STATE_RENDER_TARGET | D3D12_RESOURCE_STATE_DEPTH_WRITE | D3D12_RESOURCE_STATE_DEPTH_READ | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE))
+                    return;
+            }
 
-    transitionInput(paramColor, Config::Instance()->ColorResourceBarrier.has_value() ? Config::Instance()->ColorResourceBarrier.value() : std::optional<int32_t>{},
-                    isPureDark ? D3D12_RESOURCE_STATE_RENDER_TARGET : D3D12_RESOURCE_STATE_COMMON, "Color");
-    transitionInput(paramDepth, Config::Instance()->DepthResourceBarrier.has_value() ? Config::Instance()->DepthResourceBarrier.value() : std::optional<int32_t>{},
-                    isPureDark ? D3D12_RESOURCE_STATE_DEPTH_WRITE : D3D12_RESOURCE_STATE_COMMON, "Depth");
-    transitionInput(paramMotion, Config::Instance()->MVResourceBarrier.has_value() ? Config::Instance()->MVResourceBarrier.value() : std::optional<int32_t>{},
-                    isPureDark ? D3D12_RESOURCE_STATE_RENDER_TARGET : D3D12_RESOURCE_STATE_COMMON, "MotionVectors");
-    transitionInput(paramExposure, Config::Instance()->ExposureResourceBarrier.has_value() ? Config::Instance()->ExposureResourceBarrier.value() : std::optional<int32_t>{},
-                    D3D12_RESOURCE_STATE_COMMON, "Exposure");
-    transitionInput(paramBiasMask, Config::Instance()->MaskResourceBarrier.has_value() ? Config::Instance()->MaskResourceBarrier.value() : std::optional<int32_t>{},
-                    D3D12_RESOURCE_STATE_COMMON, "BiasMask");
+            if (arrivalState != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE)
+            {
+                ResourceBarrier(InCommandList, res, arrivalState, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                restoredBarriers.push_back({ res, arrivalState });
+                LOG_INFO("DLSSFeatureDx12::EvaluateInternal transitioned {} ({:p}) from 0x{:X} to NON_PIXEL_SHADER_RESOURCE (0x{:X})",
+                         name, (void*) res, (uint32_t) arrivalState, (uint32_t) D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+            }
+        };
+
+        transitionInput(paramColor, Config::Instance()->ColorResourceBarrier.has_value() ? Config::Instance()->ColorResourceBarrier.value() : std::optional<int32_t>{},
+                        D3D12_RESOURCE_STATE_COMMON, "Color");
+        transitionInput(paramDepth, Config::Instance()->DepthResourceBarrier.has_value() ? Config::Instance()->DepthResourceBarrier.value() : std::optional<int32_t>{},
+                        D3D12_RESOURCE_STATE_COMMON, "Depth");
+        transitionInput(paramMotion, Config::Instance()->MVResourceBarrier.has_value() ? Config::Instance()->MVResourceBarrier.value() : std::optional<int32_t>{},
+                        D3D12_RESOURCE_STATE_COMMON, "MotionVectors");
+        transitionInput(paramExposure, Config::Instance()->ExposureResourceBarrier.has_value() ? Config::Instance()->ExposureResourceBarrier.value() : std::optional<int32_t>{},
+                        D3D12_RESOURCE_STATE_COMMON, "Exposure");
+        transitionInput(paramBiasMask, Config::Instance()->MaskResourceBarrier.has_value() ? Config::Instance()->MaskResourceBarrier.value() : std::optional<int32_t>{},
+                        D3D12_RESOURCE_STATE_COMMON, "BiasMask");
+    }
 
     NVSDK_NGX_Result nvResult = NVNGXProxy::D3D12_EvaluateFeature()(InCommandList, _p_dlssHandle, InParameters, NULL);
 
-    for (auto it = restoredBarriers.rbegin(); it != restoredBarriers.rend(); ++it)
+    if (!isPureDark)
     {
-        ResourceBarrier(InCommandList, it->first, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, it->second);
-        LOG_INFO("DLSSFeatureDx12::EvaluateInternal restored res {:p} to 0x{:X}", (void*) it->first, (uint32_t) it->second);
+        for (auto it = restoredBarriers.rbegin(); it != restoredBarriers.rend(); ++it)
+        {
+            ResourceBarrier(InCommandList, it->first, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, it->second);
+            LOG_INFO("DLSSFeatureDx12::EvaluateInternal restored res {:p} to 0x{:X}", (void*) it->first, (uint32_t) it->second);
+        }
     }
 
     if (nvResult != NVSDK_NGX_Result_Success)

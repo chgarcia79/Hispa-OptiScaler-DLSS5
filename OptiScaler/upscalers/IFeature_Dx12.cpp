@@ -431,14 +431,13 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
 
         InCommandList->CopyResource(originalOutput, _uavOutputBuffer);
 
-        D3D12_RESOURCE_STATES targetState = D3D12_RESOURCE_STATE_PRESENT;
+        D3D12_RESOURCE_STATES targetState = _originalOutputArrivalState;
         if (Config::Instance()->OutputResourceBarrier.has_value())
         {
             targetState = (D3D12_RESOURCE_STATES) Config::Instance()->OutputResourceBarrier.value();
         }
         else if (!Config::Instance()->PureDarkBridge.value_or(false))
         {
-            targetState = _originalOutputArrivalState;
             for (auto scBuf : State::Instance().scBuffers)
             {
                 if (scBuf == (IUnknown*) originalOutput)
