@@ -243,6 +243,10 @@ class State
     uint32_t dlssdRenderPresetPerformance = 0;
     uint32_t dlssdRenderPresetUltraPerformance = 0;
 
+    // PureDark Bridge resource state tracking
+    ankerl::unordered_dense::map<void*, uint32_t> trackedResourceStates;
+    std::mutex trackedResourceStatesMutex;
+
     // Spoofing
     // For DXVK, it calls DXGI which cause softlock
     bool skipDxgiLoadChecks = false;

@@ -466,6 +466,12 @@ sl::Result StreamlineHooks::hkslSetTag(const sl::ViewportHandle& viewport, const
              tags[i].type == sl::kBufferTypeBidirectionalDistortionField ||
              tags[i].type == sl::kBufferTypeScalingInputColor || tags[i].type == sl::kBufferTypeScalingOutputColor))
         {
+            if (Config::Instance()->PureDarkBridge.value_or(false) && tags[i].resource != nullptr && tags[i].resource->native != nullptr)
+            {
+                std::lock_guard<std::mutex> lock(State::Instance().trackedResourceStatesMutex);
+                State::Instance().trackedResourceStates[tags[i].resource->native] = (uint32_t) tags[i].resource->state;
+                LOG_INFO("PureDarkBridge: tracked tag type {} res {:p} state: 0x{:X}", (int) tags[i].type, tags[i].resource->native, (uint32_t) tags[i].resource->state);
+            }
             State::Instance().slFGInputs.reportResource(tags[i], (ID3D12GraphicsCommandList*) cmdBuffer, 0);
         }
         else if (State::Instance().activeFgInput == FGInput::NvngxFG)
@@ -547,6 +553,12 @@ sl::Result StreamlineHooks::hkslSetTagForFrame(const sl::FrameToken& frame, cons
              resources[i].type == sl::kBufferTypeBidirectionalDistortionField ||
              resources[i].type == sl::kBufferTypeScalingInputColor || resources[i].type == sl::kBufferTypeScalingOutputColor))
         {
+            if (Config::Instance()->PureDarkBridge.value_or(false) && resources[i].resource != nullptr && resources[i].resource->native != nullptr)
+            {
+                std::lock_guard<std::mutex> lock(State::Instance().trackedResourceStatesMutex);
+                State::Instance().trackedResourceStates[resources[i].resource->native] = (uint32_t) resources[i].resource->state;
+                LOG_INFO("PureDarkBridge: tracked frame tag type {} res {:p} state: 0x{:X}", (int) resources[i].type, resources[i].resource->native, (uint32_t) resources[i].resource->state);
+            }
             State::Instance().slFGInputs.reportResource(resources[i], (ID3D12GraphicsCommandList*) cmdBuffer,
                                                         (uint32_t) frame);
         }
@@ -584,6 +596,12 @@ sl::Result StreamlineHooks::hkslEvaluateFeature(sl::Feature feature, const sl::F
                     tag->type == sl::kBufferTypeBidirectionalDistortionField ||
                     tag->type == sl::kBufferTypeScalingInputColor || tag->type == sl::kBufferTypeScalingOutputColor)
                 {
+                    if (Config::Instance()->PureDarkBridge.value_or(false) && tag->resource != nullptr && tag->resource->native != nullptr)
+                    {
+                        std::lock_guard<std::mutex> lock(State::Instance().trackedResourceStatesMutex);
+                        State::Instance().trackedResourceStates[tag->resource->native] = (uint32_t) tag->resource->state;
+                        LOG_INFO("PureDarkBridge: tracked eval input type {} res {:p} state: 0x{:X}", (int) tag->type, tag->resource->native, (uint32_t) tag->resource->state);
+                    }
                     State::Instance().slFGInputs.reportResource(*tag, (ID3D12GraphicsCommandList*) cmdBuffer,
                                                                 (uint32_t) frame);
                 }

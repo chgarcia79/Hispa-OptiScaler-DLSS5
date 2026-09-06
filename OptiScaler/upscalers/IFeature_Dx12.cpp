@@ -101,6 +101,57 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
     if (needsUavWorkaround)
     {
         auto outDesc = paramOutput->GetDesc();
+        auto cmdType = InCommandList->GetType();
+
+        LOG_INFO("IFeature_Dx12::Evaluate UAV workaround needed. CmdList: {:p} (Type: {}), originalOutput: {:p} (Flags: 0x{:X}, Format: {}, Size: {}x{}, Mips: {})",
+                 (void*) InCommandList, (int) cmdType, (void*) originalOutput, (uint32_t) outDesc.Flags, (int) outDesc.Format, outDesc.Width, outDesc.Height, outDesc.MipLevels);
+
+        bool stateFound = false;
+        D3D12_RESOURCE_STATES arrivalState = D3D12_RESOURCE_STATE_COMMON;
+
+        if (Config::Instance()->OutputResourceBarrier.has_value())
+        {
+            arrivalState = (D3D12_RESOURCE_STATES) Config::Instance()->OutputResourceBarrier.value();
+            stateFound = true;
+            LOG_INFO("IFeature_Dx12::Evaluate using OutputResourceBarrier from config: 0x{:X}", (uint32_t) arrivalState);
+        }
+        else
+        {
+            std::lock_guard<std::mutex> lock(State::Instance().trackedResourceStatesMutex);
+            auto it = State::Instance().trackedResourceStates.find((void*) originalOutput);
+            if (it != State::Instance().trackedResourceStates.end())
+            {
+                arrivalState = (D3D12_RESOURCE_STATES) it->second;
+                stateFound = true;
+                LOG_INFO("IFeature_Dx12::Evaluate found tracked arrival state for {:p}: 0x{:X}", (void*) originalOutput, (uint32_t) arrivalState);
+            }
+        }
+
+        if (!stateFound)
+        {
+            if (cmdType == D3D12_COMMAND_LIST_TYPE_DIRECT)
+            {
+                arrivalState = (outDesc.Flags & D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET)
+                    ? D3D12_RESOURCE_STATE_RENDER_TARGET
+                    : D3D12_RESOURCE_STATE_COMMON;
+            }
+            else
+            {
+                arrivalState = D3D12_RESOURCE_STATE_COMMON;
+            }
+            LOG_INFO("IFeature_Dx12::Evaluate defaulted arrival state: 0x{:X}", (uint32_t) arrivalState);
+        }
+
+        if (cmdType == D3D12_COMMAND_LIST_TYPE_COMPUTE)
+        {
+            if (arrivalState & (D3D12_RESOURCE_STATE_RENDER_TARGET | D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE | D3D12_RESOURCE_STATE_DEPTH_WRITE | D3D12_RESOURCE_STATE_DEPTH_READ))
+            {
+                arrivalState = D3D12_RESOURCE_STATE_COMMON;
+            }
+        }
+
+        _originalOutputArrivalState = arrivalState;
+
         if (_uavOutputBuffer != nullptr)
         {
             auto bufDesc = _uavOutputBuffer->GetDesc();
@@ -113,6 +164,14 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
 
         if (_uavOutputBuffer == nullptr)
         {
+            ID3D12Device* creatorDevice = Device;
+            ID3D12Device* resDevice = nullptr;
+            if (SUCCEEDED(paramOutput->GetDevice(IID_PPV_ARGS(&resDevice))) && resDevice != nullptr)
+            {
+                creatorDevice = resDevice;
+                resDevice->Release();
+            }
+
             D3D12_HEAP_PROPERTIES heapProperties {};
             D3D12_HEAP_FLAGS heapFlags {};
             HRESULT hr = paramOutput->GetHeapProperties(&heapProperties, &heapFlags);
@@ -121,14 +180,15 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
                 heapProperties.Type = D3D12_HEAP_TYPE_DEFAULT;
                 heapProperties.CPUPageProperty = D3D12_CPU_PAGE_PROPERTY_UNKNOWN;
                 heapProperties.MemoryPoolPreference = D3D12_MEMORY_POOL_UNKNOWN;
-                heapProperties.CreationNodeMask = 1;
-                heapProperties.VisibleNodeMask = 1;
+                heapProperties.CreationNodeMask = 0;
+                heapProperties.VisibleNodeMask = 0;
             }
 
             D3D12_RESOURCE_DESC uavDesc = outDesc;
+            uavDesc.Alignment = 0;
             uavDesc.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 
-            hr = Device->CreateCommittedResource(
+            hr = creatorDevice->CreateCommittedResource(
                 &heapProperties, D3D12_HEAP_FLAG_NONE, &uavDesc,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS, nullptr,
                 IID_PPV_ARGS(&_uavOutputBuffer));
@@ -345,16 +405,23 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
         ResourceBarrier(InCommandList, _uavOutputBuffer, _uavOutputState, D3D12_RESOURCE_STATE_COPY_SOURCE);
         _uavOutputState = D3D12_RESOURCE_STATE_COPY_SOURCE;
 
-        ResourceBarrier(InCommandList, originalOutput, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST);
+        if (_originalOutputArrivalState != D3D12_RESOURCE_STATE_COPY_DEST)
+        {
+            ResourceBarrier(InCommandList, originalOutput, _originalOutputArrivalState, D3D12_RESOURCE_STATE_COPY_DEST);
+        }
 
         InCommandList->CopyResource(originalOutput, _uavOutputBuffer);
 
-        ResourceBarrier(InCommandList, originalOutput, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
+        if (_originalOutputArrivalState != D3D12_RESOURCE_STATE_COPY_DEST)
+        {
+            ResourceBarrier(InCommandList, originalOutput, D3D12_RESOURCE_STATE_COPY_DEST, _originalOutputArrivalState);
+        }
 
         ResourceBarrier(InCommandList, _uavOutputBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         _uavOutputState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 
         paramOutput = originalOutput;
+        LOG_INFO("IFeature_Dx12::Evaluate copied UAV buffer to originalOutput, restored state: 0x{:X}", (uint32_t) _originalOutputArrivalState);
     }
 
     InParameters->Set(NVSDK_NGX_Parameter_Output, paramOutput);
