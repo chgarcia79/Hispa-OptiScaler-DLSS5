@@ -345,11 +345,11 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
         ResourceBarrier(InCommandList, _uavOutputBuffer, _uavOutputState, D3D12_RESOURCE_STATE_COPY_SOURCE);
         _uavOutputState = D3D12_RESOURCE_STATE_COPY_SOURCE;
 
-        ResourceBarrier(InCommandList, originalOutput, D3D12_RESOURCE_STATE_RENDER_TARGET, D3D12_RESOURCE_STATE_COPY_DEST);
+        ResourceBarrier(InCommandList, originalOutput, D3D12_RESOURCE_STATE_PRESENT, D3D12_RESOURCE_STATE_COPY_DEST);
 
         InCommandList->CopyResource(originalOutput, _uavOutputBuffer);
 
-        ResourceBarrier(InCommandList, originalOutput, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_RENDER_TARGET);
+        ResourceBarrier(InCommandList, originalOutput, D3D12_RESOURCE_STATE_COPY_DEST, D3D12_RESOURCE_STATE_PRESENT);
 
         ResourceBarrier(InCommandList, _uavOutputBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         _uavOutputState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
