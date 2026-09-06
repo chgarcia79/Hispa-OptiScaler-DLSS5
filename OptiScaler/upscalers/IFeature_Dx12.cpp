@@ -1,4 +1,4 @@
-#include <pch.h>
+﻿#include <pch.h>
 
 #include <functional>
 #include <vector>
@@ -19,6 +19,37 @@ void IFeature_Dx12::ResourceBarrier(ID3D12GraphicsCommandList* InCommandList, ID
     barrier.Transition.StateAfter = InAfterState;
     barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
     InCommandList->ResourceBarrier(1, &barrier);
+}
+
+bool IFeature_Dx12::GetArrivalResourceState(ID3D12Resource* InResource, std::optional<int32_t> InConfigBarrier,
+                                            D3D12_RESOURCE_STATES InDefaultState, D3D12_RESOURCE_STATES& OutState) const
+{
+    if (InResource == nullptr)
+        return false;
+
+    if (InConfigBarrier.has_value())
+    {
+        OutState = (D3D12_RESOURCE_STATES) InConfigBarrier.value();
+        return true;
+    }
+
+    {
+        std::lock_guard<std::mutex> lock(State::Instance().trackedResourceStatesMutex);
+        auto it = State::Instance().trackedResourceStates.find((void*) InResource);
+        if (it != State::Instance().trackedResourceStates.end())
+        {
+            OutState = (D3D12_RESOURCE_STATES) it->second;
+            return true;
+        }
+    }
+
+    if (InDefaultState != D3D12_RESOURCE_STATE_COMMON)
+    {
+        OutState = InDefaultState;
+        return true;
+    }
+
+    return false;
 }
 
 bool IFeature_Dx12::Init(ID3D12Device* InDevice, ID3D12GraphicsCommandList* InCommandList,
@@ -109,22 +140,10 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
         bool stateFound = false;
         D3D12_RESOURCE_STATES arrivalState = D3D12_RESOURCE_STATE_COMMON;
 
-        if (Config::Instance()->OutputResourceBarrier.has_value())
+        if (GetArrivalResourceState(originalOutput, Config::Instance()->OutputResourceBarrier.has_value() ? Config::Instance()->OutputResourceBarrier.value() : std::optional<int32_t>{}, D3D12_RESOURCE_STATE_COMMON, arrivalState))
         {
-            arrivalState = (D3D12_RESOURCE_STATES) Config::Instance()->OutputResourceBarrier.value();
             stateFound = true;
-            LOG_INFO("IFeature_Dx12::Evaluate using OutputResourceBarrier from config: 0x{:X}", (uint32_t) arrivalState);
-        }
-        else
-        {
-            std::lock_guard<std::mutex> lock(State::Instance().trackedResourceStatesMutex);
-            auto it = State::Instance().trackedResourceStates.find((void*) originalOutput);
-            if (it != State::Instance().trackedResourceStates.end())
-            {
-                arrivalState = (D3D12_RESOURCE_STATES) it->second;
-                stateFound = true;
-                LOG_INFO("IFeature_Dx12::Evaluate found tracked arrival state for {:p}: 0x{:X}", (void*) originalOutput, (uint32_t) arrivalState);
-            }
+            LOG_INFO("IFeature_Dx12::Evaluate found tracked arrival state for {:p}: 0x{:X}", (void*) originalOutput, (uint32_t) arrivalState);
         }
 
         if (!stateFound)

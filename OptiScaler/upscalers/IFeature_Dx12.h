@@ -1,4 +1,4 @@
-#pragma once
+﻿#pragma once
 #include <d3d12.h>
 #include "IFeature.h"
 
@@ -43,6 +43,9 @@ class IFeature_Dx12 : public virtual IFeature
 
     void ResourceBarrier(ID3D12GraphicsCommandList* InCommandList, ID3D12Resource* InResource,
                          D3D12_RESOURCE_STATES InBeforeState, D3D12_RESOURCE_STATES InAfterState) const;
+
+    bool GetArrivalResourceState(ID3D12Resource* InResource, std::optional<int32_t> InConfigBarrier,
+                                 D3D12_RESOURCE_STATES InDefaultState, D3D12_RESOURCE_STATES& OutState) const;
 
     virtual bool InitInternal(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX_Parameter* InParameters) = 0;
     virtual bool EvaluateInternal(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX_Parameter* InParameters) = 0;
