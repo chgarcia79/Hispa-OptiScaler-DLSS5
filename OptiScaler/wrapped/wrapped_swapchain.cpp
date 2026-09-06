@@ -1,4 +1,4 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "wrapped_swapchain.h"
 
 #include <Util.h>
@@ -446,6 +446,30 @@ WrappedIDXGISwapChain4::WrappedIDXGISwapChain4(IDXGISwapChain* real, IUnknown* p
 
     _device2 = _device;
 
+    DXGI_SWAP_CHAIN_DESC scDesc {};
+    if (_real->GetDesc(&scDesc) == S_OK)
+    {
+        for (UINT i = 0; i < scDesc.BufferCount; i++)
+        {
+            IUnknown* buffer = nullptr;
+            if (_real->GetBuffer(i, IID_PPV_ARGS(&buffer)) == S_OK && buffer != nullptr)
+            {
+                bool exists = false;
+                for (auto scb : State::Instance().scBuffers)
+                {
+                    if (scb == buffer)
+                    {
+                        exists = true;
+                        break;
+                    }
+                }
+                if (!exists)
+                    State::Instance().scBuffers.push_back(buffer);
+                buffer->Release();
+            }
+        }
+    }
+
     LOG_INFO("{} created, real: {:X}, refCount: {}", _id, (UINT64) real, refCount);
 }
 
@@ -669,6 +693,21 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::Present(UINT SyncInterval, UIN
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetBuffer(UINT Buffer, REFIID riid, void** ppSurface)
 {
     auto result = _real->GetBuffer(Buffer, riid, ppSurface);
+    if (result == S_OK && ppSurface != nullptr && *ppSurface != nullptr)
+    {
+        IUnknown* unk = (IUnknown*) *ppSurface;
+        bool exists = false;
+        for (auto scb : State::Instance().scBuffers)
+        {
+            if (scb == unk)
+            {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists)
+            State::Instance().scBuffers.push_back(unk);
+    }
     return result;
 }
 

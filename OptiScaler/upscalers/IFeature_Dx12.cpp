@@ -431,16 +431,39 @@ bool IFeature_Dx12::Evaluate(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX
 
         InCommandList->CopyResource(originalOutput, _uavOutputBuffer);
 
-        if (_originalOutputArrivalState != D3D12_RESOURCE_STATE_COPY_DEST)
+        D3D12_RESOURCE_STATES targetState = D3D12_RESOURCE_STATE_PRESENT;
+        if (Config::Instance()->OutputResourceBarrier.has_value())
         {
-            ResourceBarrier(InCommandList, originalOutput, D3D12_RESOURCE_STATE_COPY_DEST, _originalOutputArrivalState);
+            targetState = (D3D12_RESOURCE_STATES) Config::Instance()->OutputResourceBarrier.value();
+        }
+        else if (!Config::Instance()->PureDarkBridge.value_or(false))
+        {
+            targetState = _originalOutputArrivalState;
+            for (auto scBuf : State::Instance().scBuffers)
+            {
+                if (scBuf == (IUnknown*) originalOutput)
+                {
+                    targetState = D3D12_RESOURCE_STATE_PRESENT;
+                    break;
+                }
+            }
+        }
+
+        if (targetState != D3D12_RESOURCE_STATE_COPY_DEST)
+        {
+            ResourceBarrier(InCommandList, originalOutput, D3D12_RESOURCE_STATE_COPY_DEST, targetState);
+        }
+
+        {
+            std::lock_guard<std::mutex> lock(State::Instance().trackedResourceStatesMutex);
+            State::Instance().trackedResourceStates[(void*) originalOutput] = (uint32_t) targetState;
         }
 
         ResourceBarrier(InCommandList, _uavOutputBuffer, D3D12_RESOURCE_STATE_COPY_SOURCE, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         _uavOutputState = D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
 
         paramOutput = originalOutput;
-        LOG_INFO("IFeature_Dx12::Evaluate copied UAV buffer to originalOutput, restored state: 0x{:X}", (uint32_t) _originalOutputArrivalState);
+        LOG_INFO("IFeature_Dx12::Evaluate copied UAV buffer to originalOutput, transitioned to: 0x{:X}", (uint32_t) targetState);
     }
 
     InParameters->Set(NVSDK_NGX_Parameter_Output, paramOutput);
