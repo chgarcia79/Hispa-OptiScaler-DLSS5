@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup Label="ProjectConfigurations">
     <ProjectConfiguration Include="Debug|Win32">
@@ -368,6 +368,9 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="shaders\output_scaling\precompile\bcus_Shader_Vk.h" />
     <ClInclude Include="shaders\rcas\precompile\RCAS_Shader_Vk.h" />
     <ClInclude Include="shaders\rcas\RCAS_Vk.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_Vk.h" />
+    <ClInclude Include="dlssnr\DlssNrFeature_Vk.h" />
+    <ClInclude Include="dlssnr\DlssNr_ExposureScan.h" />
     <ClInclude Include="shaders\render_ui\precompile\render_ui_pm_PShader.h" />
     <ClInclude Include="shaders\render_ui\precompile\render_ui_pm_VShader.h" />
     <ClInclude Include="shaders\render_ui\precompile\render_ui_PShader.h" />
@@ -715,6 +718,12 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClCompile Include="Logger.cpp" />
     <ClCompile Include="inputs\NVNGX.cpp" />
     <ClCompile Include="inputs\NVNGX_DLSS_Dx11.cpp" />
+    <ClCompile Include="shaders\dlssnr\DlssNr_Dx12.cpp" />
+    <ClCompile Include="shaders\dlssnr\DlssNr_Vk.cpp" />
+    <ClCompile Include="dlssnr\DlssNrFeature_Vk.cpp" />
+    <ClCompile Include="dlssnr\DlssNr_ExposureScan.cpp" />
+    <ClCompile Include="dlssnr\DlssNr_Proxy.cpp" />
+    <ClCompile Include="dlssnr\DlssNr_Menu.cpp" />
     <ClCompile Include="inputs\NVNGX_DLSS_Dx12.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="inputs\NVNGX_DLSS_Vk.cpp" />

@@ -4,54 +4,37 @@
 
 #include <shaders/Shader_Vk.h>
 
+// Forward declaration (scoped enum with a fixed underlying type -> complete type) so this header need
+// not include Config.h.
+enum class Scaler : uint32_t;
+
 class OS_Vk : public Shader_Vk
 {
-  public:
-    OS_Vk(std::string InName, VkDevice InDevice, VkPhysicalDevice InPhysicalDevice, bool InUpsample);
-    ~OS_Vk();
-
-    bool Dispatch(VkDevice InDevice, VkCommandBuffer InCmdList, VkImageView InResourceView, VkImageView OutResourceView,
-                  VkExtent2D OutExtent);
-
-    bool CreateBufferResource(VkDevice device, VkPhysicalDevice physicalDevice, VkBuffer* buffer,
-                              VkDeviceMemory* memory, VkDeviceSize size, VkBufferUsageFlags usage,
-                              VkMemoryPropertyFlags properties);
-    void SetBufferState(VkCommandBuffer commandBuffer, VkBuffer buffer, VkDeviceSize size, VkAccessFlags srcAccess,
-                        VkAccessFlags dstAccess, VkPipelineStageFlags srcStage, VkPipelineStageFlags dstStage);
-
-    bool CreateImageResource(VkDevice device, VkPhysicalDevice physicalDevice, uint32_t width, uint32_t height,
-                             VkFormat format, VkImageUsageFlags usage);
-    void ReleaseImageResource();
-    void SetImageLayout(VkCommandBuffer cmdBuffer, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout,
-                        VkImageSubresourceRange subresourceRange);
-
-    VkImageView GetImageView() const { return _intermediateImageView; }
-    VkImage GetImage() const { return _intermediateImage; }
-
-    bool CanRender() const { return _init && _pipeline != VK_NULL_HANDLE; }
-
-  private:
-    VkBuffer _constantBuffer = VK_NULL_HANDLE;
-    VkDeviceMemory _constantBufferMemory = VK_NULL_HANDLE;
-    VkSampler _textureSampler = VK_NULL_HANDLE;
-    void* _mappedConstantBuffer = nullptr;
     bool _upsample = false;
 
-    VkDescriptorPool _descriptorPool = VK_NULL_HANDLE;
-    std::vector<VkDescriptorSet> _descriptorSets;
-    uint32_t _currentSetIndex = 0;
-    static const int MAX_FRAMES_IN_FLIGHT = 3;
+    // Scaler::Count means "no override -- read the global OutputScalingDownscaler and size from the
+    // current feature", i.e. exactly the Output Scaling / Magnifier behaviour. Neural Rendering passes
+    // its own DlssNrScalingDownscaler, which also switches Dispatch to sizing from the passed images.
+    Scaler _scalerOverride;
+    Scaler ActiveScaler() const;
 
-    void CreateDescriptorSetLayout();
-    void CreateDescriptorPool();
-    void CreateDescriptorSets();
-    void CreateConstantBuffer();
-    void UpdateDescriptorSet(VkCommandBuffer cmdList, int setIndex, VkImageView inputView, VkImageView outputView);
+  public:
+    OS_Vk(std::string InName, VkDevice InDevice, VkPhysicalDevice InPhysicalDevice, bool InUpsample);
+    OS_Vk(std::string InName, VkDevice InDevice, VkPhysicalDevice InPhysicalDevice, bool InUpsample,
+          Scaler InScalerOverride);
+    ~OS_Vk() = default;
 
-    VkImageView _intermediateImageView = VK_NULL_HANDLE;
-    VkImage _intermediateImage = VK_NULL_HANDLE;
-    VkDeviceMemory _intermediateMemory = VK_NULL_HANDLE;
-    uint32_t _width = 0;
-    uint32_t _height = 0;
-    VkFormat _format = VK_FORMAT_UNDEFINED;
+    // Wrappers to maintain the original public API while using the generalized base methods
+    bool CreateImageResource(VkDevice device, VkPhysicalDevice physicalDevice, uint32_t width, uint32_t height,
+                             VkFormat format, VkImageUsageFlags usage)
+    {
+        return Shader_Vk::CreateImageResource(width, height, format, usage);
+    }
+    void SetImageLayout(VkCommandBuffer cmdBuffer, VkImage image, VkImageLayout oldLayout, VkImageLayout newLayout,
+                        VkImageSubresourceRange subresourceRange)
+    {
+        Shader_Vk::SetImageLayout(cmdBuffer, image, oldLayout, newLayout, subresourceRange);
+    }
+
+    bool Dispatch(VkCommandBuffer InCmdList, const VkImageInfo& InResourceView, const VkImageInfo& OutResourceView);
 };

@@ -16,6 +16,7 @@
 #include <spoofing/Vulkan_Spoofing.h>
 
 #include <vulkan/vulkan.hpp>
+#include <dlssnr/DlssNr_VkExtensions.h>
 
 #include <detours/detours.h>
 
@@ -153,7 +154,47 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevice
 
     VulkanSpoofing::hkvkCreateDevice(physicalDevice, &localCreteInfo, pAllocator, pDevice);
 
+    DlssNr::VkExt::Merged nrExtensions;
+
+    if (Config::Instance()->DlssNrEnabled.value_or_default())
+    {
+        const auto supported = DlssNr::VkExt::SupportedDeviceExtensions(
+            o_vkGetInstanceProcAddr, State::Instance().VulkanInstance, physicalDevice);
+
+        nrExtensions.names.assign(localCreteInfo.ppEnabledExtensionNames,
+                                  localCreteInfo.ppEnabledExtensionNames + localCreteInfo.enabledExtensionCount);
+
+        std::string present, added, missing;
+
+        for (const char* want : DlssNr::VkExt::kDevice)
+        {
+            const bool already = DlssNr::VkExt::ListHas(localCreteInfo.ppEnabledExtensionNames,
+                                                        localCreteInfo.enabledExtensionCount, want);
+
+            if (already)
+                present += std::string(present.empty() ? "" : ", ") + want;
+            else if (!DlssNr::VkExt::Contains(supported, want))
+                missing += std::string(missing.empty() ? "" : ", ") + want;
+            else
+            {
+                nrExtensions.names.push_back(want);
+                added += std::string(added.empty() ? "" : ", ") + want;
+            }
+        }
+
+        localCreteInfo.enabledExtensionCount = static_cast<uint32_t>(nrExtensions.names.size());
+        localCreteInfo.ppEnabledExtensionNames = nrExtensions.names.data();
+
+        LOG_INFO("DLSS-NR Vulkan extensions: present [{}], added [{}], unsupported [{}]",
+                 present.empty() ? "none" : present, added.empty() ? "none" : added,
+                 missing.empty() ? "none" : missing);
+    }
+
     auto result = o_vkCreateDevice(physicalDevice, &localCreteInfo, pAllocator, pDevice);
+
+    if (Config::Instance()->DlssNrEnabled.value_or_default())
+        LOG_INFO("DLSS-NR Vulkan: vkCreateDevice returned {} with {} extensions requested", (int) result,
+                 localCreteInfo.enabledExtensionCount);
 
     if (result == VK_SUCCESS && !State::Instance().vulkanSkipHooks && Config::Instance()->OverlayMenu.value())
     {

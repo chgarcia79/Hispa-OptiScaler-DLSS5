@@ -257,6 +257,91 @@ class Config
     CustomOptional<std::wstring, NoDefault> DLSSFeaturePath;
     CustomOptional<std::wstring, NoDefault> NvapiDllPath;
 
+    // --- DLSS 5 Neural Rendering (OptiScaler/dlssnr) --- removable as one block -----------------
+    // DLSS Neural Rendering: a detail-synthesis pass over the upscaler's output. Off by default -- it is
+    // an undocumented feature driven directly through its snippet, not something NVIDIA exposes.
+    CustomOptional<bool> DlssNrEnabled { false };
+    // Pre-SR (run before upscaler) vs Post-SR (run after upscaler, full res).
+    // Default false (Post-SR, full 3440x3440 native fidelity on RTX 5090).
+    CustomOptional<bool> DlssNrRunBeforeSR { false };
+    // Toggles the pass in game. Unbound by default -- a key that does something unexpected is worse
+    // than one that does nothing.
+    CustomOptional<int> DlssNrToggleKey { UnboundKey };
+    CustomOptional<uint32_t> DlssNrPreset { 0 };
+    CustomOptional<float> DlssNrIntensity { 1.0f };
+    // 0 default (standard), 1 natural, 2 cinematic -- the model's own processing profiles.
+    CustomOptional<uint32_t> DlssNrStyle { 0 };
+    CustomOptional<float> DlssNrLocalStructure { 1.0f };
+    CustomOptional<float> DlssNrLocalTone { 1.0f };
+    // -1 means follow local structure, which is the model's own default. It is not a strength of zero.
+    CustomOptional<float> DlssNrSkinStructure { -1.0f };
+    // Default false as requested: Stock unmasked DLSS 5 until toggled in-game.
+    CustomOptional<bool> DlssNrAutoMask { false };
+
+    // How much of the model's edit reaches the frame.
+    CustomOptional<float> DlssNrTransferStrength { 1.0f };
+    CustomOptional<float> DlssNrColourStrength { 1.0f };
+
+    // The RenoDX reversible proxy mode. 0 = soft-knee encode + composition (default);
+    // 1 = unclipped Neutwo proxy + composition; 2 = Neutwo proxy + pure-inverse replace.
+    CustomOptional<uint32_t> DlssNrReversibleMode { 0 };
+
+    // Whether the model's edit is applied. Off keeps the pass running (so Hold frame works) but shows
+    // the clean upscaler frame. Default true.
+    CustomOptional<bool> DlssNrApplyModel { true };
+
+    // Frame hold: freeze the NR pass's input to A/B settings on the same frame.
+    CustomOptional<bool> DlssNrHoldFrame { false };
+
+    // The most the pass may multiply or divide a pixel by. Default 2.0.
+    CustomOptional<float> DlssNrMaxRatio { 2.0f };
+
+    // How a model that worked below the frame's size is brought back. 0 classic, 1 matched residual.
+    CustomOptional<uint32_t> DlssNrTransfer { 1 };
+
+    // Take the white point from the game's own exposure texture.
+    CustomOptional<bool> DlssNrWhitePointFromExposure { true };
+
+    // Probe Direct3D 11 support.
+    CustomOptional<bool> DlssNrProbeD3D11 { false };
+
+    // 0 off, 1 input picture, 2 raw model answer, 3 amplified difference.
+    CustomOptional<uint32_t> DlssNrDebugView { 0 };
+
+    // Showing the pass against itself: 0 off, 1 side by side, 2 wipe.
+    CustomOptional<uint32_t> DlssNrCompare { 0 };
+    CustomOptional<float> DlssNrCompareSplit { 0.5f };
+    CustomOptional<float> DlssNrCompareZoom { 1.0f };
+    CustomOptional<bool> DlssNrCompareSwap { false };
+    CustomOptional<bool> DlssNrCompareTags { false };
+    CustomOptional<float> DlssNrTagScale { 1.5f };
+
+    // Fraction of the frame's resolution the model works at. 1.0 is full resolution.
+    CustomOptional<float> DlssNrWorkingScale { 1.0f };
+
+    // Filter used for NR supersampling (working scale > 1). Lanczos3 is default.
+    CustomOptional<Scaler> DlssNrScalingDownscaler { Scaler::Lanczos3 };
+
+    CustomOptional<bool> DlssNrProxyProbe { false };
+    CustomOptional<bool> DlssNrUseProxy { false };
+    CustomOptional<bool> DlssNrScanExposure { false };
+
+    // Where the white point comes from: 0 paper white slider, 1 game exposure, 2 scan buffer
+    CustomOptional<uint32_t> DlssNrWhitePointSource { 1 };
+    CustomOptional<bool> DlssNrScanMeter { false };
+
+    CustomOptional<float> DlssNrScanAnchorValue { 0.0f };
+    CustomOptional<float> DlssNrScanAnchorWhitePoint { 0.0f };
+    CustomOptional<std::string> DlssNrScanAnchors { std::string() };
+    CustomOptional<bool> DlssNrScanInverted { false };
+
+    CustomOptional<float> DlssNrWhitePointTrim { 1.0f };
+    CustomOptional<float> DlssNrScanTrim { 1.0f };
+    CustomOptional<uint32_t> DlssNrPasses { 1 };
+    CustomOptional<bool> DlssNrAutoCapture { true };
+    CustomOptional<float> DlssNrWhitePointScale { 1.0f };
+    // --- end DLSS 5 Neural Rendering -------------------------------------------------------------
+
     // Sharpness
     CustomOptional<bool> OverrideSharpness { false };
     CustomOptional<float> Sharpness { 0.4f };

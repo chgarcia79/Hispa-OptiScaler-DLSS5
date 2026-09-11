@@ -1,4 +1,5 @@
 #include "pch.h"
+#include <dlssnr/DlssNrFeature_Vk.h>
 #include "Util.h"
 #include "Config.h"
 #include "resource.h"
@@ -1029,6 +1030,8 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_VULKAN_EvaluateFeature(VkCommandBuffer 
             LOG_DEBUG("VULKAN_EvaluateFeature for ({0})", handleId);
             auto result = NVNGXProxy::VULKAN_EvaluateFeature()(InCmdList, InFeatureHandle, InParameters, InCallback);
             LOG_INFO("VULKAN_EvaluateFeature result for ({0}): {1:X}", handleId, (UINT) result);
+            if (result == NVSDK_NGX_Result_Success)
+                DlssNr::EvaluateAfterUpscaleVk(InCmdList, InParameters, vkInstance, vkPD, vkDevice);
             return result;
         }
         else
@@ -1076,6 +1079,9 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_VULKAN_EvaluateFeature(VkCommandBuffer 
     }
 
     UpscalerTimeVk::UpscaleEnd(InCmdList);
+
+    if (upscaleResult)
+        DlssNr::EvaluateAfterUpscaleVk(InCmdList, InParameters, vkInstance, vkPD, vkDevice);
 
     return upscaleResult ? NVSDK_NGX_Result_Success : NVSDK_NGX_Result_Fail;
 }

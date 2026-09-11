@@ -1,4 +1,4 @@
-﻿#include "pch.h"
+#include "pch.h"
 #include "menu_common.h"
 
 #include "font/Hack_Compressed.h"
@@ -15,6 +15,8 @@
 #include <hooks/Reflex_Hooks.h>
 
 #include <version_check.h>
+#include <dlssnr/DlssNr.h>
+#include <dlssnr/DlssNr_ExposureScan.h>
 
 #include <imgui/imgui_internal.h>
 
@@ -38,6 +40,7 @@ static bool inputMenu = false;
 static bool inputFG = false;
 static bool inputFps = false;
 static bool inputFpsCycle = false;
+static bool inputDlssNr = false;
 static bool inputManual = false;
 static bool hasGamepad = false;
 static bool fsr31InitTried = false;
@@ -269,6 +272,9 @@ void UpdateManualInput(HWND targetHwnd)
 
     CheckShortcut(config->FpsCycleShortcutKey.value_or_default(), inputFpsCycle,
                   "Menu key pressed, will be switching FPS mode");
+
+    CheckShortcut(config->DlssNrToggleKey.value_or_default(), inputDlssNr,
+                  "Neural Rendering key pressed, will be toggling the pass");
 
     // Mouse position
     POINT cursorPos {};
@@ -963,6 +969,15 @@ LRESULT MenuCommon::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
                 if (inputFpsCycle)
                     LOG_DEBUG("Menu key pressed, will be switching FPS mode");
             }
+
+            if (!inputDlssNr)
+            {
+                inputDlssNr =
+                    rawData.data.keyboard.VKey == Config::Instance()->DlssNrToggleKey.value_or_default();
+
+                if (inputDlssNr)
+                    LOG_DEBUG("Neural Rendering key pressed, will be toggling the pass");
+            }
         }
     }
 
@@ -999,6 +1014,14 @@ LRESULT MenuCommon::WndProc(HWND hWnd, UINT msg, WPARAM wParam, LPARAM lParam)
 
         if (inputFpsCycle)
             LOG_DEBUG("Menu key pressed, will be switching FPS mode");
+    }
+
+    if (!inputDlssNr)
+    {
+        inputDlssNr = msg == WM_KEYUP && wParam == Config::Instance()->DlssNrToggleKey.value_or_default();
+
+        if (inputDlssNr)
+            LOG_DEBUG("Neural Rendering key pressed, will be toggling the pass");
     }
 
     // SHIFT + DEL - Debug dump
@@ -1157,6 +1180,7 @@ void KeyUp(UINT vKey)
     inputFps = vKey == Config::Instance()->FpsShortcutKey.value_or_default();
     inputFG = vKey == Config::Instance()->FGShortcutKey.value_or_default();
     inputFpsCycle = vKey == Config::Instance()->FpsCycleShortcutKey.value_or_default();
+    inputDlssNr = vKey == Config::Instance()->DlssNrToggleKey.value_or_default();
 }
 
 std::string MenuCommon::GetBackendName(std::string* code)
@@ -2049,6 +2073,128 @@ void MenuCommon::Present()
         UpdateManualInput(_handle);
 }
 
+void RenderExposureScanIndicator(float alpha)
+{
+    using DlssNr::ExposureScan::Verdict;
+
+    if (!Config::Instance()->DlssNrScanMeter.value_or_default())
+        return;
+
+    if (DlssNr::ExposureScan::Where() == Verdict::Off)
+        return;
+
+    int which = 0;
+    float low = 0.0f, high = 0.0f;
+    const float now = DlssNr::ExposureScan::BestValue(&which, &low, &high);
+
+    const bool reading = now > 0.0f && high > low;
+
+    float lit = 0.0f;
+
+    if (reading)
+    {
+        lit = (high - now) / (high - low);
+
+        if (Config::Instance()->DlssNrScanInverted.value_or_default())
+            lit = 1.0f - lit;
+
+        lit = lit < 0.0f ? 0.0f : (lit > 1.0f ? 1.0f : lit);
+    }
+
+    const ImVec4 dark(0.90f, 0.22f, 0.20f, 1.0f);
+    const ImVec4 mid(0.95f, 0.75f, 0.20f, 1.0f);
+    const ImVec4 bright(0.35f, 0.88f, 0.38f, 1.0f);
+    const ImVec4 idle(0.45f, 0.45f, 0.45f, 1.0f);
+
+    ImVec4 lamp = idle;
+
+    if (reading)
+    {
+        const float t = lit < 0.5f ? lit * 2.0f : (lit - 0.5f) * 2.0f;
+        const ImVec4& a = lit < 0.5f ? dark : mid;
+        const ImVec4& b = lit < 0.5f ? mid : bright;
+        lamp = ImVec4(a.x + (b.x - a.x) * t, a.y + (b.y - a.y) * t, a.z + (b.z - a.z) * t, 1.0f);
+    }
+
+    const ImGuiViewport* vp = ImGui::GetMainViewport();
+    ImGui::SetNextWindowPos(ImVec2(vp->WorkPos.x + vp->WorkSize.x - 12.0f, vp->WorkPos.y + 12.0f),
+                            ImGuiCond_Always, ImVec2(1.0f, 0.0f));
+    ImGui::SetNextWindowBgAlpha(alpha);
+
+    if (ImGui::Begin("DlssNrExposureScan", nullptr,
+                     ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoDecoration |
+                         ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoFocusOnAppearing |
+                         ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoInputs | ImGuiWindowFlags_NoMove))
+    {
+        const float r = ImGui::GetFontSize() * 0.38f;
+        const ImVec2 at = ImGui::GetCursorScreenPos();
+        const ImVec2 centre(at.x + r, at.y + ImGui::GetTextLineHeight() * 0.5f);
+
+        ImDrawList* draw = ImGui::GetWindowDrawList();
+        draw->AddCircleFilled(centre, r, ImGui::GetColorU32(lamp), 20);
+        draw->AddCircle(centre, r, ImGui::GetColorU32(ImVec4(0.0f, 0.0f, 0.0f, 0.6f)), 20, 1.5f);
+
+        ImGui::Dummy(ImVec2(r * 2.0f + 6.0f, ImGui::GetTextLineHeight()));
+        ImGui::SameLine();
+
+        if (reading)
+            ImGui::TextColored(lamp, "%3.0f%%  %.5f", lit * 100.0f, now);
+        else
+            ImGui::TextColored(idle, "--");
+    }
+
+    ImGui::End();
+}
+
+void RenderNrCompareTags()
+{
+    auto* config = Config::Instance();
+
+    const uint32_t mode = config->DlssNrCompare.value_or_default();
+
+    if (mode == 0 || !config->DlssNrCompareTags.value_or_default())
+        return;
+
+    const ImVec2 screen = ImGui::GetIO().DisplaySize;
+
+    if (screen.x < 1.0f || screen.y < 1.0f)
+        return;
+
+    const bool swap = config->DlssNrCompareSwap.value_or_default();
+    const float split = mode == 1 ? 0.5f
+                                  : std::clamp(config->DlssNrCompareSplit.value_or_default(), 0.0f, 1.0f);
+    const float splitX = split * screen.x;
+
+    const float scale = std::clamp(config->DlssNrTagScale.value_or_default(), 0.5f, 5.0f);
+
+    const char* leftText = swap ? "DLSS NR : ON" : "DLSS NR : OFF";
+    const char* rightText = swap ? "DLSS NR : OFF" : "DLSS NR : ON";
+
+    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImFont* font = ImGui::GetFont();
+    const float fontSize = ImGui::GetFontSize() * scale;
+    const float margin = 10.0f * scale;
+
+    auto drawTag = [&](const char* text, float x, ImVec2 clipMin, ImVec2 clipMax)
+    {
+        const ImVec2 size = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, text);
+
+        x = std::min(std::max(x, 0.0f), screen.x - size.x);
+        float y = std::min(margin, screen.y - size.y - margin);
+        y = std::max(y, 0.0f);
+
+        dl->PushClipRect(clipMin, clipMax, true);
+        dl->AddText(font, fontSize, ImVec2(x + 2.0f, y + 2.0f), IM_COL32(0, 0, 0, 210), text);
+        dl->AddText(font, fontSize, ImVec2(x, y), IM_COL32(255, 255, 255, 255), text);
+        dl->PopClipRect();
+    };
+
+    const ImVec2 leftSize = font->CalcTextSizeA(fontSize, FLT_MAX, 0.0f, leftText);
+
+    drawTag(leftText, splitX - margin - leftSize.x, ImVec2(0.0f, 0.0f), ImVec2(splitX, screen.y));
+    drawTag(rightText, splitX + margin, ImVec2(splitX, 0.0f), ImVec2(screen.x, screen.y));
+}
+
 bool MenuCommon::RenderMenu()
 {
     if (!_isInited)
@@ -2131,6 +2277,14 @@ bool MenuCommon::RenderMenu()
         {
             inputFps = false;
             config->ShowFps = !config->ShowFps.value_or_default();
+        }
+
+        if (inputDlssNr)
+        {
+            inputDlssNr = false;
+            config->DlssNrEnabled = !config->DlssNrEnabled.value_or_default();
+            LOG_DEBUG("Neural Rendering toggle key pressed, setting DlssNrEnabled to {}",
+                      config->DlssNrEnabled.value_or_default());
         }
 
         if (inputFpsCycle && config->ShowFps.value_or_default())
@@ -2239,8 +2393,13 @@ bool MenuCommon::RenderMenu()
     }
 
     // New frame check
+    const bool scanIndicator = config->DlssNrScanMeter.value_or_default() &&
+                               DlssNr::ExposureScan::Where() != DlssNr::ExposureScan::Verdict::Off;
+
     if ((!config->DisableSplash.value_or_default() && now > splashStart && now < splashLimit) ||
-        (updateNoticeVisible && now < updateNoticeLimit) || config->ShowFps.value_or_default() || _isVisible)
+        (updateNoticeVisible && now < updateNoticeLimit) || config->ShowFps.value_or_default() || _isVisible ||
+        scanIndicator ||
+        (config->DlssNrCompare.value_or_default() != 0 && config->DlssNrCompareTags.value_or_default()))
     {
         if (!_isUWP)
         {
@@ -2426,6 +2585,9 @@ bool MenuCommon::RenderMenu()
         averageFrameTime = gFrameTimes.Average();
         averageUpscalerFT = gUpscalerTimes.Average();
     }
+
+    RenderNrCompareTags();
+    RenderExposureScanIndicator(config->FpsOverlayAlpha.value_or_default());
 
     // If Fps overlay is visible
     if (config->ShowFps.value_or_default())
@@ -5707,6 +5869,8 @@ bool MenuCommon::RenderMenu()
                         }
                     }
 
+                    DlssNr::RenderMenu(config, menuResScale);
+
                     // INIT -----------------------------
                     ImGui::SeparatorText("Init Flags");
                     if (ImGui::BeginTable("init", 2, ImGuiTableFlags_SizingStretchProp))
@@ -6872,11 +7036,13 @@ bool MenuCommon::RenderMenu()
                     static auto fpsOverlay = Keybind("FPS Overlay", 11);
                     static auto fpsOverlayCycle = Keybind("FPS Overlay Cycle", 12);
                     static auto fgEnable = Keybind("Frame Generation", 13);
+                    static auto dlssNrToggle = Keybind("Neural Rendering", 14);
 
                     menu.Render(config->ShortcutKey);
                     fpsOverlay.Render(config->FpsShortcutKey);
                     fpsOverlayCycle.Render(config->FpsCycleShortcutKey);
                     fgEnable.Render(config->FGShortcutKey);
+                    dlssNrToggle.Render(config->DlssNrToggleKey);
                 }
 
                 ImGui::EndTable();

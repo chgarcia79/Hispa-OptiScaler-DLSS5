@@ -5,6 +5,8 @@
 #include "NVNGX_DLSS.h"
 #include "NVNGX_Parameter.h"
 #include "proxies/NVNGX_Proxy.h"
+#include "dlssnr/DlssNr.h"
+#include "dlssnr/DlssNr_ExposureScan.h"
 
 #include <upscalers/FeatureProvider_Dx12.h>
 #include "upscalers/dlss/DLSSFeature_Dx12.h"
@@ -720,6 +722,8 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_ReleaseFeature(NVSDK_NGX_Handle* 
     if (!shutdown)
         LOG_INFO("releasing feature with id {0}", handleId);
 
+    DlssNr::ExposureScan::ReleaseTrackedResources();
+
     if (handleId < DLSS_MOD_ID_OFFSET)
     {
         if (Config::Instance()->DLSSEnabled.value_or_default() && NVNGXProxy::D3D12_ReleaseFeature() != nullptr)
@@ -838,8 +842,15 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
         if (Config::Instance()->DLSSEnabled.value_or_default() && NVNGXProxy::D3D12_EvaluateFeature() != nullptr)
         {
             LOG_DEBUG("D3D12_EvaluateFeature for ({0})", handleId);
+            if (Config::Instance()->DlssNrRunBeforeSR.value_or_default() && Config::Instance()->DlssNrEnabled.value_or_default())
+                DlssNr::EvaluateAfterUpscale(InCmdList, InParameters);
+
             auto result = NVNGXProxy::D3D12_EvaluateFeature()(InCmdList, InFeatureHandle, InParameters, InCallback);
             LOG_DEBUG("D3D12_EvaluateFeature result for ({0}): {1:X}", handleId, (UINT) result);
+
+            if (result == NVSDK_NGX_Result_Success && !Config::Instance()->DlssNrRunBeforeSR.value_or_default())
+                DlssNr::EvaluateAfterUpscale(InCmdList, InParameters);
+
             return result;
         }
         else
@@ -945,6 +956,9 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
         // Resource tracking
         UpscalerInputsDx12::UpscaleEnd(InCmdList, InParameters, deviceContext->feature.get());
 
+        if (Config::Instance()->DlssNrRunBeforeSR.value_or_default() && Config::Instance()->DlssNrEnabled.value_or_default())
+            DlssNr::EvaluateAfterUpscale(InCmdList, InParameters);
+
         ScopedSkipHeapCapture skipHeapCapture {};
         evalResult = deviceContext->feature->Evaluate(InCmdList, InParameters);
     }
@@ -955,6 +969,9 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
         // Record the second timestamp
         if (State::Instance().workingMode != WorkingMode::Nvngx)
             UpscalerTimeDx12::UpscaleEnd(InCmdList);
+
+        if (!Config::Instance()->DlssNrRunBeforeSR.value_or_default())
+            DlssNr::EvaluateAfterUpscale(InCmdList, InParameters);
     }
 
     NVSDK_NGX_Result methodResult = evalResult ? NVSDK_NGX_Result_Success : NVSDK_NGX_Result_Fail;
