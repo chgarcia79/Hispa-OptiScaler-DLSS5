@@ -2089,12 +2089,12 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
                 g_nr.nrScaler = nrScaler;
             }
             if (g_nr.superUp == nullptr)
-                g_nr.superUp = new OS_Dx12("DLSS-NR supersample up", device, true, nrScaler);
+                g_nr.superUp = new OS_Dx12("DLSS-NR supersample up", device, true);
             if (g_nr.superDown == nullptr)
-                g_nr.superDown = new OS_Dx12("DLSS-NR supersample down", device, false, nrScaler);
+                g_nr.superDown = new OS_Dx12("DLSS-NR supersample down", device, false);
 
             if (g_nr.superUp != nullptr &&
-                g_nr.superUp->Dispatch(cmdList, g_nr.colorCopy, g_nr.colorSmall))
+                g_nr.superUp->Dispatch(device, cmdList, g_nr.colorCopy, g_nr.colorSmall))
             {
                 Barrier(cmdList, g_nr.colorSmall, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                         D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -2349,7 +2349,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         // falls back to the Nx pair. g_nr.output is NPSR here; outputNative is UAV from last frame.
         bool superDownOk = false;
         if (workScale > 1.0f && g_nr.superDown != nullptr && g_nr.outputNative != nullptr &&
-            g_nr.superDown->Dispatch(cmdList, g_nr.output, g_nr.outputNative))
+            g_nr.superDown->Dispatch(device, cmdList, g_nr.output, g_nr.outputNative))
         {
             Barrier(cmdList, g_nr.outputNative, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -2495,13 +2495,13 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
     // this pass hangs off that. Nothing needed adding to the shims -- a call there would run the
     // model twice -- but "nothing needed adding" is a claim, and this is the line that checks it.
     {
-        static ApiUpscalerInput saidApi = (ApiUpscalerInput) -1;
-        const ApiUpscalerInput api = State::Instance().currentInputApiName;
+        static std::string saidApi;
+        const std::string& api = State::Instance().currentInputApiName;
 
-        if (saidApi != api)
+        if (saidApi != api && !api.empty())
         {
             saidApi = api;
-            LOG_INFO("DLSS-NR reached through the game's {} input", ApiUpscalerInputName(api));
+            LOG_INFO("DLSS-NR reached through the game's {} input", api);
         }
     }
 

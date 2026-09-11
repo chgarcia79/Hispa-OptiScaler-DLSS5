@@ -284,8 +284,8 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrTagScale.set_from_config(readFloat("DlssNr", "TagScale"));
             DlssNrWorkingScale.set_from_config(readFloat("DlssNr", "WorkingScale"));
 
-            if (auto v = readEnum<Scaler>("DlssNr", "ScalingDownscaler"))
-                DlssNrScalingDownscaler.set_from_config(*v);
+            if (auto v = readInt("DlssNr", "ScalingDownscaler"))
+                DlssNrScalingDownscaler.set_from_config(static_cast<Scaler>(*v));
             else
                 DlssNrScalingDownscaler.reset();
             DlssNrProxyProbe.set_from_config(readBool("DlssNr", "ProxyProbe"));

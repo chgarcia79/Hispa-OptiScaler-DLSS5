@@ -113,6 +113,15 @@ inline DWORD processId;
 #define LOG_TRACK(msg, ...)
 #endif
 
+#ifndef SAFE_RELEASE
+#define SAFE_RELEASE(p)                                                                                                \
+    if (p)                                                                                                             \
+    {                                                                                                                  \
+        (p)->Release();                                                                                                \
+        (p) = nullptr;                                                                                                 \
+    }
+#endif
+
 struct feature_version
 {
     unsigned int major;

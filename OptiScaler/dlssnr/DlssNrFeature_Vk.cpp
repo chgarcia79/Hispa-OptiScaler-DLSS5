@@ -191,7 +191,17 @@ uint32_t FindMemoryTypeIndex(uint32_t typeBits, VkMemoryPropertyFlags properties
 // STORAGE and SAMPLED both, because every one of these is written by one dispatch and read by the
 // next; TRANSFER_SRC so a capture can copy it out without a second surface.
 // Build the OS_Vk resample descriptor for one of our own images. OS_Vk reads Width/Height/Format from
-// this (the NR override makes it size from the images, not the current feature).
+struct VkImageInfo
+{
+    VkImageView ImageView = VK_NULL_HANDLE;
+    VkImage Image = VK_NULL_HANDLE;
+    VkImageSubresourceRange SubresourceRange {};
+    VkFormat Format = VK_FORMAT_UNDEFINED;
+    uint32_t Width = 0;
+    uint32_t Height = 0;
+};
+
+// Build the OS_Vk resample descriptor for one of our own images.
 static VkImageInfo ImageInfoOf(const OwnedImage& img)
 {
     VkImageInfo info {};
@@ -928,11 +938,9 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
                 g_vk.nrScaler = wantScaler;
             }
             if (!g_vk.superUp)
-                g_vk.superUp = std::make_unique<OS_Vk>("DLSS-NR VK supersample up", device, physicalDevice,
-                                                       true, wantScaler);
+                g_vk.superUp = std::make_unique<OS_Vk>("DLSS-NR VK supersample up", device, physicalDevice, true);
             if (!g_vk.superDown)
-                g_vk.superDown = std::make_unique<OS_Vk>("DLSS-NR VK supersample down", device,
-                                                         physicalDevice, false, wantScaler);
+                g_vk.superDown = std::make_unique<OS_Vk>("DLSS-NR VK supersample down", device, physicalDevice, false);
 
             Transition(cmdBuffer, g_vk.proxy, VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL);
             Transition(cmdBuffer, g_vk.proxySmall, VK_IMAGE_LAYOUT_GENERAL);
@@ -940,7 +948,8 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
             VkImageInfo upin = ImageInfoOf(g_vk.proxy);
             VkImageInfo upout = ImageInfoOf(g_vk.proxySmall);
 
-            if (g_vk.superUp && g_vk.superUp->IsInit() && g_vk.superUp->Dispatch(cmdBuffer, upin, upout))
+            if (g_vk.superUp && g_vk.superUp->IsInit() &&
+                g_vk.superUp->Dispatch(device, cmdBuffer, upin.ImageView, upout.ImageView, VkExtent2D { upout.Width, upout.Height }))
                 built = true;
             else
             {
@@ -1084,7 +1093,7 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
         VkImageInfo dsin = ImageInfoOf(g_vk.output);
         VkImageInfo dsout = ImageInfoOf(g_vk.outputNative);
 
-        if (g_vk.superDown->Dispatch(cmdBuffer, dsin, dsout))
+        if (g_vk.superDown->Dispatch(device, cmdBuffer, dsin.ImageView, dsout.ImageView, VkExtent2D { dsout.Width, dsout.Height }))
         {
             resolveProxy = &g_vk.proxy;
             resolveAnswer = &g_vk.outputNative;

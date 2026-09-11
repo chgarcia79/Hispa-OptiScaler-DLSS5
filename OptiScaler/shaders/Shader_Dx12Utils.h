@@ -131,3 +131,33 @@ class FrameDescriptorHeap
 
     ~FrameDescriptorHeap() { ReleaseHeaps(); }
 };
+
+template <typename T>
+bool CreateConstantsBuffer(ID3D12Device* device, ID3D12Resource* constantBuffer, const T& constants,
+                           D3D12_CPU_DESCRIPTOR_HANDLE destDescriptor)
+{
+    // Copy the updated constant buffer data to the constant buffer resource
+    UINT8* pCBDataBegin;
+    CD3DX12_RANGE readRange(0, 0); // We do not intend to read from this resource on the CPU
+    auto result = constantBuffer->Map(0, &readRange, reinterpret_cast<void**>(&pCBDataBegin));
+
+    if (result != S_OK)
+    {
+        if (result == DXGI_ERROR_DEVICE_REMOVED && device != nullptr)
+            Util::GetDeviceRemovedReason(device);
+
+        return false;
+    }
+
+    memcpy(pCBDataBegin, &constants, sizeof(constants));
+    constantBuffer->Unmap(0, nullptr);
+
+    // Create CBV for Constants
+    D3D12_CONSTANT_BUFFER_VIEW_DESC cbvDesc = {};
+    cbvDesc.BufferLocation = constantBuffer->GetGPUVirtualAddress();
+    cbvDesc.SizeInBytes = sizeof(constants);
+
+    device->CreateConstantBufferView(&cbvDesc, destDescriptor);
+
+    return true;
+}
