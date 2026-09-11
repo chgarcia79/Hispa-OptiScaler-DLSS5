@@ -425,94 +425,88 @@ WrappedIDXGISwapChain4::WrappedIDXGISwapChain4(IDXGISwapChain* real, IUnknown* p
     _id = ++scCount;
     _lastFlags = flags;
 
-    _real->QueryInterface(IID_PPV_ARGS(&_real1));
-    if (_real1 != nullptr)
-        _real1->Release();
-
-    _real->QueryInterface(IID_PPV_ARGS(&_real2));
-    if (_real2 != nullptr)
-        _real2->Release();
-
-    _real->QueryInterface(IID_PPV_ARGS(&_real3));
-    if (_real3 != nullptr)
-        _real3->Release();
-
-    _real->QueryInterface(IID_PPV_ARGS(&_real4));
-    if (_real4 != nullptr)
-        _real4->Release();
+    if (_real != nullptr)
+    {
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+        _real->QueryInterface(IID_PPV_ARGS(&_real2));
+        _real->QueryInterface(IID_PPV_ARGS(&_real3));
+        _real->QueryInterface(IID_PPV_ARGS(&_real4));
+    }
 
     _real->AddRef();
     auto refCount = _real->Release();
 
     _device2 = _device;
 
-    LOG_INFO("{} created, real: {:X}, refCount: {}", _id, (UINT64) real, refCount);
+    LOG_INFO("{} created, real: {:X}, real1: {:X}, real3: {:X}, refCount: {}", _id, (UINT64) real, (UINT64) _real1, (UINT64) _real3, refCount);
 }
 
-WrappedIDXGISwapChain4::~WrappedIDXGISwapChain4() {}
+WrappedIDXGISwapChain4::~WrappedIDXGISwapChain4()
+{
+    if (_real4 != nullptr)
+    {
+        _real4->Release();
+        _real4 = nullptr;
+    }
+    if (_real3 != nullptr)
+    {
+        _real3->Release();
+        _real3 = nullptr;
+    }
+    if (_real2 != nullptr)
+    {
+        _real2->Release();
+        _real2 = nullptr;
+    }
+    if (_real1 != nullptr)
+    {
+        _real1->Release();
+        _real1 = nullptr;
+    }
+}
 
 //
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::QueryInterface(REFIID riid, void** ppvObject)
 {
     LOG_TRACE("Caller: {}", Util::WhoIsTheCaller(_ReturnAddress()));
 
+    if (_real != nullptr)
+    {
+        if (_real1 == nullptr) _real->QueryInterface(IID_PPV_ARGS(&_real1));
+        if (_real2 == nullptr) _real->QueryInterface(IID_PPV_ARGS(&_real2));
+        if (_real3 == nullptr) _real->QueryInterface(IID_PPV_ARGS(&_real3));
+        if (_real4 == nullptr) _real->QueryInterface(IID_PPV_ARGS(&_real4));
+    }
+
     if (riid == __uuidof(IDXGISwapChain))
     {
         AddRef();
-        *ppvObject = (IDXGISwapChain*) this;
+        *ppvObject = static_cast<IDXGISwapChain*>(this);
         return S_OK;
     }
     else if (riid == __uuidof(IDXGISwapChain1))
     {
-        if (_real1)
-        {
-            AddRef();
-            *ppvObject = (IDXGISwapChain1*) this;
-            return S_OK;
-        }
-        else
-        {
-            return E_NOINTERFACE;
-        }
+        AddRef();
+        *ppvObject = static_cast<IDXGISwapChain1*>(this);
+        return S_OK;
     }
     else if (riid == __uuidof(IDXGISwapChain2))
     {
-        if (_real2)
-        {
-            AddRef();
-            *ppvObject = (IDXGISwapChain2*) this;
-            return S_OK;
-        }
-        else
-        {
-            return E_NOINTERFACE;
-        }
+        AddRef();
+        *ppvObject = static_cast<IDXGISwapChain2*>(this);
+        return S_OK;
     }
     else if (riid == __uuidof(IDXGISwapChain3))
     {
-        if (_real3)
-        {
-            AddRef();
-            *ppvObject = (IDXGISwapChain3*) this;
-            return S_OK;
-        }
-        else
-        {
-            return E_NOINTERFACE;
-        }
+        AddRef();
+        *ppvObject = static_cast<IDXGISwapChain3*>(this);
+        return S_OK;
     }
     else if (riid == __uuidof(IDXGISwapChain4))
     {
-        if (_real4)
-        {
-            AddRef();
-            *ppvObject = (IDXGISwapChain4*) this;
-            return S_OK;
-        }
-        else
-        {
-            return E_NOINTERFACE;
-        }
+        AddRef();
+        *ppvObject = static_cast<IDXGISwapChain4*>(this);
+        return S_OK;
     }
     else if (riid == __uuidof(WrappedIDXGISwapChain4))
     {
@@ -1090,6 +1084,12 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetMatrixTransform(DXGI_MATRIX
 
 UINT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetCurrentBackBufferIndex(void)
 {
+    if (_real3 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real3));
+
+    if (_real3 == nullptr)
+        return 0;
+
     auto index = _real3->GetCurrentBackBufferIndex();
     // LOG_TRACE("index: {}", index);
     return index;
@@ -1098,6 +1098,12 @@ UINT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetCurrentBackBufferIndex(void)
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::CheckColorSpaceSupport(DXGI_COLOR_SPACE_TYPE ColorSpace,
                                                                          UINT* pColorSpaceSupport)
 {
+    if (_real3 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real3));
+
+    if (_real3 == nullptr)
+        return E_NOINTERFACE;
+
     return _real3->CheckColorSpaceSupport(ColorSpace, pColorSpaceSupport);
 }
 
@@ -1144,6 +1150,18 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::SetColorSpace1(DXGI_COLOR_SPAC
     }
 
     LOG_INFO("DLSS-NR: swapchain colour space {} -- {} ({})", (int) ColorSpace, name, meaning);
+
+    if (Config::Instance()->SkipColorSpace.value_or_default())
+    {
+        LOG_DEBUG("SkipColorSpace enabled, returning S_OK");
+        return S_OK;
+    }
+
+    if (_real3 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real3));
+
+    if (_real3 == nullptr)
+        return S_OK;
 
     return _real3->SetColorSpace1(ColorSpace);
 }
@@ -1291,19 +1309,28 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::ResizeBuffers1(UINT BufferCoun
 #endif
 #endif
 
+    if (_real3 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real3));
+
     if (Config::Instance()->FGDontUseSwapchainBuffers.value_or_default())
     {
         ScopedSkipHeapCapture skipHeapCapture {};
 
         _lastFlags = SwapChainFlags;
-        result = _real3->ResizeBuffers1(BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask,
-                                        ppPresentQueue);
+        if (_real3 != nullptr)
+            result = _real3->ResizeBuffers1(BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask,
+                                            ppPresentQueue);
+        else
+            result = _real->ResizeBuffers(BufferCount, Width, Height, Format, SwapChainFlags);
     }
     else
     {
         _lastFlags = SwapChainFlags;
-        result = _real3->ResizeBuffers1(BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask,
-                                        ppPresentQueue);
+        if (_real3 != nullptr)
+            result = _real3->ResizeBuffers1(BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask,
+                                            ppPresentQueue);
+        else
+            result = _real->ResizeBuffers(BufferCount, Width, Height, Format, SwapChainFlags);
     }
 
     if (result == DXGI_ERROR_DEVICE_REMOVED && State::Instance().currentD3D12Device != nullptr)
@@ -1339,11 +1366,11 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::ResizeBuffers1(UINT BufferCoun
                 hdrCS = DXGI_COLOR_SPACE_RGB_FULL_G2084_NONE_P2020;
             }
 
-            if (!Config::Instance()->SkipColorSpace.value_or_default())
+            if (!Config::Instance()->SkipColorSpace.value_or_default() && _real3 != nullptr)
             {
                 UINT css = 0;
 
-                auto result = _real3->CheckColorSpaceSupport(hdrCS, &css);
+                result = _real3->CheckColorSpaceSupport(hdrCS, &css);
 
                 if (result != S_OK)
                 {
@@ -1405,5 +1432,11 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::ResizeBuffers1(UINT BufferCoun
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::SetHDRMetaData(DXGI_HDR_METADATA_TYPE Type, UINT Size,
                                                                  void* pMetaData)
 {
+    if (_real4 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real4));
+
+    if (_real4 == nullptr)
+        return S_OK;
+
     return _real4->SetHDRMetaData(Type, Size, pMetaData);
 }
