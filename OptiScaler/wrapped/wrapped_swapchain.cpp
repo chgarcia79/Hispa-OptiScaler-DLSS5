@@ -425,21 +425,13 @@ WrappedIDXGISwapChain4::WrappedIDXGISwapChain4(IDXGISwapChain* real, IUnknown* p
     _id = ++scCount;
     _lastFlags = flags;
 
-    _real->QueryInterface(IID_PPV_ARGS(&_real1));
-    if (_real1 != nullptr)
-        _real1->Release();
-
-    _real->QueryInterface(IID_PPV_ARGS(&_real2));
-    if (_real2 != nullptr)
-        _real2->Release();
-
-    _real->QueryInterface(IID_PPV_ARGS(&_real3));
-    if (_real3 != nullptr)
-        _real3->Release();
-
-    _real->QueryInterface(IID_PPV_ARGS(&_real4));
-    if (_real4 != nullptr)
-        _real4->Release();
+    if (_real != nullptr)
+    {
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+        _real->QueryInterface(IID_PPV_ARGS(&_real2));
+        _real->QueryInterface(IID_PPV_ARGS(&_real3));
+        _real->QueryInterface(IID_PPV_ARGS(&_real4));
+    }
 
     _real->AddRef();
     auto refCount = _real->Release();
@@ -469,20 +461,6 @@ WrappedIDXGISwapChain4::WrappedIDXGISwapChain4(IDXGISwapChain* real, IUnknown* p
             }
         }
     }
-
-    _id = ++scCount;
-    _lastFlags = flags;
-
-    if (_real != nullptr)
-    {
-        _real->QueryInterface(IID_PPV_ARGS(&_real1));
-        _real->QueryInterface(IID_PPV_ARGS(&_real2));
-        _real->QueryInterface(IID_PPV_ARGS(&_real3));
-        _real->QueryInterface(IID_PPV_ARGS(&_real4));
-    }
-
-    _real->AddRef();
-    auto refCount = _real->Release();
 
     State::Instance().currentFGSwapchain = this;
 
