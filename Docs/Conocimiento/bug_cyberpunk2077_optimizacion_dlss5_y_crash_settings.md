@@ -115,10 +115,34 @@ Durante la inicialización gráfica en resoluciones Ultrawide (3440x1440) con NV
 
 ---
 
-## 6. Diccionario de Base de Datos y APIs
+## 6. Resolución de Crash en Inicialización Post-GetOptimalSettings: Ausencia de Runtime FidelityFX DX12
+
+### Causa Raíz
+Tras resolver el swapchain (commit `7ab73320`), el log evidenció que `ResizeBuffers` y `cloneFakeBuffers` completaron con éxito (`result: 0`). Sin embargo, el juego colapsaba inmediatamente después de la consulta de resolución:
+1. Cyberpunk 2077 v2.13 incorpora integración nativa con FidelityFX (FSR 3.1) mediante carga dinámica tardía de `amd_fidelityfx_dx12.dll`.
+2. Inmediatamente tras devolver la resolución óptima en `NVSDK_NGX_DLSS_GetOptimalSettingsCallback` (3440x1440 -> 2293x960), Cyberpunk consulta el ratio de escalado invocando la función `ffxQuery` (tipo de consulta `FFX_API_QUERY_DESC_TYPE_UPSCALE_GETUPSCALERATIOFROMQUALITYMODE` = `0x00010002`) mediante una tabla de punteros indirectos en su sección `.data` (RVA `0x035848F8`).
+3. Al no desplegarse las DLLs de FidelityFX en `bin/x64` durante la instalación del paquete OptiScaler, el motor no encontraba `amd_fidelityfx_dx12.dll` y dejaba la tabla de punteros en cero (`0x0000000000000000`).
+4. Al invocar la instrucción `call qword ptr [rip + 0x01838229]`, el flujo de ejecución saltaba a `0x0`, produciendo un fallo de ejecución DEP (`0xC0000005` Access Violation) en el hilo principal de renderizado (`TID 14940`).
+
+### Solución Implementada
+1. Despliegue en `J:\Steam\steamapps\common\Cyberpunk 2077\bin\x64\` del conjunto completo de librerías oficiales de FidelityFX:
+   - `amd_fidelityfx_dx12.dll` (exportador de `ffxQuery`, `ffxCreateContext`, etc.)
+   - `amd_fidelityfx_framegeneration_dx12.dll`
+   - `amd_fidelityfx_upscaler_dx12.dll`
+   - `amd_fidelityfx_vk.dll`
+2. Sincronización en los 3 repositorios oficiales de paquetes de OptiScaler (`v1.0.1-dlss5`):
+   - `Src/DESKTOP/HispaGameControl/Repository/OptiScaler/v1.0.1-dlss5/`
+   - `C:\Soft\Juegos\HispaGameControl\Repository\OptiScaler/v1.0.1-dlss5/`
+   - `K:\Librerias\HispaGameControl\Repository\OptiScaler/v1.0.1-dlss5/`
+3. Actualización de `.hispa_neural_manifest.json` para auditar la integridad de las librerías FidelityFX.
+
+---
+
+## 7. Diccionario de Base de Datos y APIs
 
 - [[WidescreenFixService]] [explicacion:: Servicio C# para corrección de relaciones de aspecto y blindaje de options.json]
 - [[NovaOptics]] [explicacion:: Script REDscript para corrección de luminancia y exposición vehicular en Cyberpunk 2077]
 - [[Streamline_DLSS_G]] [explicacion:: Módulo NVIDIA Streamline para generación de frames con temporizador crítico de 100 ms]
 - [[WrappedIDXGISwapChain4]] [explicacion:: Clase envoltorio C++ COM para proxies DXGI SwapChain 1-4 en OptiScaler]
 - [[StreamlineHooks]] [explicacion:: Interceptores C++ para NVIDIA Streamline v2 e integración con generadores de fotogramas]
+- [[amd_fidelityfx_dx12]] [explicacion:: Runtime oficial de AMD FidelityFX DX12 que exporta ffxQuery requerido por Cyberpunk 2077]

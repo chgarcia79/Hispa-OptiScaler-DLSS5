@@ -110,6 +110,15 @@ void RenderMenu(Config* config, float menuResScale)
                    "Desactivado muestra la imagen limpia del escalador sin pausar el modelo,\n"
                    "ideal para usarlo junto a Congelar fotograma.");
 
+        bool runBeforeSR = config->DlssNrRunBeforeSR.value_or_default();
+        if (ImGui::Checkbox("Pre-Render Neuronal (Pre-SR)", &runBeforeSR))
+            config->DlssNrRunBeforeSR = runBeforeSR;
+
+        HelpMarker("Ejecuta la red neuronal ANTES de la Reconstruccion de Rayos / DLSS en baja resolucion.\n"
+                   "Recomendado con Path Tracing (Cyberpunk Overdrive) para que DLSS-D estabilice\n"
+                   "temporalmente las luces y sombras, eliminando parpadeos y vibraciones.\n"
+                   "Desactivado (Post-SR) opera a resolucion nativa completa.");
+
         // Either backend. The two keep separate state, and on a native Vulkan game the D3D12 side
         // is never touched -- so asking only that one reports "waiting for the upscaler" over a pass
         // that is demonstrably running.
