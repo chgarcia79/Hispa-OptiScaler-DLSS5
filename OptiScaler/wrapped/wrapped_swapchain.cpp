@@ -531,6 +531,13 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::QueryInterface(REFIID riid, vo
         return S_OK;
     }
 
+    // Fallback: If caller queries for an interface we don't explicitly wrap
+    // (e.g. IDXGISwapChainMedia, internal runtime/driver interfaces, etc.), delegate to real swapchain
+    if (_real != nullptr)
+    {
+        return _real->QueryInterface(riid, ppvObject);
+    }
+
     *ppvObject = nullptr;
     return E_NOINTERFACE;
 }
@@ -974,24 +981,60 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetLastPresentCount(UINT* pLas
 //
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetDesc1(DXGI_SWAP_CHAIN_DESC1* pDesc)
 {
+    if (_real1 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+
+    if (_real1 == nullptr)
+        return E_NOINTERFACE;
+
     return _real1->GetDesc1(pDesc);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetFullscreenDesc(DXGI_SWAP_CHAIN_FULLSCREEN_DESC* pDesc)
 {
+    if (_real1 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+
+    if (_real1 == nullptr)
+        return E_NOINTERFACE;
+
     return _real1->GetFullscreenDesc(pDesc);
 }
 
-HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetHwnd(HWND* pHwnd) { return _real1->GetHwnd(pHwnd); }
+HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetHwnd(HWND* pHwnd)
+{
+    if (_real1 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+
+    if (_real1 == nullptr)
+    {
+        if (pHwnd != nullptr) *pHwnd = _handle;
+        return S_OK;
+    }
+
+    return _real1->GetHwnd(pHwnd);
+}
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetCoreWindow(REFIID refiid, void** ppUnk)
 {
+    if (_real1 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+
+    if (_real1 == nullptr)
+    {
+        if (ppUnk != nullptr) *ppUnk = nullptr;
+        return E_NOINTERFACE;
+    }
+
     return _real1->GetCoreWindow(refiid, ppUnk);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::Present1(UINT SyncInterval, UINT Flags,
                                                            const DXGI_PRESENT_PARAMETERS* pPresentParameters)
 {
+    if (_real1 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+
     if (_real1 == nullptr)
         return DXGI_ERROR_DEVICE_REMOVED;
 
@@ -1020,67 +1063,148 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::Present1(UINT SyncInterval, UI
 
 BOOL STDMETHODCALLTYPE WrappedIDXGISwapChain4::IsTemporaryMonoSupported(void)
 {
+    if (_real1 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+
+    if (_real1 == nullptr)
+        return FALSE;
+
     return _real1->IsTemporaryMonoSupported();
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetRestrictToOutput(IDXGIOutput** ppRestrictToOutput)
 {
+    if (_real1 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+
+    if (_real1 == nullptr)
+    {
+        if (ppRestrictToOutput != nullptr) *ppRestrictToOutput = nullptr;
+        return E_NOINTERFACE;
+    }
+
     return _real1->GetRestrictToOutput(ppRestrictToOutput);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::SetBackgroundColor(const DXGI_RGBA* pColor)
 {
+    if (_real1 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+
+    if (_real1 == nullptr)
+        return E_NOINTERFACE;
+
     return _real1->SetBackgroundColor(pColor);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetBackgroundColor(DXGI_RGBA* pColor)
 {
+    if (_real1 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+
+    if (_real1 == nullptr)
+        return E_NOINTERFACE;
+
     return _real1->GetBackgroundColor(pColor);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::SetRotation(DXGI_MODE_ROTATION Rotation)
 {
+    if (_real1 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+
+    if (_real1 == nullptr)
+        return E_NOINTERFACE;
+
     return _real1->SetRotation(Rotation);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetRotation(DXGI_MODE_ROTATION* pRotation)
 {
+    if (_real1 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+
+    if (_real1 == nullptr)
+        return E_NOINTERFACE;
+
     return _real1->GetRotation(pRotation);
 }
 
 //
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::SetSourceSize(UINT Width, UINT Height)
 {
+    if (_real2 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real2));
+
+    if (_real2 == nullptr)
+        return E_NOINTERFACE;
+
     return _real2->SetSourceSize(Width, Height);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetSourceSize(UINT* pWidth, UINT* pHeight)
 {
+    if (_real2 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real2));
+
+    if (_real2 == nullptr)
+        return E_NOINTERFACE;
+
     return _real2->GetSourceSize(pWidth, pHeight);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::SetMaximumFrameLatency(UINT MaxLatency)
 {
+    if (_real2 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real2));
+
+    if (_real2 == nullptr)
+        return E_NOINTERFACE;
+
     return _real2->SetMaximumFrameLatency(MaxLatency);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetMaximumFrameLatency(UINT* pMaxLatency)
 {
+    if (_real2 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real2));
+
+    if (_real2 == nullptr)
+        return E_NOINTERFACE;
+
     return _real2->GetMaximumFrameLatency(pMaxLatency);
 }
 
 HANDLE STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetFrameLatencyWaitableObject(void)
 {
+    if (_real2 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real2));
+
+    if (_real2 == nullptr)
+        return nullptr;
+
     return _real2->GetFrameLatencyWaitableObject();
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::SetMatrixTransform(const DXGI_MATRIX_3X2_F* pMatrix)
 {
+    if (_real2 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real2));
+
+    if (_real2 == nullptr)
+        return E_NOINTERFACE;
+
     return _real2->SetMatrixTransform(pMatrix);
 }
 
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetMatrixTransform(DXGI_MATRIX_3X2_F* pMatrix)
 {
+    if (_real2 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real2));
+
+    if (_real2 == nullptr)
+        return E_NOINTERFACE;
+
     return _real2->GetMatrixTransform(pMatrix);
 }
 

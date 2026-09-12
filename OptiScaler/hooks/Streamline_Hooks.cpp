@@ -693,27 +693,23 @@ sl::Result StreamlineHooks::hkslDLSSGSetOptions(const sl::ViewportHandle& viewpo
 sl::Result StreamlineHooks::hkslDLSSGGetState(const sl::ViewportHandle& viewport, sl::DLSSGState& state,
                                               const sl::DLSSGOptions* options)
 {
+    if (o_slDLSSGGetState == nullptr)
+        return sl::Result::eErrorNotInitialized;
+
     auto result = o_slDLSSGGetState(viewport, state, options);
 
     auto& s = State::Instance();
 
-    if (s.activeFgInput == FGInput::DLSSG)
+    if (s.activeFgInput == FGInput::DLSSG && s.currentFG != nullptr)
     {
         auto fg = s.currentFG;
 
-        if (fg != nullptr)
-        {
-            if (options != nullptr && options->flags & sl::DLSSGFlags::eRequestVRAMEstimate)
-                state.estimatedVRAMUsageInBytes = static_cast<uint64_t>(256 * 1024) * 1024;
+        if (options != nullptr && options->flags & sl::DLSSGFlags::eRequestVRAMEstimate)
+            state.estimatedVRAMUsageInBytes = static_cast<uint64_t>(256 * 1024) * 1024;
 
-            if (fg->IsActive() && !fg->IsPaused())
-            {
-                state.numFramesActuallyPresented = fg->GetInterpolatedFrameCount() + 1;
-            }
-            else
-            {
-                state.numFramesActuallyPresented = 1;
-            }
+        if (fg->IsActive() && !fg->IsPaused())
+        {
+            state.numFramesActuallyPresented = fg->GetInterpolatedFrameCount() + 1;
         }
         else
         {
