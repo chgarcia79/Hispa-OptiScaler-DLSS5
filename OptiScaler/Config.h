@@ -1,4 +1,4 @@
-﻿#pragma once
+#pragma once
 
 #include "SysUtils.h"
 #include "State.h"
@@ -780,6 +780,7 @@ class Config
 
     // OptiFG
     CustomOptional<bool> FGEnabled { false };
+    CustomOptional<bool> FGNativePassthrough { false };
     CustomOptional<bool> FGUseMutexForSwapchain { true };
     CustomOptional<bool> FGMakeMVCopy { true };
     CustomOptional<bool> FGMakeDepthCopy { true };

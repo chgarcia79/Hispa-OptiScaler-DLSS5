@@ -237,7 +237,8 @@ sl::Result StreamlineHooks::hkslInit(const sl::Preferences& pref, uint64_t sdkVe
         }
     }
 
-    if (State::Instance().activeFgInput == FGInput::DLSSG || State::Instance().activeFgOutput == FGOutput::DLSSG)
+    if (!Config::Instance()->FGNativePassthrough.value_or_default() &&
+        (State::Instance().activeFgInput == FGInput::DLSSG || State::Instance().activeFgOutput == FGOutput::DLSSG))
     {
         std::vector<sl::Feature> localFeaturesToLoad(pref.featuresToLoad, pref.featuresToLoad + pref.numFeaturesToLoad);
         std::erase(localFeaturesToLoad, sl::kFeatureDLSS_G);
@@ -267,7 +268,7 @@ sl::Result StreamlineHooks::hkslInit(const sl::Preferences& pref, uint64_t sdkVe
 
 sl::Result StreamlineHooks::hkslIsFeatureSupported(sl::Feature feature, const sl::AdapterInfo& adapterInfo)
 {
-    if (feature == sl::kFeatureDLSS_G)
+    if (!Config::Instance()->FGNativePassthrough.value_or_default() && feature == sl::kFeatureDLSS_G)
         return sl::Result::eOk;
 
     return o_slIsFeatureSupported(feature, adapterInfo);
@@ -275,7 +276,7 @@ sl::Result StreamlineHooks::hkslIsFeatureSupported(sl::Feature feature, const sl
 
 sl::Result StreamlineHooks::hkslIsFeatureLoaded(sl::Feature feature, bool& loaded)
 {
-    if (feature == sl::kFeatureDLSS_G)
+    if (!Config::Instance()->FGNativePassthrough.value_or_default() && feature == sl::kFeatureDLSS_G)
     {
         loaded = true;
         return sl::Result::eOk;
@@ -286,7 +287,7 @@ sl::Result StreamlineHooks::hkslIsFeatureLoaded(sl::Feature feature, bool& loade
 
 sl::Result StreamlineHooks::hkslGetFeatureRequirements(sl::Feature feature, sl::FeatureRequirements& requirements)
 {
-    if (feature == sl::kFeatureDLSS_G)
+    if (!Config::Instance()->FGNativePassthrough.value_or_default() && feature == sl::kFeatureDLSS_G)
         return sl::Result::eOk;
 
     return o_slGetFeatureRequirements(feature, requirements);
@@ -294,7 +295,7 @@ sl::Result StreamlineHooks::hkslGetFeatureRequirements(sl::Feature feature, sl::
 
 sl::Result StreamlineHooks::hkslGetFeatureVersion(sl::Feature feature, sl::FeatureVersion& version)
 {
-    if (feature == sl::kFeatureDLSS_G)
+    if (!Config::Instance()->FGNativePassthrough.value_or_default() && feature == sl::kFeatureDLSS_G)
     {
         version.versionSL = { State::Instance().streamlineVersion.major, State::Instance().streamlineVersion.minor,
                               State::Instance().streamlineVersion.patch };
@@ -324,7 +325,7 @@ static sl::Result dummy_slDLSSGSetOptions(const sl::ViewportHandle& viewport, co
 
 sl::Result StreamlineHooks::hkslGetFeatureFunction(sl::Feature feature, const char* functionName, void*& function)
 {
-    if (feature == sl::kFeatureDLSS_G)
+    if (!Config::Instance()->FGNativePassthrough.value_or_default() && feature == sl::kFeatureDLSS_G)
     {
         if (strcmp(functionName, "slDLSSGSetOptions") == 0)
         {
@@ -893,7 +894,8 @@ bool StreamlineHooks::hkdlssg_slOnPluginLoad(sl::param::IParameters* params, con
     nlohmann::json configJson = nlohmann::json::parse(*pluginJSON);
 
     // Kill the DLSSG streamline swapchain hooks
-    if (State::Instance().activeFgInput == FGInput::DLSSG || State::Instance().activeFgOutput == FGOutput::DLSSG)
+    if (!Config::Instance()->FGNativePassthrough.value_or_default() &&
+        (State::Instance().activeFgInput == FGInput::DLSSG || State::Instance().activeFgOutput == FGOutput::DLSSG))
     {
         if (configJson.contains("/hooks"_json_pointer))
             configJson["hooks"].clear();

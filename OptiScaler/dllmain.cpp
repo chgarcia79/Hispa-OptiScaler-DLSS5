@@ -1864,11 +1864,20 @@ BOOL APIENTRY DllMain(HMODULE hModule, DWORD ul_reason_for_call, LPVOID lpReserv
         State::Instance().activeFgNvngx = Config::Instance()->FGNvngxReplacement.value_or_default();
 
         // Ensure valid FG configuration
-        if (State::Instance().activeFgInput != FGInput::NvngxFG && State::Instance().activeFgOutput != FGOutput::DLSSG)
-            State::Instance().activeFgNvngx = FGNvngxReplacement::None;
-
-        if (State::Instance().activeFgInput == FGInput::NvngxFG)
+        if (Config::Instance()->FGNativePassthrough.value_or_default())
+        {
+            State::Instance().activeFgInput = FGInput::NoFG;
             State::Instance().activeFgOutput = FGOutput::NoFG;
+            State::Instance().activeFgNvngx = FGNvngxReplacement::None;
+        }
+        else
+        {
+            if (State::Instance().activeFgInput != FGInput::NvngxFG && State::Instance().activeFgOutput != FGOutput::DLSSG)
+                State::Instance().activeFgNvngx = FGNvngxReplacement::None;
+
+            if (State::Instance().activeFgInput == FGInput::NvngxFG)
+                State::Instance().activeFgOutput = FGOutput::NoFG;
+        }
 
         // Init Kernel proxies
         NtdllProxy::Init();
