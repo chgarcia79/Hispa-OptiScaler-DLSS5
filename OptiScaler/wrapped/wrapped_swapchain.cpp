@@ -1,4 +1,4 @@
-﻿#include "pch.h"
+#include "pch.h"
 #include "wrapped_swapchain.h"
 
 #include <Util.h>
@@ -470,10 +470,48 @@ WrappedIDXGISwapChain4::WrappedIDXGISwapChain4(IDXGISwapChain* real, IUnknown* p
         }
     }
 
+    _id = ++scCount;
+    _lastFlags = flags;
+
+    if (_real != nullptr)
+    {
+        _real->QueryInterface(IID_PPV_ARGS(&_real1));
+        _real->QueryInterface(IID_PPV_ARGS(&_real2));
+        _real->QueryInterface(IID_PPV_ARGS(&_real3));
+        _real->QueryInterface(IID_PPV_ARGS(&_real4));
+    }
+
+    _real->AddRef();
+    auto refCount = _real->Release();
+
+    State::Instance().currentFGSwapchain = this;
+
     LOG_INFO("{} created, real: {:X}, refCount: {}", _id, (UINT64) real, refCount);
 }
 
-WrappedIDXGISwapChain4::~WrappedIDXGISwapChain4() {}
+WrappedIDXGISwapChain4::~WrappedIDXGISwapChain4()
+{
+    if (_real4 != nullptr)
+    {
+        _real4->Release();
+        _real4 = nullptr;
+    }
+    if (_real3 != nullptr)
+    {
+        _real3->Release();
+        _real3 = nullptr;
+    }
+    if (_real2 != nullptr)
+    {
+        _real2->Release();
+        _real2 = nullptr;
+    }
+    if (_real1 != nullptr)
+    {
+        _real1->Release();
+        _real1 = nullptr;
+    }
+}
 
 //
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::QueryInterface(REFIID riid, void** ppvObject)
@@ -604,31 +642,10 @@ ULONG STDMETHODCALLTYPE WrappedIDXGISwapChain4::Release()
                 State::Instance().currentFGSwapchain = nullptr;
         }
 
-        auto refCount = _real->Release();
-
-        // Disabled for now, cause issues with some games
-        /*
-        IDXGISwapChain* skSC = nullptr;
-        if (_real->QueryInterface(IID_IUnwrappedDXGISwapChain, (void**) &skSC) == S_OK && skSC != nullptr)
-        {
-            skSC->Release();
-            LOG_DEBUG("Found SK swapchain, skip releasing of main swapchain");
-        }
-        else
-        {
-            // Release real swapchain, otherwise it can cause issues when re-creating swapchain with same handle
-            while (refCount > 0)
-            {
-                LOG_DEBUG("Waiting for real swapchain to be released, refCount: {}", refCount);
-                std::this_thread::sleep_for(std::chrono::milliseconds(100));
-                refCount = _real->Release();
-            }
-        }
-        */
-
-        LOG_DEBUG("Real swapchain released, refCount: {}", refCount);
+        LOG_DEBUG("Releasing wrapped swapchain and associated COM interfaces");
 
         delete this;
+        return 0;
     }
 
     return ret;
@@ -1129,6 +1146,12 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetMatrixTransform(DXGI_MATRIX
 
 UINT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetCurrentBackBufferIndex(void)
 {
+    if (_real3 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real3));
+
+    if (_real3 == nullptr)
+        return 0;
+
     auto index = _real3->GetCurrentBackBufferIndex();
     // LOG_TRACE("index: {}", index);
     return index;
@@ -1137,6 +1160,12 @@ UINT STDMETHODCALLTYPE WrappedIDXGISwapChain4::GetCurrentBackBufferIndex(void)
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::CheckColorSpaceSupport(DXGI_COLOR_SPACE_TYPE ColorSpace,
                                                                          UINT* pColorSpaceSupport)
 {
+    if (_real3 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real3));
+
+    if (_real3 == nullptr)
+        return E_NOINTERFACE;
+
     return _real3->CheckColorSpaceSupport(ColorSpace, pColorSpaceSupport);
 }
 
@@ -1183,6 +1212,12 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::SetColorSpace1(DXGI_COLOR_SPAC
     }
 
     LOG_INFO("DLSS-NR: swapchain colour space {} -- {} ({})", (int) ColorSpace, name, meaning);
+
+    if (_real3 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real3));
+
+    if (_real3 == nullptr)
+        return S_OK;
 
     return _real3->SetColorSpace1(ColorSpace);
 }
@@ -1444,5 +1479,11 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::ResizeBuffers1(UINT BufferCoun
 HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::SetHDRMetaData(DXGI_HDR_METADATA_TYPE Type, UINT Size,
                                                                  void* pMetaData)
 {
+    if (_real4 == nullptr && _real != nullptr)
+        _real->QueryInterface(IID_PPV_ARGS(&_real4));
+
+    if (_real4 == nullptr)
+        return S_OK;
+
     return _real4->SetHDRMetaData(Type, Size, pMetaData);
 }
