@@ -7480,9 +7480,18 @@ void MenuCommon::RenderMainMenuWindow(RenderMenuContext& ctx)
     }
 
     ImGuiWindowFlags flags = 0;
-    flags |= ImGuiWindowFlags_NoSavedSettings;
     flags |= ImGuiWindowFlags_NoCollapse;
-    flags |= ImGuiWindowFlags_AlwaysAutoResize;
+
+    const auto& io = ImGui::GetIO();
+    float defaultWidth = 1080.0f * menuResScale;
+    float defaultHeight = 850.0f * menuResScale;
+    ImVec2 screenSize = io.DisplaySize;
+
+    if (screenSize.x > 0.0f && defaultWidth > screenSize.x * 0.9f)
+        defaultWidth = screenSize.x * 0.9f;
+
+    if (screenSize.y > 0.0f && defaultHeight > screenSize.y * 0.92f)
+        defaultHeight = screenSize.y * 0.92f;
 
     if (lastMenuScale != menuResScale)
     {
@@ -7500,8 +7509,20 @@ void MenuCommon::RenderMainMenuWindow(RenderMenuContext& ctx)
         style.MouseCursorScale = 1.0f;
         CopyMemory(style.Colors, styleold.Colors, sizeof(style.Colors)); // Restore colors
 
-        ImGui::SetNextWindowSize({ 1.0f, 1.0f });
+        ImGui::SetNextWindowSize(ImVec2(defaultWidth, defaultHeight));
     }
+
+    // Set default initial position (centered) and size for the window (FirstUseEver allows user to move and resize freely)
+    ImVec2 initialPos = ImVec2((screenSize.x > defaultWidth) ? (screenSize.x - defaultWidth) * 0.5f : 10.0f,
+                               (screenSize.y > defaultHeight) ? 35.0f * menuResScale : 10.0f);
+    ImGui::SetNextWindowPos(initialPos, ImGuiCond_FirstUseEver);
+    ImGui::SetNextWindowSize(ImVec2(defaultWidth, defaultHeight), ImGuiCond_FirstUseEver);
+
+    // Allow user to resize from 650px wide up to full display
+    ImGui::SetNextWindowSizeConstraints(
+        ImVec2(650.0f * menuResScale, 300.0f * menuResScale),
+        ImVec2(screenSize.x > 0.0f ? screenSize.x : 3840.0f, screenSize.y > 0.0f ? screenSize.y : 2160.0f)
+    );
 
     // Main menu window
     if (windowTitle.empty())
