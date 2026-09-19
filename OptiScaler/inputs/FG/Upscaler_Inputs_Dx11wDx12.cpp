@@ -242,7 +242,7 @@ void UpscalerInputsDx11wDx12::UpscaleStart(NVSDK_NGX_Parameter* InParameters, IF
     {
         auto done = false;
 
-        if (Config::Instance()->FGEnableDepthScale.value_or_default())
+        if (Config::Instance()->FGShouldScaleDepth())
         {
             if (DepthScaleDx11wDx12 == nullptr)
                 DepthScaleDx11wDx12 = new DS_Dx12("Depth Scale Dx11wDx12", _dx12Device);

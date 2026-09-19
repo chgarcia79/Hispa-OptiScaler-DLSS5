@@ -1150,6 +1150,20 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
         }
     }
 
+    if (feature == NVSDK_NGX_Feature_RayReconstruction)
+    {
+        State::Instance().dlssdActive = true;
+
+        if (cfg.PreSRMode.value_or_default() > 0)
+        {
+            float blend = cfg.PreSRBlendIntensity.value_or_default();
+            InParameters->Set("DLSS.Denoise.PreSRMode", cfg.PreSRMode.value_or_default());
+            InParameters->Set("DLSS.Denoise.BlendIntensity", blend);
+            InParameters->Set("RayReconstruction.PreSRMode", cfg.PreSRMode.value_or_default());
+            InParameters->Set("RayReconstruction.BlendIntensity", blend);
+        }
+    }
+
     // Native DLSS passthrough
     if (handleId < DLSS_MOD_ID_OFFSET)
     {

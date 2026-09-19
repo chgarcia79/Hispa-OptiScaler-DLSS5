@@ -1,6 +1,7 @@
 #include "pch.h"
 
 #include "Config.h"
+#include "State.h"
 
 #include "Util.h"
 
@@ -210,6 +211,18 @@ bool Config::Reload(std::filesystem::path iniPath)
             FGResourceFlipOffset.set_from_config(readBool("OptiFG", "ResourceFlipOffset"));
 
             FGAlwaysCaptureFSRFGSwapchain.set_from_config(readBool("OptiFG", "AlwaysCaptureFSRFGSwapchain"));
+            
+            // HispaOptiScaler v1.0.3-dev1: FrameGen Depth Scaling for Ray Reconstruction
+            auto scaleDepth = readBool("FrameGen", "ScaleDepthForRR");
+            if (!scaleDepth.has_value())
+                scaleDepth = readBool("OptiFG", "ScaleDepthForRR");
+            FGScaleDepthForRR.set_from_config(scaleDepth);
+
+            auto depthScaleFactor = readFloat("FrameGen", "DepthScaleFactor");
+            if (!depthScaleFactor.has_value())
+                depthScaleFactor = readFloat("OptiFG", "DepthScaleFactor");
+            if (depthScaleFactor.has_value() && depthScaleFactor.value() >= 0.1f && depthScaleFactor.value() <= 10.0f)
+                FGDepthScaleFactor.set_from_config(depthScaleFactor);
         }
 
         {
@@ -437,6 +450,76 @@ bool Config::Reload(std::filesystem::path iniPath)
             if (auto setting = readInt("DLSSD", "RenderPresetUltraPerformance");
                 setting.has_value() && setting >= 0 && (setting < presetCount || setting == NV_PRESET_LATEST))
                 DLSSDRenderPresetUltraPerformance.set_from_config(setting);
+        }
+
+        // HispaOptiScaler v1.0.3-dev1: RayReconstruction, PreSR, SkinPreservation
+        {
+            auto rrEnabled = readBool("RayReconstruction", "Enabled");
+            if (!rrEnabled.has_value())
+                rrEnabled = readBool("DLSSD", "Enabled");
+            RREnabled.set_from_config(rrEnabled);
+
+            auto rrPresetStr = readString("RayReconstruction", "OverridePreset");
+            if (!rrPresetStr.has_value())
+                rrPresetStr = readString("DLSSD", "OverridePreset");
+            if (rrPresetStr.has_value())
+            {
+                std::string s = rrPresetStr.value();
+                if (s == "D" || s == "d")
+                    RROverridePreset.set_from_config(4);
+                else if (s == "E" || s == "e")
+                    RROverridePreset.set_from_config(5);
+                else if (s == "F" || s == "f")
+                    RROverridePreset.set_from_config(6);
+                else if (s == "Default" || s == "default" || s == "auto")
+                    RROverridePreset.set_from_config(0);
+                else
+                {
+                    int pVal = 0;
+                    if (isInteger(s, pVal) && pVal >= 0 && pVal <= 7)
+                        RROverridePreset.set_from_config(pVal);
+                }
+            }
+
+            auto rrRatio = readFloat("RayReconstruction", "RRScalingRatio");
+            if (!rrRatio.has_value())
+                rrRatio = readFloat("RayReconstruction", "ScalingRatio");
+            if (!rrRatio.has_value())
+                rrRatio = readFloat("DLSSD", "RRScalingRatio");
+            if (rrRatio.has_value() && rrRatio.value() >= 0.25f && rrRatio.value() <= 2.0f)
+                RRScalingRatio.set_from_config(rrRatio);
+
+            auto autoBarriers = readBool("RayReconstruction", "AutoResourceBarriers");
+            if (!autoBarriers.has_value())
+                autoBarriers = readBool("DLSSD", "AutoResourceBarriers");
+            AutoResourceBarriers.set_from_config(autoBarriers);
+
+            auto preSRModeStr = readString("PreSR", "Mode");
+            if (preSRModeStr.has_value())
+            {
+                std::string m = preSRModeStr.value();
+                if (m == "Off" || m == "off" || m == "0")
+                    PreSRMode.set_from_config(0);
+                else if (m == "Pre-SR" || m == "pre-sr" || m == "1")
+                    PreSRMode.set_from_config(1);
+                else if (m == "Hybrid" || m == "hybrid" || m == "2")
+                    PreSRMode.set_from_config(2);
+            }
+            else
+            {
+                auto preSRModeInt = readInt("PreSR", "Mode");
+                if (preSRModeInt.has_value() && preSRModeInt.value() >= 0 && preSRModeInt.value() <= 2)
+                    PreSRMode.set_from_config(preSRModeInt.value());
+            }
+
+            auto preSRBlend = readFloat("PreSR", "BlendIntensity");
+            if (preSRBlend.has_value() && preSRBlend.value() >= 0.0f && preSRBlend.value() <= 1.0f)
+                PreSRBlendIntensity.set_from_config(preSRBlend);
+
+            SkinPreservationEnable.set_from_config(readBool("SkinPreservation", "Enable"));
+            auto skinStrength = readFloat("SkinPreservation", "SkinDetailStrength");
+            if (skinStrength.has_value() && skinStrength.value() >= 0.0f && skinStrength.value() <= 1.0f)
+                SkinDetailStrength.set_from_config(skinStrength);
         }
 
         // NvngxFG
@@ -1113,6 +1196,10 @@ bool Config::SaveIni()
         ini.SetValue("OptiFG", "EnableDepthScale",
                      GetBoolValue(Instance()->FGEnableDepthScale.value_for_config()).c_str());
         ini.SetValue("OptiFG", "DepthScaleMax", GetFloatValue(Instance()->FGDepthScaleMax.value_for_config()).c_str());
+        ini.SetValue("OptiFG", "ScaleDepthForRR",
+                     GetBoolValue(Instance()->FGScaleDepthForRR.value_for_config()).c_str());
+        ini.SetValue("OptiFG", "DepthScaleFactor",
+                     GetFloatValue(Instance()->FGDepthScaleFactor.value_for_config()).c_str());
 
         ini.SetValue("OptiFG", "HUDFixDontUseSwapchainBuffers",
                      GetBoolValue(Instance()->FGDontUseSwapchainBuffers.value_for_config()).c_str());
@@ -1298,6 +1385,36 @@ bool Config::SaveIni()
                      GetIntValue(Instance()->DLSSDRenderPresetPerformance.value_for_config()).c_str());
         ini.SetValue("DLSSD", "RenderPresetUltraPerformance",
                      GetIntValue(Instance()->DLSSDRenderPresetUltraPerformance.value_for_config()).c_str());
+    }
+
+    // RayReconstruction
+    {
+        ini.SetValue("RayReconstruction", "Enabled",
+                     GetBoolValue(Instance()->RREnabled.value_for_config()).c_str());
+        int rrPreset = Instance()->RROverridePreset.value_for_config().value_or(0);
+        const char* presetStr = (rrPreset == 4) ? "D" : (rrPreset == 5) ? "E" : (rrPreset == 6) ? "F" : "auto";
+        ini.SetValue("RayReconstruction", "OverridePreset", presetStr);
+        ini.SetValue("RayReconstruction", "RRScalingRatio",
+                     GetFloatValue(Instance()->RRScalingRatio.value_for_config()).c_str());
+        ini.SetValue("RayReconstruction", "AutoResourceBarriers",
+                     GetBoolValue(Instance()->AutoResourceBarriers.value_for_config()).c_str());
+    }
+
+    // PreSR
+    {
+        int psrMode = Instance()->PreSRMode.value_for_config().value_or(1);
+        const char* modeStr = (psrMode == 0) ? "Off" : (psrMode == 2) ? "Hybrid" : "Pre-SR";
+        ini.SetValue("PreSR", "Mode", modeStr);
+        ini.SetValue("PreSR", "BlendIntensity",
+                     GetFloatValue(Instance()->PreSRBlendIntensity.value_for_config()).c_str());
+    }
+
+    // SkinPreservation
+    {
+        ini.SetValue("SkinPreservation", "Enable",
+                     GetBoolValue(Instance()->SkinPreservationEnable.value_for_config()).c_str());
+        ini.SetValue("SkinPreservation", "SkinDetailStrength",
+                     GetFloatValue(Instance()->SkinDetailStrength.value_for_config()).c_str());
     }
 
     // NvngxFG
@@ -1950,4 +2067,16 @@ Config* Config::Instance()
         _config = new Config();
 
     return _config;
+}
+
+bool Config::FGShouldScaleDepth() const
+{
+    if (FGScaleDepthForRR.has_value())
+        return FGScaleDepthForRR.value();
+
+    if (FGEnableDepthScale.has_value())
+        return FGEnableDepthScale.value();
+
+    // Auto mode: enable if Ray Reconstruction (DLSS-D) is active
+    return State::Instance().dlssdActive;
 }

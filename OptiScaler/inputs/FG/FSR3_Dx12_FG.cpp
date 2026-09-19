@@ -1445,7 +1445,7 @@ void FSR3FG::SetUpscalerInputs(ID3D12GraphicsCommandList* InCmdList, NVSDK_NGX_P
         {
             auto done = false;
 
-            if (Config::Instance()->FGEnableDepthScale.value_or_default())
+            if (Config::Instance()->FGShouldScaleDepth())
             {
                 if (DepthScale == nullptr)
                     DepthScale = new DS_Dx12("Depth Scale", _device);

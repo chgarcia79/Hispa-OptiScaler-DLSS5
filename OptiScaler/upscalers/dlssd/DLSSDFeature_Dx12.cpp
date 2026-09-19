@@ -2,6 +2,7 @@
 #include "DLSSDFeature_Dx12.h"
 #include <dxgi1_4.h>
 #include <Config.h>
+#include <State.h>
 
 bool DLSSDFeatureDx12::InitInternal(ID3D12GraphicsCommandList* InCommandList, NVSDK_NGX_Parameter* InParameters)
 {
@@ -83,11 +84,24 @@ bool DLSSDFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList
         return false;
     }
 
+    State::Instance().dlssdActive = true;
+
     NVSDK_NGX_Result nvResult;
 
     if (NVNGXProxy::D3D12_EvaluateFeature() != nullptr)
     {
         ProcessEvaluateParams(InParameters);
+
+        const bool autoBarriers = Config::Instance()->AutoResourceBarriers.value_or_default();
+        if (autoBarriers)
+        {
+            // Global UAV barrier before Ray Reconstruction evaluate to prevent GPU race conditions and 0x887A0005 crashes
+            D3D12_RESOURCE_BARRIER preBarrier {};
+            preBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+            preBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+            preBarrier.UAV.pResource = nullptr;
+            InCommandList->ResourceBarrier(1, &preBarrier);
+        }
 
         nvResult = NVNGXProxy::D3D12_EvaluateFeature()(InCommandList, _p_dlssdHandle, InParameters, NULL);
 
@@ -95,6 +109,20 @@ bool DLSSDFeatureDx12::EvaluateInternal(ID3D12GraphicsCommandList* InCommandList
         {
             LOG_ERROR("_EvaluateFeature result: {0:X}", (unsigned int) nvResult);
             return false;
+        }
+
+        if (autoBarriers)
+        {
+            // Ensure output UAV writes are committed before consumer passes or Frame Generation read them
+            ID3D12Resource* paramOutput = nullptr;
+            if (InParameters->Get(NVSDK_NGX_Parameter_Output, &paramOutput) != NVSDK_NGX_Result_Success)
+                InParameters->Get(NVSDK_NGX_Parameter_Output, (void**) &paramOutput);
+
+            D3D12_RESOURCE_BARRIER postBarrier {};
+            postBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+            postBarrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
+            postBarrier.UAV.pResource = paramOutput;
+            InCommandList->ResourceBarrier(1, &postBarrier);
         }
     }
     else

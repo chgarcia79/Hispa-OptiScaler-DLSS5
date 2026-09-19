@@ -2965,6 +2965,60 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                 ImGui::Spacing();
             }
         }
+
+        if (usesDlssd || state.dlssdActive)
+        {
+            ImGui::Spacing();
+            if (auto ch = ScopedCollapsingHeader("Ray Reconstruction & Pre-SR Pipeline (v1.0.3)"); ch.IsHeaderOpen())
+            {
+                ScopedIndent indent {};
+                ImGui::Spacing();
+
+                bool rrBarriers = config->AutoResourceBarriers.value_or_default();
+                if (ImGui::Checkbox("Auto Resource Barriers (Anti-Crash)", &rrBarriers))
+                    config->AutoResourceBarriers = rrBarriers;
+                ShowHelpMarker("Transiciones y barreras UAV automaticas de recursos D3D12 para evitar cuelgues DXGI_ERROR_DEVICE_REMOVED (0x887A0005) en cinematicas.");
+
+                float rrRatio = config->RRScalingRatio.value_or_default();
+                if (ImGui::SliderFloat("RR Scaling Ratio", &rrRatio, 0.33f, 1.00f, "%.2f"))
+                    config->RRScalingRatio = rrRatio;
+                ShowHelpMarker("Ratio de resolucion de calculo de rayos desacoplado de Super Resolution (1.00 = DLAA Nativo de Rayos, 0.50 = 50%).");
+
+                ImGui::Spacing();
+                ImGui::SeparatorText("Pre-SR Multipass");
+
+                const char* psrModes[] = { "Off (Clasico)", "Pre-SR (Desacoplado)", "Hybrid" };
+                int currentPsrMode = config->PreSRMode.value_or_default();
+                if (currentPsrMode < 0 || currentPsrMode > 2)
+                    currentPsrMode = 1;
+                if (ImGui::Combo("Pre-SR Mode", &currentPsrMode, psrModes, 3))
+                    config->PreSRMode = currentPsrMode;
+                ShowHelpMarker("Ejecuta el denoiser en la resolucion interna nativa antes de Super Resolution para evitar shimmering.");
+
+                float blend = config->PreSRBlendIntensity.value_or_default();
+                if (ImGui::SliderFloat("Pre-SR Blend Intensity", &blend, 0.00f, 1.00f, "%.2f"))
+                    config->PreSRBlendIntensity = blend;
+                ShowHelpMarker("Intensidad de mezcla del filtrado previo Pre-SR.");
+
+                ImGui::Spacing();
+                ImGui::SeparatorText("Skin & SSS Preservation");
+
+                bool skinEnable = config->SkinPreservationEnable.value_or_default();
+                if (ImGui::Checkbox("Preserve Skin Detail", &skinEnable))
+                    config->SkinPreservationEnable = skinEnable;
+                ShowHelpMarker("Evita el efecto 'cara de cera' aislando el canal de difusion/albedo en materiales organicos.");
+
+                if (skinEnable)
+                {
+                    float skinStr = config->SkinDetailStrength.value_or_default();
+                    if (ImGui::SliderFloat("Skin Detail Strength", &skinStr, 0.00f, 1.00f, "%.2f"))
+                        config->SkinDetailStrength = skinStr;
+                    ShowHelpMarker("Intensidad de preservacion de poros y textura cutanea (0.65 = Punto optimo natural).");
+                }
+
+                ImGui::Spacing();
+            }
+        }
     }
 }
 
@@ -4176,6 +4230,16 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
             if (ImGui::Checkbox("Scale Depth to fix DLSS RR", &depthScale))
                 config->FGEnableDepthScale = depthScale;
             ShowHelpMarker("Fix for DLSS-D wrong depth inputs");
+
+            bool scaleDepthRR = config->FGScaleDepthForRR.value_or_default();
+            if (ImGui::Checkbox("Scale Depth For RR (Auto/Forced)", &scaleDepthRR))
+                config->FGScaleDepthForRR = scaleDepthRR;
+            ShowHelpMarker("Corrige la desalineacion dimensional del Depth Buffer al usar Frame Generation con Ray Reconstruction.");
+
+            float depthFactor = config->FGDepthScaleFactor.value_or(1.0f);
+            if (ImGui::SliderFloat("Depth Scale Factor", &depthFactor, 0.50f, 2.00f, "%.2f"))
+                config->FGDepthScaleFactor = depthFactor;
+            ShowHelpMarker("Multiplicador fino de escala de profundidad para Frame Generation (Default: 1.00)");
 
             bool resourceFlip = config->FGResourceFlip.value_or_default();
             if (ImGui::Checkbox("Flip (Unity)", &resourceFlip))

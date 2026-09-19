@@ -521,6 +521,16 @@ class Config
     CustomOptional<uint32_t> DLSSDRenderPresetPerformance { 0 };
     CustomOptional<uint32_t> DLSSDRenderPresetUltraPerformance { 0 };
 
+    // HispaOptiScaler v1.0.3-dev1: Ray Reconstruction, Pre-SR, Skin & Barriers
+    CustomOptional<bool> RREnabled { true };
+    CustomOptional<int> RROverridePreset { 0 }; // 0: Auto/Default, 4: D, 5: E, 6: F
+    CustomOptional<float> RRScalingRatio { 1.0f };
+    CustomOptional<bool> AutoResourceBarriers { true };
+    CustomOptional<int> PreSRMode { 1 }; // 0: Off, 1: Pre-SR, 2: Hybrid
+    CustomOptional<float> PreSRBlendIntensity { 1.0f };
+    CustomOptional<bool> SkinPreservationEnable { true };
+    CustomOptional<float> SkinDetailStrength { 0.65f };
+
     // Nukems
     CustomOptional<bool> NvngxFGMakeDepthCopy { false };
 
@@ -819,6 +829,8 @@ class Config
     // OptiFG - DLSS-D Depth scale
     CustomOptional<bool> FGEnableDepthScale { false };
     CustomOptional<float> FGDepthScaleMax { 10000.0f };
+    CustomOptional<bool> FGScaleDepthForRR { false };
+    CustomOptional<float> FGDepthScaleFactor { 1.0f };
 
     // FSR-FG
     CustomOptional<bool> FGDebugView { false };
@@ -910,6 +922,7 @@ class Config
     void CheckUpscalerFiles();
 
     std::vector<std::string> GetConfigLog();
+    bool FGShouldScaleDepth() const;
 
     static Config* Instance();
 

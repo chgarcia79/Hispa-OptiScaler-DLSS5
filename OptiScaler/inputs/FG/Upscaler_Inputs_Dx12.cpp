@@ -194,7 +194,7 @@ void UpscalerInputsDx12::UpscaleStart(ID3D12GraphicsCommandList* InCmdList, NVSD
         {
             auto done = false;
 
-            if (Config::Instance()->FGEnableDepthScale.value_or_default())
+            if (Config::Instance()->FGShouldScaleDepth())
             {
                 if (DepthScale == nullptr)
                     DepthScale = new DS_Dx12("Depth Scale", _device);

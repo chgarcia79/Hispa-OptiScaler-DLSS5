@@ -28,6 +28,19 @@ void DLSSDFeature::ProcessEvaluateParams(NVSDK_NGX_Parameter* InParameters)
     unsigned int width;
     unsigned int height;
     GetRenderResolution(InParameters, &width, &height);
+
+    // HispaOptiScaler v1.0.3-dev1: Subsurface Scattering & Skin Detail Preservation
+    if (Config::Instance()->SkinPreservationEnable.value_or_default())
+    {
+        float skinStrength = Config::Instance()->SkinDetailStrength.value_or(0.65f);
+        InParameters->Set("DLSS.Denoise.SkinDetailStrength", skinStrength);
+        InParameters->Set("RayReconstruction.SkinPreservation", 1);
+        InParameters->Set("RayReconstruction.SkinDetailStrength", skinStrength);
+    }
+    else
+    {
+        InParameters->Set("RayReconstruction.SkinPreservation", 0);
+    }
 }
 
 void DLSSDFeature::ProcessInitParams(NVSDK_NGX_Parameter* InParameters)
@@ -94,12 +107,27 @@ void DLSSDFeature::ProcessInitParams(NVSDK_NGX_Parameter* InParameters)
         }
     }
 
-    InParameters->Set(NVSDK_NGX_Parameter_Width, RenderWidth());
-    InParameters->Set(NVSDK_NGX_Parameter_Height, RenderHeight());
+    float rrRatio = Config::Instance()->RRScalingRatio.value_or_default();
+    if (rrRatio > 0.25f && rrRatio <= 2.0f && rrRatio != 1.0f)
+    {
+        unsigned int rrWidth = static_cast<unsigned int>(RenderWidth() * rrRatio);
+        unsigned int rrHeight = static_cast<unsigned int>(RenderHeight() * rrRatio);
+        rrWidth = (rrWidth / 2) * 2;
+        rrHeight = (rrHeight / 2) * 2;
+        InParameters->Set(NVSDK_NGX_Parameter_Width, rrWidth);
+        InParameters->Set(NVSDK_NGX_Parameter_Height, rrHeight);
+        LOG_INFO("DLSSD RRScalingRatio applied: {0:.2f} -> {1}x{2}", rrRatio, rrWidth, rrHeight);
+    }
+    else
+    {
+        InParameters->Set(NVSDK_NGX_Parameter_Width, RenderWidth());
+        InParameters->Set(NVSDK_NGX_Parameter_Height, RenderHeight());
+    }
     InParameters->Set(NVSDK_NGX_Parameter_OutWidth, TargetWidth());
     InParameters->Set(NVSDK_NGX_Parameter_OutHeight, TargetHeight());
 
-    if (Config::Instance()->DLSSDRenderPresetOverride.value_or_default())
+    int rrPresetOverride = Config::Instance()->RROverridePreset.value_or_default();
+    if (Config::Instance()->DLSSDRenderPresetOverride.value_or_default() || rrPresetOverride > 0)
     {
         if (!State::Instance().dlssdPresetsOverridenByOpti)
         {
@@ -139,29 +167,28 @@ void DLSSDFeature::ProcessInitParams(NVSDK_NGX_Parameter* InParameters)
         InParameters->Get("RayReconstruction.Hint.Render.Preset.Performance", &RenderPresetPerformance);
         InParameters->Get("RayReconstruction.Hint.Render.Preset.UltraPerformance", &RenderPresetUltraPerformance);
 
-        if (Config::Instance()->DLSSDRenderPresetOverride.value_or_default())
-        {
-            RenderPresetDLAA = Config::Instance()->DLSSDRenderPresetForAll.value_or(
-                Config::Instance()->DLSSDRenderPresetDLAA.value_or(RenderPresetDLAA));
-            RenderPresetUltraQuality = Config::Instance()->DLSSDRenderPresetForAll.value_or(
-                Config::Instance()->DLSSDRenderPresetUltraQuality.value_or(RenderPresetUltraQuality));
-            RenderPresetQuality = Config::Instance()->DLSSDRenderPresetForAll.value_or(
-                Config::Instance()->DLSSDRenderPresetQuality.value_or(RenderPresetQuality));
-            RenderPresetBalanced = Config::Instance()->DLSSDRenderPresetForAll.value_or(
-                Config::Instance()->DLSSDRenderPresetBalanced.value_or(RenderPresetBalanced));
-            RenderPresetPerformance = Config::Instance()->DLSSDRenderPresetForAll.value_or(
-                Config::Instance()->DLSSDRenderPresetPerformance.value_or(RenderPresetPerformance));
-            RenderPresetUltraPerformance = Config::Instance()->DLSSDRenderPresetForAll.value_or(
-                Config::Instance()->DLSSDRenderPresetUltraPerformance.value_or(RenderPresetUltraPerformance));
+        uint32_t forcedPreset = (rrPresetOverride > 0) ? static_cast<uint32_t>(rrPresetOverride) : 0;
 
-            LOG_DEBUG("Preset override active, config overrides:");
-            LOG_DEBUG("Preset_DLAA {}", RenderPresetDLAA);
-            LOG_DEBUG("Preset_UltraQuality {}", RenderPresetUltraQuality);
-            LOG_DEBUG("Preset_Quality {}", RenderPresetQuality);
-            LOG_DEBUG("Preset_Balanced {}", RenderPresetBalanced);
-            LOG_DEBUG("Preset_Performance {}", RenderPresetPerformance);
-            LOG_DEBUG("Preset_UltraPerformance {}", RenderPresetUltraPerformance);
-        }
+        RenderPresetDLAA = forcedPreset > 0 ? forcedPreset : Config::Instance()->DLSSDRenderPresetForAll.value_or(
+            Config::Instance()->DLSSDRenderPresetDLAA.value_or(RenderPresetDLAA));
+        RenderPresetUltraQuality = forcedPreset > 0 ? forcedPreset : Config::Instance()->DLSSDRenderPresetForAll.value_or(
+            Config::Instance()->DLSSDRenderPresetUltraQuality.value_or(RenderPresetUltraQuality));
+        RenderPresetQuality = forcedPreset > 0 ? forcedPreset : Config::Instance()->DLSSDRenderPresetForAll.value_or(
+            Config::Instance()->DLSSDRenderPresetQuality.value_or(RenderPresetQuality));
+        RenderPresetBalanced = forcedPreset > 0 ? forcedPreset : Config::Instance()->DLSSDRenderPresetForAll.value_or(
+            Config::Instance()->DLSSDRenderPresetBalanced.value_or(RenderPresetBalanced));
+        RenderPresetPerformance = forcedPreset > 0 ? forcedPreset : Config::Instance()->DLSSDRenderPresetForAll.value_or(
+            Config::Instance()->DLSSDRenderPresetPerformance.value_or(RenderPresetPerformance));
+        RenderPresetUltraPerformance = forcedPreset > 0 ? forcedPreset : Config::Instance()->DLSSDRenderPresetForAll.value_or(
+            Config::Instance()->DLSSDRenderPresetUltraPerformance.value_or(RenderPresetUltraPerformance));
+
+        LOG_DEBUG("Preset override active, config overrides:");
+        LOG_DEBUG("Preset_DLAA {}", RenderPresetDLAA);
+        LOG_DEBUG("Preset_UltraQuality {}", RenderPresetUltraQuality);
+        LOG_DEBUG("Preset_Quality {}", RenderPresetQuality);
+        LOG_DEBUG("Preset_Balanced {}", RenderPresetBalanced);
+        LOG_DEBUG("Preset_Performance {}", RenderPresetPerformance);
+        LOG_DEBUG("Preset_UltraPerformance {}", RenderPresetUltraPerformance);
 
         InParameters->Set("RayReconstruction.Hint.Render.Preset.DLAA", RenderPresetDLAA);
         InParameters->Set("RayReconstruction.Hint.Render.Preset.UltraQuality", RenderPresetUltraQuality);

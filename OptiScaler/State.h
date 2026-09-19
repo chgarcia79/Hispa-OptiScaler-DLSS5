@@ -174,6 +174,7 @@ class State
     std::optional<std::wstring> NVNGX_DLSS_Path;
     std::optional<std::wstring> NVNGX_DLSSD_Path;
     std::optional<std::wstring> NVNGX_DLSSG_Path;
+    bool dlssdActive = false;
 
     // optis dlls
     HMODULE optiSlInterposer = nullptr;

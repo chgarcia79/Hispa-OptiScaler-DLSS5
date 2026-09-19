@@ -52,7 +52,8 @@ bool DS_Dx12::Dispatch(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* InR
     CreateUnorderedAccessView(_device, OutResource, currentHeap.GetUavCPU(0), 0);
 
     DSConstants constants {};
-    constants.DepthScale = Config::Instance()->FGDepthScaleMax.value_or_default();
+    float scaleFactor = Config::Instance()->FGDepthScaleFactor.value_or(1.0f);
+    constants.DepthScale = Config::Instance()->FGDepthScaleMax.value_or_default() * scaleFactor;
 
     if (!CreateConstantsBuffer(_device, _constantBuffer, constants, currentHeap.GetCbvCPU(0)))
     {
