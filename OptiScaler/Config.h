@@ -531,6 +531,10 @@ class Config
     CustomOptional<bool> SkinPreservationEnable { true };
     CustomOptional<float> SkinDetailStrength { 0.65f };
 
+    // HispaOptiScaler v1.0.4-dev1: DLSS Core Upstream (Jitter Correction, Preset Forcing & Driver 56x Shield)
+    CustomOptional<bool> DLSSMVJitterCorrection { true };
+    CustomOptional<int> DLSSOverridePreset { 0 }; // 0: Auto/Game, 3: C, 4: D, 5: E, 6: F, 7: G
+
     // Nukems
     CustomOptional<bool> NvngxFGMakeDepthCopy { false };
 

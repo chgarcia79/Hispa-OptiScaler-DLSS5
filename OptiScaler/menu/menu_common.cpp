@@ -2962,6 +2962,36 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                 ImGui::EndDisabled();
 
                 ImGui::Spacing();
+                ImGui::SeparatorText("DLSS Core Upstream (v1.0.4)");
+
+                bool mvJitter = config->DLSSMVJitterCorrection.value_or_default();
+                if (ImGui::Checkbox("MV Jitter Correction", &mvJitter))
+                    config->DLSSMVJitterCorrection = mvJitter;
+                ShowHelpMarker("Corrige el alineamiento de sub-pixel de Motion Vectors en DLSS para erradicar ghosting en textos y miras.");
+
+                int overridePreset = config->DLSSOverridePreset.value_or_default();
+                const char* dlssPresets[] = { "Auto (Juego)", "Preset C", "Preset D", "Preset E", "Preset F", "Preset G" };
+                int currentPresetIdx = 0;
+                if (overridePreset == 3) currentPresetIdx = 1;
+                else if (overridePreset == 4) currentPresetIdx = 2;
+                else if (overridePreset == 5) currentPresetIdx = 3;
+                else if (overridePreset == 6) currentPresetIdx = 4;
+                else if (overridePreset == 7) currentPresetIdx = 5;
+
+                ImGui::PushItemWidth(135.0f * menuResScale);
+                if (ImGui::Combo("Force DLSS Preset", &currentPresetIdx, dlssPresets, IM_ARRAYSIZE(dlssPresets)))
+                {
+                    if (currentPresetIdx == 0) config->DLSSOverridePreset = 0;
+                    else if (currentPresetIdx == 1) config->DLSSOverridePreset = 3;
+                    else if (currentPresetIdx == 2) config->DLSSOverridePreset = 4;
+                    else if (currentPresetIdx == 3) config->DLSSOverridePreset = 5;
+                    else if (currentPresetIdx == 4) config->DLSSOverridePreset = 6;
+                    else if (currentPresetIdx == 5) config->DLSSOverridePreset = 7;
+                }
+                ImGui::PopItemWidth();
+                ShowHelpMarker("Fuerza el modelo neuronal específico de DLSS Super Resolution (Presets C a G).");
+
+                ImGui::Spacing();
                 ImGui::Spacing();
             }
         }

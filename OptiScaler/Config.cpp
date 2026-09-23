@@ -520,6 +520,12 @@ bool Config::Reload(std::filesystem::path iniPath)
             auto skinStrength = readFloat("SkinPreservation", "SkinDetailStrength");
             if (skinStrength.has_value() && skinStrength.value() >= 0.0f && skinStrength.value() <= 1.0f)
                 SkinDetailStrength.set_from_config(skinStrength);
+
+            // HispaOptiScaler v1.0.4-dev1: DLSS Core Upstream
+            DLSSMVJitterCorrection.set_from_config(readBool("DLSS", "MVJitterCorrection"));
+            auto dlssPreset = readInt("DLSS", "OverridePreset");
+            if (dlssPreset.has_value() && dlssPreset.value() >= 0 && dlssPreset.value() <= 7)
+                DLSSOverridePreset.set_from_config(dlssPreset.value());
         }
 
         // NvngxFG
@@ -1415,6 +1421,14 @@ bool Config::SaveIni()
                      GetBoolValue(Instance()->SkinPreservationEnable.value_for_config()).c_str());
         ini.SetValue("SkinPreservation", "SkinDetailStrength",
                      GetFloatValue(Instance()->SkinDetailStrength.value_for_config()).c_str());
+    }
+
+    // DLSS Core Upstream v1.0.4-dev1
+    {
+        ini.SetValue("DLSS", "MVJitterCorrection",
+                     GetBoolValue(Instance()->DLSSMVJitterCorrection.value_for_config()).c_str());
+        ini.SetValue("DLSS", "OverridePreset",
+                     GetIntValue(Instance()->DLSSOverridePreset.value_for_config()).c_str());
     }
 
     // NvngxFG

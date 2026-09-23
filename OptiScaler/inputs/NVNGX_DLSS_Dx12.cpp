@@ -1164,6 +1164,27 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
         }
     }
 
+    // HispaOptiScaler v1.0.4-dev1: DLSS Core Upstream (Preset & Motion Vectors Jitter Correction)
+    if (feature == NVSDK_NGX_Feature_SuperSampling || feature == NVSDK_NGX_Feature_RayReconstruction)
+    {
+        int dlssPreset = cfg.DLSSOverridePreset.value_or_default();
+        if (dlssPreset > 0)
+        {
+            InParameters->Set("DLSS.Hint.Render.Preset", dlssPreset);
+        }
+
+        if (cfg.DLSSMVJitterCorrection.value_or_default())
+        {
+            int flags = 0;
+            if (InParameters->Get("DLSS.Feature.Create.Flags", &flags) == NVSDK_NGX_Result_Success)
+            {
+                // Asegurar flag NVSDK_NGX_DLSS_Feature_Flags_MVJittered (0x00000004)
+                flags |= 0x00000004;
+                InParameters->Set("DLSS.Feature.Create.Flags", flags);
+            }
+        }
+    }
+
     // Native DLSS passthrough
     if (handleId < DLSS_MOD_ID_OFFSET)
     {
