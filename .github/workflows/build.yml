@@ -8,7 +8,7 @@ name: Build Hispa-OptiScaler-DLSS5
 on:
   workflow_dispatch:
   push:
-    branches: [ "main", "dlss-neural-rendering", "master" ]
+    branches: [ "main", "dlss-neural-rendering", "master", "v1.0.4-dev1" ]
   schedule:
     - cron: '0 4 * * *' 
     
