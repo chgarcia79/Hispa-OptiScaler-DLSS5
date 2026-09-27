@@ -9,8 +9,6 @@ on:
   workflow_dispatch:
   push:
     branches: [ "main", "dlss-neural-rendering", "master", "v1.0.4-dev1" ]
-  schedule:
-    - cron: '0 4 * * *' 
     
 env:
   # Path to the solution file relative to the root of the project.
@@ -110,7 +108,9 @@ jobs:
         $buildVersion = Get-Version-Component 'VER_BUILD_NUMBER' '#define VER_BUILD_NUMBER\s+'
         
         # Merge into a single version string
-        $version = "v$majorVersion.$minorVersion.$hotfixVersion-pre$buildVersion"
+        $isDev = Get-Content $resourceFile | Select-String -Pattern '#define VER_DEV_RELEASE'
+        $tagSuffix = if ($isDev) { "dev" } else { "pre" }
+        $version = "v$majorVersion.$minorVersion.$hotfixVersion-$tagSuffix$buildVersion"
         
         # Get the current date in a specific format (e.g., YYYYMMDD)
         $date = Get-Date -Format "yyyyMMdd"
@@ -175,7 +175,7 @@ jobs:
       uses: softprops/action-gh-release@v2
       with:
         tag_name: nightly
-        name: "Hispa-OptiScaler-DLSS5 (v0.2.0)"
+        name: "Hispa-OptiScaler-DLSS5 (${{ steps.get_version.outputs.version }})"
         files: |
           ${{ github.workspace }}/${{ steps.get_version.outputs.filename }}.zip
           ${{ github.workspace }}/${{ steps.get_version.outputs.filename }}.7z
