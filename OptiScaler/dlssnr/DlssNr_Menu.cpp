@@ -917,7 +917,7 @@ void RenderMenu(Config* config, float menuResScale)
                 }
             }
         }
-
+        }
 
         ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev2 / Pre-SR & Anti-Starvation)");
 
