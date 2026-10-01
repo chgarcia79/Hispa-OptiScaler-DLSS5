@@ -2040,6 +2040,8 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     encodeParams.WhitePoint = whitePoint;
     encodeParams.UseGameExposure = useGameExposure;
     encodeParams.ExposurePreMul = exposurePreMul;
+    encodeParams.AntiStarvation = cfg.DlssNrAntiStarvation.value_or_default() ? 1u : 0u;
+    encodeParams.ExposureBalance = cfg.DlssNrExposureBalance.value_or_default();
     encodeParams.ReversibleMode = cfg.DlssNrReversibleMode.value_or_default();
     // Match only takes effect once a fit exists; until then the table is empty and the shader would
     // read a curve of zeros, so it falls back to the plain proxy.
@@ -2264,6 +2266,8 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         resolveParams.WhitePoint = whitePoint;
         resolveParams.UseGameExposure = useGameExposure;
         resolveParams.ExposurePreMul = exposurePreMul;
+        resolveParams.AntiStarvation = cfg.DlssNrAntiStarvation.value_or_default() ? 1u : 0u;
+        resolveParams.ExposureBalance = cfg.DlssNrExposureBalance.value_or_default();
         resolveParams.Width = width;
         resolveParams.Height = height;
         resolveParams.TransferStrength = cfg.DlssNrTransferStrength.value_or_default();
@@ -2675,6 +2679,58 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
     }
 
     g_compose->Dispatch(cmdList, target, depth, motion, target, frame, timingQueue);
+}
+
+void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
+                           ID3D12CommandQueue* timingQueue)
+{
+    if (!Config::Instance()->DlssNrEnabled.value_or_default() ||
+        !Config::Instance()->DlssNrPreSR.value_or_default())
+    {
+        return;
+    }
+
+    if (cmdList == nullptr || params == nullptr)
+        return;
+
+    ID3D12Resource* color = GetResource(params, NVSDK_NGX_Parameter_Color, "DLSSD.Color");
+    ID3D12Resource* depth = GetResource(params, NVSDK_NGX_Parameter_Depth, "DLSSD.Depth");
+    ID3D12Resource* motion = GetResource(params, NVSDK_NGX_Parameter_MotionVectors, "DLSSD.MotionVectors");
+
+    if (color == nullptr || depth == nullptr || motion == nullptr)
+        return;
+
+    unsigned int createFlags = 0;
+    params->Get(NVSDK_NGX_Parameter_DLSS_Feature_Create_Flags, &createFlags);
+
+    DlssNrFrameInfo frame {};
+    frame.DepthInverted = (createFlags & NVSDK_NGX_DLSS_Feature_Flags_DepthInverted) != 0;
+    frame.ColourIsLinearHdr = (createFlags & NVSDK_NGX_DLSS_Feature_Flags_IsHDR) != 0;
+
+    unsigned int gameReset = 0;
+    if (params->Get(NVSDK_NGX_Parameter_Reset, &gameReset) == NVSDK_NGX_Result_Success)
+        frame.Reset = gameReset != 0;
+
+    params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, &frame.RenderSubrectWidth);
+    params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, &frame.RenderSubrectHeight);
+
+    if (params->Get(NVSDK_NGX_Parameter_MV_Scale_X, &frame.MvScaleX) != NVSDK_NGX_Result_Success)
+        frame.MvScaleX = 1.0f;
+
+    if (params->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &frame.MvScaleY) != NVSDK_NGX_Result_Success)
+        frame.MvScaleY = 1.0f;
+
+    ID3D12Device* device = nullptr;
+    if (FAILED(color->GetDevice(IID_PPV_ARGS(&device))) || device == nullptr)
+        return;
+
+    if (g_compose == nullptr)
+        g_compose = std::make_unique<DlssNr_Dx12>("Neural Rendering", device);
+
+    device->Release();
+
+    if (g_compose != nullptr)
+        g_compose->Dispatch(cmdList, color, depth, motion, color, frame, timingQueue);
 }
 
 // The pass. Resources in, nothing read from anywhere the caller cannot see.

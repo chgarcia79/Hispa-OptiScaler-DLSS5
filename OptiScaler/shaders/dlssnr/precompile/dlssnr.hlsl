@@ -29,6 +29,8 @@ cbuffer Params : register(b0)
     uint  gApplyModel;     // 0 output the clean frame (pass still runs), 1 apply the model's edit
     uint  gUseGameExposure;// D3D12 source-1 only: 1 = read the game's live exposure in-shader (t4)
     float gExposurePreMul; // preExposure * trim, so the live white point is gExposurePreMul / exposure
+    uint  gAntiStarvation; // 1 = activar clamp logarítmico contra halos negros y starvation
+    float gExposureBalance;// balance de exposición multiplicador (default 1.0)
 };
 
 // Bringing an impossible colour back into a possible one.
@@ -259,7 +261,10 @@ float WhitePoint()
         // A missing or absurd sample falls through to the CPU value the meter path still maintains.
     }
 #endif
-    return max(gWhitePoint, 1e-4);
+    float wp = max(gWhitePoint, 1e-4);
+    if (gExposureBalance > 0.001)
+        wp *= gExposureBalance;
+    return wp;
 }
 
 
@@ -961,6 +966,15 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     // achromatic edit lands as a colour shift.
     const float guard = max(gMaxRatio, 1.0);
     float boundedRatio = clamp(amplified, 1.0 / guard, guard);
+
+    // DLSSNR v0.2.0 Anti-Starvation: cuando la luminancia original es muy alta (sol, fuego, explosiones),
+    // evita que la inferencia neural se quede sin gradiente ("starvation") y genere halos oscuros alrededor.
+    if (gAntiStarvation != 0 && originalLuma > 0.85)
+    {
+        float excess = max(originalLuma - 0.85, 0.0);
+        float starvDamp = 1.0 / (1.0 + log2(1.0 + excess * 2.0));
+        boundedRatio = lerp(boundedRatio, max(boundedRatio, 1.0), starvDamp);
+    }
 
     // Exactly one while the ratio is already inside the guard, so a frame that never needed bounding
     // is untouched rather than rounded, and strength zero stays bit-identical.

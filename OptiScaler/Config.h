@@ -494,9 +494,11 @@ class Config
     // Higher means highlights sit lower on the curve and the model treats them as less extreme.
     CustomOptional<float> DlssNrWhitePointScale { 1.0f };
 
-
-
-
+    // HispaOptiScaler v1.0.4-dev2: Pre-SR Multipass & Anti-Starvation tuning
+    CustomOptional<bool> DlssNrPreSR { false };
+    CustomOptional<bool> DlssNrAntiStarvation { false };
+    CustomOptional<float> DlssNrExposureBalance { 1.0f };
+    CustomOptional<float> DlssNrWeight { 1.0f };
 
     // --- end DLSS 5 Neural Rendering -------------------------------------------------------------
 

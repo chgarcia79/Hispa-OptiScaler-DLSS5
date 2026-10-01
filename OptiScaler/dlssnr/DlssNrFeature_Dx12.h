@@ -33,6 +33,10 @@ namespace DlssNr
 void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
                           ID3D12CommandQueue* timingQueue = nullptr);
 
+// Pre-SR Multipass: evalúa el modelo neural a resolución interna previa al reescalado
+void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
+                           ID3D12CommandQueue* timingQueue = nullptr);
+
 
 
 // Frame generation titles tag their UI layer through Streamline; a copy of it makes the HUD mask

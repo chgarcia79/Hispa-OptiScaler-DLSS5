@@ -180,6 +180,8 @@ struct alignas(256) DlssNrConstants
     // preExposure * trim, so the live white point is ExposurePreMul / exposure. Mirrored in the cbuffer.
     uint32_t UseGameExposure;
     float ExposurePreMul;
+    uint32_t AntiStarvation;
+    float ExposureBalance;
 };
 
 class DlssNr_Common

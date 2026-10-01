@@ -382,6 +382,10 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrReversibleMode.set_from_config(readUInt("DlssNr", "ReversibleMode"));
             DlssNrApplyModel.set_from_config(readBool("DlssNr", "ApplyModel"));
             DlssNrHoldFrame.set_from_config(readBool("DlssNr", "HoldFrame"));
+            DlssNrPreSR.set_from_config(readBool("DlssNr", "PreSR"));
+            DlssNrAntiStarvation.set_from_config(readBool("DlssNr", "AntiStarvation"));
+            DlssNrExposureBalance.set_from_config(readFloat("DlssNr", "ExposureBalance"));
+            DlssNrWeight.set_from_config(readFloat("DlssNr", "Weight"));
             UseGenericAppIdWithDlss.set_from_config(readBool("DLSS", "UseGenericAppIdWithDlss"));
 
             RenderPresetOverride.set_from_config(readBool("DLSS", "RenderPresetOverride"));
@@ -1354,6 +1358,10 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "ReversibleMode", GetIntValue(Instance()->DlssNrReversibleMode.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ApplyModel", GetBoolValue(Instance()->DlssNrApplyModel.value_for_config()).c_str());
     ini.SetValue("DlssNr", "HoldFrame", GetBoolValue(Instance()->DlssNrHoldFrame.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "PreSR", GetBoolValue(Instance()->DlssNrPreSR.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "AntiStarvation", GetBoolValue(Instance()->DlssNrAntiStarvation.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "ExposureBalance", GetFloatValue(Instance()->DlssNrExposureBalance.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Weight", GetFloatValue(Instance()->DlssNrWeight.value_for_config()).c_str());
         ini.SetValue("DLSS", "RenderPresetOverride",
                      GetBoolValue(Instance()->RenderPresetOverride.value_for_config()).c_str());
         ini.SetValue("DLSS", "RenderPresetForAll",

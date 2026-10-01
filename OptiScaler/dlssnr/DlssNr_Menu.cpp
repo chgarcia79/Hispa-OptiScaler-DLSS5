@@ -919,7 +919,29 @@ void RenderMenu(Config* config, float menuResScale)
         }
 
 
-        }
+        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev2 / Pre-SR & Anti-Starvation)");
+
+        bool preSr = config->DlssNrPreSR.value_or_default();
+        if (ImGui::Checkbox("Pre-SR Multipass Mode", &preSr))
+            config->DlssNrPreSR = preSr;
+        HelpMarker("Evalua el modelo de red neuronal a resolucion interna base antes de reescalar.\n"
+                   "Elimina parpadeos en vegetacion y sombras, y reduce el consumo de GPU.");
+
+        bool antiStarv = config->DlssNrAntiStarvation.value_or_default();
+        if (ImGui::Checkbox("Highlight Anti-Starvation", &antiStarv))
+            config->DlssNrAntiStarvation = antiStarv;
+        HelpMarker("Clamp logaritmico que previene la saturacion extrema del modelo neural en fuentes\n"
+                   "de luz intensa (sol directo, fuego, explosiones), evitando halos oscuros y parpadeos.");
+
+        float expBal = config->DlssNrExposureBalance.value_or_default();
+        if (ImGui::SliderFloat("Exposure Balance", &expBal, 0.1f, 3.0f, "%.2fx"))
+            config->DlssNrExposureBalance = std::clamp(expBal, 0.1f, 3.0f);
+        HelpMarker("Calibra el balance de exposicion multipunto antes de la conversion OkLab.");
+
+        float nrWeight = config->DlssNrWeight.value_or_default();
+        if (ImGui::SliderFloat("Neural Blend Weight", &nrWeight, 0.0f, 1.0f, "%.2f"))
+            config->DlssNrWeight = std::clamp(nrWeight, 0.0f, 1.0f);
+        HelpMarker("Intensidad de mezcla del resultado neural frente al fotograma nativo.");
 
         ImGui::SeparatorText("Comparativa A/B");
 
