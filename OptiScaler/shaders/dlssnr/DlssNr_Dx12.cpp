@@ -2693,11 +2693,25 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
     if (cmdList == nullptr || params == nullptr)
         return;
 
+    // Guardian dev3: Omitir los primeros 120 fotogramas durante el bootstrap del motor,
+    // pantallas de carga o transiciones tempranas de swapchain
+    static uint32_t s_preSrBootstrapFrames = 0;
+    if (++s_preSrBootstrapFrames < 120)
+        return;
+
     ID3D12Resource* color = GetResource(params, NVSDK_NGX_Parameter_Color, "DLSSD.Color");
     ID3D12Resource* depth = GetResource(params, NVSDK_NGX_Parameter_Depth, "DLSSD.Depth");
     ID3D12Resource* motion = GetResource(params, NVSDK_NGX_Parameter_MotionVectors, "DLSSD.MotionVectors");
 
     if (color == nullptr || depth == nullptr || motion == nullptr)
+        return;
+
+    D3D12_RESOURCE_DESC colorDesc = color->GetDesc();
+    if (colorDesc.Width == 0 || colorDesc.Height == 0)
+        return;
+
+    // Guardian dev3: Asegurar que el buffer de color admite acceso UAV in-place
+    if ((colorDesc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) == 0)
         return;
 
     unsigned int createFlags = 0;
@@ -2714,6 +2728,12 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
     params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, &frame.RenderSubrectWidth);
     params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, &frame.RenderSubrectHeight);
 
+    if (frame.RenderSubrectWidth == 0 || frame.RenderSubrectHeight == 0)
+    {
+        frame.RenderSubrectWidth = static_cast<unsigned int>(colorDesc.Width);
+        frame.RenderSubrectHeight = colorDesc.Height;
+    }
+
     if (params->Get(NVSDK_NGX_Parameter_MV_Scale_X, &frame.MvScaleX) != NVSDK_NGX_Result_Success)
         frame.MvScaleX = 1.0f;
 
@@ -2725,7 +2745,14 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
         return;
 
     if (g_compose == nullptr)
-        g_compose = std::make_unique<DlssNr_Dx12>("Neural Rendering", device);
+    {
+        try {
+            g_compose = std::make_unique<DlssNr_Dx12>("Neural Rendering", device);
+        } catch (...) {
+            device->Release();
+            return;
+        }
+    }
 
     device->Release();
 

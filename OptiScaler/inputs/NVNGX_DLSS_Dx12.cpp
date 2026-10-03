@@ -1186,7 +1186,7 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
     }
 
     // Pre-SR Multipass: evaluación del modelo neural a resolución interna previa al reescalado
-    if (feature != NVSDK_NGX_Feature_FrameGeneration)
+    if (InCmdList != nullptr && InParameters != nullptr && feature != NVSDK_NGX_Feature_FrameGeneration)
         DlssNr::EvaluateBeforeUpscale(InCmdList, InParameters);
 
     // Native DLSS passthrough
