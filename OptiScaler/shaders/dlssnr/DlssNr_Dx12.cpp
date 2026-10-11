@@ -2693,12 +2693,6 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
     if (cmdList == nullptr || params == nullptr)
         return;
 
-    // Guardian dev3: Omitir los primeros 120 fotogramas durante el bootstrap del motor,
-    // pantallas de carga o transiciones tempranas de swapchain
-    static uint32_t s_preSrBootstrapFrames = 0;
-    if (++s_preSrBootstrapFrames < 120)
-        return;
-
     ID3D12Resource* color = GetResource(params, NVSDK_NGX_Parameter_Color, "DLSSD.Color");
     ID3D12Resource* depth = GetResource(params, NVSDK_NGX_Parameter_Depth, "DLSSD.Depth");
     ID3D12Resource* motion = GetResource(params, NVSDK_NGX_Parameter_MotionVectors, "DLSSD.MotionVectors");
@@ -2708,6 +2702,28 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
 
     D3D12_RESOURCE_DESC colorDesc = color->GetDesc();
     if (colorDesc.Width == 0 || colorDesc.Height == 0)
+        return;
+
+    // Guardian dev4: Blindaje SwapChain reactivo frente a resoluciones minimas, redimensionados y cargas asincronas (MSFS 2024 / UE5)
+    static uint64_t s_lastWidth = 0;
+    static uint32_t s_lastHeight = 0;
+    static uint32_t s_stableFrames = 0;
+
+    if (colorDesc.Width < 320 || colorDesc.Height < 240)
+    {
+        s_stableFrames = 0;
+        return;
+    }
+
+    if (colorDesc.Width != s_lastWidth || colorDesc.Height != s_lastHeight)
+    {
+        s_lastWidth = colorDesc.Width;
+        s_lastHeight = colorDesc.Height;
+        s_stableFrames = 0;
+        return;
+    }
+
+    if (++s_stableFrames < 30)
         return;
 
     // Guardian dev3: Asegurar que el buffer de color admite acceso UAV in-place
@@ -2757,7 +2773,23 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
     device->Release();
 
     if (g_compose != nullptr)
-        g_compose->Dispatch(cmdList, color, depth, motion, color, frame, timingQueue);
+    {
+        uint32_t passes = Config::Instance()->DlssNrPasses.value_or_default();
+        if (passes < 1) passes = 1;
+        if (passes > 3) passes = 3;
+
+        for (uint32_t p = 0; p < passes; ++p)
+        {
+            g_compose->Dispatch(cmdList, color, depth, motion, color, frame, timingQueue);
+            if (p + 1 < passes)
+            {
+                D3D12_RESOURCE_BARRIER uavBarrier = {};
+                uavBarrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
+                uavBarrier.UAV.pResource = color;
+                cmdList->ResourceBarrier(1, &uavBarrier);
+            }
+        }
+    }
 }
 
 // The pass. Resources in, nothing read from anywhere the caller cannot see.

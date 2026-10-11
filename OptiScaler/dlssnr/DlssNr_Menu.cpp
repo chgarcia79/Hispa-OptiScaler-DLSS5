@@ -919,13 +919,24 @@ void RenderMenu(Config* config, float menuResScale)
         }
         }
 
-        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev2 / Pre-SR & Anti-Starvation)");
+        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev4 / Pre-SR Multi-Pass & Anti-Starvation)");
 
         bool preSr = config->DlssNrPreSR.value_or_default();
         if (ImGui::Checkbox("Pre-SR Multipass Mode", &preSr))
             config->DlssNrPreSR = preSr;
         HelpMarker("Evalua el modelo de red neuronal a resolucion interna base antes de reescalar.\n"
                    "Elimina parpadeos en vegetacion y sombras, y reduce el consumo de GPU.");
+
+        if (preSr)
+        {
+            int passes = (int) config->DlssNrPasses.value_or_default();
+            if (ImGui::SliderInt("DLSS-NR Pre-SR Passes", &passes, 1, 3))
+                config->DlssNrPasses = (uint32_t) std::clamp(passes, 1, 3);
+            HelpMarker("Numero de pasadas de evaluacion de la red neuronal DLSS 5 a resolucion base:\n"
+                       "1 Pasada: Maximo rendimiento y respuesta ultra-rapida.\n"
+                       "2 Pasadas: Balance optimo entre estabilidad y nitidez.\n"
+                       "3 Pasadas: Maxima reduccion de artefactos y flicker.");
+        }
 
         bool antiStarv = config->DlssNrAntiStarvation.value_or_default();
         if (ImGui::Checkbox("Highlight Anti-Starvation", &antiStarv))

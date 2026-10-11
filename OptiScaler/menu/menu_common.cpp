@@ -3946,6 +3946,10 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
 
         auto maxInterpolationCount = fgOutput->GetMaxInterpolationCount();
 
+        // HispaOptiScaler v1.0.4-dev4: Live XeMFG - permitir override dinamico en caliente
+        if (maxInterpolationCount < 4)
+            maxInterpolationCount = 4;
+
         if (maxInterpolationCount > 1)
         {
             ImGui::SameLine(0.0f, 16.0f);

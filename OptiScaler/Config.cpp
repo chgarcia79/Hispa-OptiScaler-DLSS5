@@ -228,7 +228,7 @@ bool Config::Reload(std::filesystem::path iniPath)
         {
             FGXeFGInterpolationCount.set_from_config(readInt("XeFG", "InterpolationCount"));
             if (FGXeFGInterpolationCount.has_value() &&
-                (FGXeFGInterpolationCount.value() < 1 || FGXeFGInterpolationCount.value() > 3))
+                (FGXeFGInterpolationCount.value() < 1 || FGXeFGInterpolationCount.value() > 5))
                 FGXeFGInterpolationCount.reset();
 
             FGXeFGIgnoreInitChecks.set_from_config(readBool("XeFG", "IgnoreInitChecks"));
