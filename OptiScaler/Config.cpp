@@ -383,6 +383,8 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrApplyModel.set_from_config(readBool("DlssNr", "ApplyModel"));
             DlssNrHoldFrame.set_from_config(readBool("DlssNr", "HoldFrame"));
             DlssNrPreSR.set_from_config(readBool("DlssNr", "PreSR"));
+            DlssNrResidualAcrossRr.set_from_config(readBool("DlssNr", "ResidualAcrossRR"));
+            DlssNrResidualAcrossRrBlend.set_from_config(readFloat("DlssNr", "ResidualAcrossRRBlend"));
             DlssNrAntiStarvation.set_from_config(readBool("DlssNr", "AntiStarvation"));
             DlssNrExposureBalance.set_from_config(readFloat("DlssNr", "ExposureBalance"));
             DlssNrWeight.set_from_config(readFloat("DlssNr", "Weight"));
@@ -1359,6 +1361,8 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "ApplyModel", GetBoolValue(Instance()->DlssNrApplyModel.value_for_config()).c_str());
     ini.SetValue("DlssNr", "HoldFrame", GetBoolValue(Instance()->DlssNrHoldFrame.value_for_config()).c_str());
     ini.SetValue("DlssNr", "PreSR", GetBoolValue(Instance()->DlssNrPreSR.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "ResidualAcrossRR", GetBoolValue(Instance()->DlssNrResidualAcrossRr.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "ResidualAcrossRRBlend", GetFloatValue(Instance()->DlssNrResidualAcrossRrBlend.value_for_config()).c_str());
     ini.SetValue("DlssNr", "AntiStarvation", GetBoolValue(Instance()->DlssNrAntiStarvation.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ExposureBalance", GetFloatValue(Instance()->DlssNrExposureBalance.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Weight", GetFloatValue(Instance()->DlssNrWeight.value_for_config()).c_str());

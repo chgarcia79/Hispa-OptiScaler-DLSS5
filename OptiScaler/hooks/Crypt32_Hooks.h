@@ -36,7 +36,8 @@ static BOOL hkCryptQueryObject(DWORD dwObjectType, const void* pvObject, DWORD d
                                       phMsg, ppvContext);
         }
 
-        if (pathString.contains("nvngx.dll") && !State::Instance().nvngxExists &&
+        if (pathString.contains("nvngx.dll") && !pathString.contains("_nvngx.dll") &&
+            !pathString.contains("nvngx.dll_") && !State::Instance().nvngxExists &&
             State::Instance().nvngxReplacement.has_value() &&
             (Config::Instance()->DxgiSpoofing.value_or_default() ||
              Config::Instance()->StreamlineSpoofing.value_or_default()))

@@ -23,6 +23,12 @@ enum DlssNrMode : uint32_t
     DlssNrMode_Calibrate = 4   // the untouched frame -> a grid of tile peak luminances
 };
 
+enum DlssNrResidualMode : uint32_t
+{
+    DlssNrResidualMode_Accumulate = 0, // (edited - original) blended into MV-reprojected history
+    DlssNrResidualMode_Apply = 1       // base + delta * TransferStrength, clamped non-negative
+};
+
 // The meter's grid. 64 x 64 tiles over the whole frame, whatever its size.
 //
 // Tiles rather than pixels because the number wanted is where white sits, not how bright the
@@ -96,6 +102,13 @@ struct DlssNrFrameInfo
     // available and is what gets used.
     unsigned int RenderSubrectWidth = 0;
     unsigned int RenderSubrectHeight = 0;
+    unsigned int OutputWidth = 0;
+    unsigned int OutputHeight = 0;
+
+    bool BeforeUpscale = false;
+    bool RayReconstruction = false;
+    bool ResidualAcrossRr = false;
+    unsigned long long SubmissionEpoch = 0;
 };
 
 struct alignas(256) DlssNrConstants
@@ -182,7 +195,17 @@ struct alignas(256) DlssNrConstants
     float ExposurePreMul;
     uint32_t AntiStarvation;
     float ExposureBalance;
+    float SkinDetail;
+    float SkinColour;
+    float EnvironmentDetail;
+    float EnvironmentColour;
+    float ResidualBlend;
+    uint32_t ResidualHistoryValid;
+    uint32_t ResidualMotionBaseX;
+    uint32_t ResidualMotionBaseY;
 };
+
+static_assert(sizeof(DlssNrConstants) == 256, "DlssNrConstants must remain 256-byte aligned");
 
 class DlssNr_Common
 {

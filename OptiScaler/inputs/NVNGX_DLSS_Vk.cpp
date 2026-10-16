@@ -989,6 +989,8 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_VULKAN_EvaluateFeature(VkCommandBuffer 
                                                                 NVSDK_NGX_Parameter* InParameters,
                                                                 PFN_NVSDK_NGX_ProgressCallback InCallback)
 {
+    Util::ProcessDelayedDestroys();
+
     State& state = State::Instance();
 
     if (InFeatureHandle == nullptr)

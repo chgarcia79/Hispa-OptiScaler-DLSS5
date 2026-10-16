@@ -1094,6 +1094,8 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
                                                                NVSDK_NGX_Parameter* InParameters,
                                                                PFN_NVSDK_NGX_ProgressCallback InCallback)
 {
+    Util::ProcessDelayedDestroys();
+
     if (!InFeatureHandle)
     {
         LOG_DEBUG("InFeatureHandle is null");
