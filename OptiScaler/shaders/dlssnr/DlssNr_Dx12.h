@@ -68,6 +68,8 @@ class DlssNr_Dx12 : public Shader_Dx12, public DlssNr_Common
     uint32_t _numThreadsX = 8;
     uint32_t _numThreadsY = 8;
 
+    ID3D12PipelineState* _residualPipelineState = nullptr;
+
   public:
     DlssNr_Dx12(std::string InName, ID3D12Device* InDevice);
     ~DlssNr_Dx12();
@@ -96,4 +98,8 @@ class DlssNr_Dx12 : public Shader_Dx12, public DlssNr_Common
                   // table keeps its shape -- not evidence that temporal accumulation exists.
                   ID3D12Resource* InPrevEdit, ID3D12Resource* OutTarget,
                   ID3D12Resource* OutKeep);
+
+    bool DispatchResidualPass(ID3D12GraphicsCommandList* InCmdList, const DlssNrConstants& InConstants,
+                              ID3D12Resource* InOriginal, ID3D12Resource* InEdited, ID3D12Resource* InHistory,
+                              ID3D12Resource* InMotion, ID3D12Resource* OutTarget);
 };

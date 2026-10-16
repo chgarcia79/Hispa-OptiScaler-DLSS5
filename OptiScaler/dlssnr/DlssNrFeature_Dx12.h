@@ -37,6 +37,9 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
 void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
                            ID3D12CommandQueue* timingQueue = nullptr);
 
+// ResidualAcrossRR: reinyecta en Post-SR el delta neuronal reproyectado capturado antes de Ray Reconstruction
+void ApplyResidualAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params);
+
 
 
 // Frame generation titles tag their UI layer through Streamline; a copy of it makes the HUD mask

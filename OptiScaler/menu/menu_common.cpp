@@ -13,6 +13,7 @@
 
 #include <proxies/XeSS_Proxy.h>
 #include <proxies/XeFG_Proxy.h>
+#include <framegen/xefg/XeMfgLoader.h>
 #include <proxies/FfxApi_Proxy.h>
 #include <proxies/Streamline_Proxy.h>
 
@@ -3944,31 +3945,32 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
 
         ShowHelpMarker("Enable Frame Generation");
 
-        auto maxInterpolationCount = fgOutput->GetMaxInterpolationCount();
-
-        // HispaOptiScaler v1.0.4-dev4: Live XeMFG - permitir override dinamico en caliente
-        if (maxInterpolationCount < 4)
-            maxInterpolationCount = 4;
+        auto maxInterpolationCount = static_cast<int>(XeMfgLoader::EffectiveMax(fgOutput->GetMaxInterpolationCount()));
+        if (XeMfgLoader::AnyEnabledForSession())
+            maxInterpolationCount = std::max(maxInterpolationCount, 5);
 
         if (maxInterpolationCount > 1)
         {
             ImGui::SameLine(0.0f, 16.0f);
 
             const char* intModes[] = { "2X", "3X", "4X", "5X", "6X" };
-            auto currentSet = fgOutput->GetInterpolatedFrameCount() - 1;
+            auto currentSet = std::clamp<int>(fgOutput->GetInterpolatedFrameCount() - 1, 0, 4);
             auto currentIntCount = intModes[currentSet];
 
             ImGui::PushItemWidth(95.0f * menuResScale);
 
             if (ImGui::BeginCombo("MFG", currentIntCount))
             {
-                for (int i = 0; i < maxInterpolationCount; i++)
+                for (int i = 0; i < std::min<int>(maxInterpolationCount, 5); i++)
                 {
                     if (ImGui::Selectable(intModes[i], (currentSet == i)))
                     {
-                        LOG_DEBUG("XeFG Interpolation Count set to: {}", i + 1);
-                        state.fgChanged = true;
-                        config->FGXeFGInterpolationCount = i + 1;
+                        const uint32_t newCount = static_cast<uint32_t>(i + 1);
+                        LOG_DEBUG("XeFG Interpolation Count set to: {}", newCount);
+                        config->FGXeFGInterpolationCount = newCount;
+                        if (XeMfgLoader::IsEnabled())
+                            XeMfgLoader::SetMaxGeneratedFrames(newCount);
+                        fgOutput->SetInterpolatedFrameCount(newCount);
                     }
                 }
 

@@ -1,5 +1,7 @@
 #include "pch.h"
 #include "XeFG_Dx12.h"
+#include "XeMfgLoader.h"
+#include "XeFGPacing.h"
 #include <hudfix/Hudfix_Dx12.h>
 #include <menu/menu_overlay_dx.h>
 #include <resource_tracking/ResTrack_dx12.h>
@@ -136,7 +138,7 @@ const char* XeFG_Dx12::Name()
 {
     static std::string nameBuffer;
 
-    if (_maxInterpolationCount == 1 || _framesToInterpolate < 0)
+    if (_framesToInterpolate <= 1)
     {
         nameBuffer = "XeFG";
     }
@@ -165,6 +167,8 @@ HWND XeFG_Dx12::Hwnd() { return _hwnd; }
 bool XeFG_Dx12::DestroySwapchainContext()
 {
     LOG_DEBUG("");
+
+    XeMfgLoader::ResetPacingContext();
 
     if (_swapChainContext != nullptr && !State::Instance().isShuttingDown)
     {
@@ -301,8 +305,10 @@ bool XeFG_Dx12::CreateSwapchain(IDXGIFactory* factory, ID3D12CommandQueue* cmdQu
         auto result = XeFGProxy::GetProperties()(_swapChainContext, &props);
         if (result == XEFG_SWAPCHAIN_RESULT_SUCCESS)
         {
-            _maxInterpolationCount = props.maxSupportedInterpolations;
-            LOG_INFO("Max supported interpolations: {}", props.maxSupportedInterpolations);
+            _maxInterpolationCount = static_cast<int>(XeMfgLoader::EffectiveMax(props.maxSupportedInterpolations));
+            if (XeMfgLoader::AnyEnabledForSession())
+                _maxInterpolationCount = std::max(_maxInterpolationCount, 5);
+            LOG_INFO("Max supported interpolations: {}", _maxInterpolationCount);
         }
         else
         {
@@ -363,15 +369,20 @@ bool XeFG_Dx12::CreateSwapchain(IDXGIFactory* factory, ID3D12CommandQueue* cmdQu
 
     xefg_swapchain_d3d12_init_params_t params {};
 
-    int intTarget = _maxInterpolationCount;
+    int effectiveMax = static_cast<int>(XeMfgLoader::EffectiveMax(_maxInterpolationCount));
+    if (XeMfgLoader::AnyEnabledForSession())
+        effectiveMax = std::max(effectiveMax, 5);
+    _maxInterpolationCount = effectiveMax;
+
+    int intTarget = effectiveMax;
 
     // For old libxess_fg versions we use max to control interpolation count
     if (XeFGProxy::SetNumInterpolatedFrames() == nullptr)
         intTarget = Config::Instance()->FGXeFGInterpolationCount.value_or_default();
 
-    if (intTarget < 1 || intTarget > _maxInterpolationCount)
+    if (intTarget < 1 || intTarget > effectiveMax)
     {
-        LOG_WARN("Invalid XeFG interpolation count: {}, max count: {}", intTarget, _maxInterpolationCount);
+        LOG_WARN("Invalid XeFG interpolation count: {}, max count: {}", intTarget, effectiveMax);
 
         intTarget = 1;
     }
@@ -381,8 +392,8 @@ bool XeFG_Dx12::CreateSwapchain(IDXGIFactory* factory, ID3D12CommandQueue* cmdQu
 
     if (Config::Instance()->ForceXeLL.value_or_default())
         params.maxInterpolatedFrames = 1;
-
-    params.maxInterpolatedFrames = intTarget;
+    else
+        params.maxInterpolatedFrames = intTarget;
 
     params.initFlags = XEFG_SWAPCHAIN_INIT_FLAG_NONE;
 
@@ -504,8 +515,10 @@ bool XeFG_Dx12::CreateSwapchain1(IDXGIFactory* factory, ID3D12CommandQueue* cmdQ
         auto result = XeFGProxy::GetProperties()(_swapChainContext, &props);
         if (result == XEFG_SWAPCHAIN_RESULT_SUCCESS)
         {
-            _maxInterpolationCount = props.maxSupportedInterpolations;
-            LOG_INFO("Max supported interpolations: {}", props.maxSupportedInterpolations);
+            _maxInterpolationCount = static_cast<int>(XeMfgLoader::EffectiveMax(props.maxSupportedInterpolations));
+            if (XeMfgLoader::AnyEnabledForSession())
+                _maxInterpolationCount = std::max(_maxInterpolationCount, 5);
+            LOG_INFO("Max supported interpolations: {}", _maxInterpolationCount);
         }
         else
         {
@@ -530,15 +543,20 @@ bool XeFG_Dx12::CreateSwapchain1(IDXGIFactory* factory, ID3D12CommandQueue* cmdQ
 
     xefg_swapchain_d3d12_init_params_t params {};
 
-    int intTarget = _maxInterpolationCount;
+    int effectiveMax = static_cast<int>(XeMfgLoader::EffectiveMax(_maxInterpolationCount));
+    if (XeMfgLoader::AnyEnabledForSession())
+        effectiveMax = std::max(effectiveMax, 5);
+    _maxInterpolationCount = effectiveMax;
+
+    int intTarget = effectiveMax;
 
     // For old libxess_fg versions we use max to control interpolation count
     if (XeFGProxy::SetNumInterpolatedFrames() == nullptr)
         intTarget = Config::Instance()->FGXeFGInterpolationCount.value_or_default();
 
-    if (intTarget < 1 || intTarget > _maxInterpolationCount)
+    if (intTarget < 1 || intTarget > effectiveMax)
     {
-        LOG_WARN("Invalid XeFG interpolation count: {}, max count: {}", intTarget, _maxInterpolationCount);
+        LOG_WARN("Invalid XeFG interpolation count: {}, max count: {}", intTarget, effectiveMax);
 
         intTarget = 1;
     }
@@ -548,8 +566,8 @@ bool XeFG_Dx12::CreateSwapchain1(IDXGIFactory* factory, ID3D12CommandQueue* cmdQ
 
     if (Config::Instance()->ForceXeLL.value_or_default())
         params.maxInterpolatedFrames = 1;
-
-    params.maxInterpolatedFrames = intTarget;
+    else
+        params.maxInterpolatedFrames = intTarget;
 
     params.initFlags = XEFG_SWAPCHAIN_INIT_FLAG_NONE;
 
@@ -778,28 +796,34 @@ bool XeFG_Dx12::Dispatch()
 
     if (XeFGProxy::SetNumInterpolatedFrames() != nullptr)
     {
-        if (Config::Instance()->FGXeFGInterpolationCount.value_or_default() > _maxInterpolationCount)
+        int effectiveMax = static_cast<int>(XeMfgLoader::EffectiveMax(_maxInterpolationCount));
+        if (XeMfgLoader::AnyEnabledForSession())
+            effectiveMax = std::max(effectiveMax, 5);
+        _maxInterpolationCount = effectiveMax;
+
+        if (Config::Instance()->FGXeFGInterpolationCount.value_or_default() > effectiveMax)
         {
-            Config::Instance()->FGXeFGInterpolationCount = _maxInterpolationCount;
-            LOG_WARN("Requested interpolation count is higher than max supported, setting to max: {}",
-                     _maxInterpolationCount);
+            Config::Instance()->FGXeFGInterpolationCount = effectiveMax;
+            LOG_WARN("Requested interpolation count is higher than max supported, setting to max: {}", effectiveMax);
         }
 
         if (_framesToInterpolate != Config::Instance()->FGXeFGInterpolationCount.value_or_default())
         {
-            LOG_INFO("Interpolation count changed {} -> {}", _framesToInterpolate,
-                     Config::Instance()->FGXeFGInterpolationCount.value_or_default());
+            const uint32_t targetCount = Config::Instance()->FGXeFGInterpolationCount.value_or_default();
+            LOG_INFO("Interpolation count changed {} -> {}", _framesToInterpolate, targetCount);
 
-            state.WAR_xefgRequestFGToggle = true;
+            if (!XeMfgLoader::AnyEnabledForSession())
+                state.WAR_xefgRequestFGToggle = true;
+            else
+                XeMfgLoader::SetMaxGeneratedFrames(targetCount);
 
 #ifndef DONT_USE_XMX
             ScopedSkipSpoofingGlobal skipSpoofingGlobal {};
 #endif // !DONT_USE_XMX
 
-            auto intResult = XeFGProxy::SetNumInterpolatedFrames()(
-                _swapChainContext, Config::Instance()->FGXeFGInterpolationCount.value_or_default());
+            auto intResult = XeFGProxy::SetNumInterpolatedFrames()(_swapChainContext, targetCount);
 
-            _framesToInterpolate = Config::Instance()->FGXeFGInterpolationCount.value_or_default();
+            _framesToInterpolate = targetCount;
 
             if (intResult != XEFG_SWAPCHAIN_RESULT_SUCCESS)
             {
@@ -866,10 +890,13 @@ bool XeFG_Dx12::Dispatch()
         }
     }
 
-    XeFGProxy::EnableDebugFeature()(_swapChainContext, XEFG_SWAPCHAIN_DEBUG_FEATURE_TAG_INTERPOLATED_FRAMES,
-                                    Config::Instance()->FGXeFGDebugView.value_or_default(), nullptr);
-    XeFGProxy::EnableDebugFeature()(_swapChainContext, XEFG_SWAPCHAIN_DEBUG_FEATURE_SHOW_ONLY_INTERPOLATION,
-                                    state.fgOnlyGenerated, nullptr);
+    if (XeFGProxy::EnableDebugFeature() != nullptr && _swapChainContext != nullptr)
+    {
+        XeFGProxy::EnableDebugFeature()(_swapChainContext, XEFG_SWAPCHAIN_DEBUG_FEATURE_TAG_INTERPOLATED_FRAMES,
+                                        Config::Instance()->FGXeFGDebugView.value_or_default(), nullptr);
+        XeFGProxy::EnableDebugFeature()(_swapChainContext, XEFG_SWAPCHAIN_DEBUG_FEATURE_SHOW_ONLY_INTERPOLATION,
+                                        state.fgOnlyGenerated, nullptr);
+    }
 
     xefg_swapchain_frame_constant_data_t constData = {};
 
@@ -928,10 +955,20 @@ bool XeFG_Dx12::Dispatch()
     else
         constData.resetHistory = false;
 
+    double frameRenderTime = XeFGPacing::RenderTimeMs();
+    if (!(frameRenderTime > 0.0))
+        frameRenderTime = _ftDelta[fIndex];
+    if (!(frameRenderTime > 0.0))
+        frameRenderTime = state.lastFGFrameTime;
+    if (frameRenderTime > 0.0)
+        frameRenderTime = std::clamp(frameRenderTime, 4.0, 50.0);
+    else if (state.lastFGFrameTime >= 1.0)
+        frameRenderTime = std::clamp(state.lastFGFrameTime, 4.0, 50.0);
+
     switch (Config::Instance()->FTInput.value_or_default())
     {
     case FrameTimeSource::Input:
-        constData.frameRenderTime = (float) _ftDelta[fIndex];
+        constData.frameRenderTime = static_cast<float>(frameRenderTime);
         break;
 
     case FrameTimeSource::Opti:
@@ -942,6 +979,8 @@ bool XeFG_Dx12::Dispatch()
         constData.frameRenderTime = 0.0f;
         break;
     }
+
+    XeFGPacing::NoteFedFrameTime(constData.frameRenderTime);
 
     LOG_DEBUG("Reset: {}, Opti FT: {}, Source FT: {}, Set FT: {}, Opti Id: {}, Reflex Id: {}", _reset[fIndex],
               constData.frameRenderTime, _ftDelta[fIndex], constData.frameRenderTime, _frameCount,
@@ -1034,7 +1073,42 @@ void* XeFG_Dx12::SwapchainContext() { return _swapChainContext; }
 
 XeFG_Dx12::~XeFG_Dx12() { Shutdown(); }
 
-bool XeFG_Dx12::SetInterpolatedFrameCount(UINT interpolatedFrameCount) { return true; }
+bool XeFG_Dx12::SetInterpolatedFrameCount(UINT interpolatedFrameCount)
+{
+    LOG_INFO("XeFG SetInterpolatedFrameCount called with count: {}", interpolatedFrameCount);
+
+    int effectiveMax = static_cast<int>(XeMfgLoader::EffectiveMax(_maxInterpolationCount));
+    if (XeMfgLoader::AnyEnabledForSession())
+        effectiveMax = std::max(effectiveMax, 5);
+
+    if (effectiveMax > 0 && interpolatedFrameCount > static_cast<UINT>(effectiveMax))
+        interpolatedFrameCount = static_cast<UINT>(effectiveMax);
+
+    _maxInterpolationCount = std::max(_maxInterpolationCount, static_cast<int>(interpolatedFrameCount));
+    Config::Instance()->FGXeFGInterpolationCount.set_volatile_value(interpolatedFrameCount);
+
+    if (XeMfgLoader::IsEnabled() && interpolatedFrameCount > 0)
+        XeMfgLoader::SetMaxGeneratedFrames(interpolatedFrameCount);
+
+    if (_framesToInterpolate != static_cast<int>(interpolatedFrameCount))
+    {
+        _framesToInterpolate = static_cast<int>(interpolatedFrameCount);
+        if (_swapChainContext != nullptr && XeFGProxy::SetNumInterpolatedFrames() != nullptr)
+        {
+#ifndef DONT_USE_XMX
+            ScopedSkipSpoofingGlobal skipSpoofingGlobal {};
+#endif
+            auto intResult = XeFGProxy::SetNumInterpolatedFrames()(_swapChainContext, interpolatedFrameCount);
+            if (intResult != XEFG_SWAPCHAIN_RESULT_SUCCESS)
+            {
+                LOG_ERROR("XeFG SetNumInterpolatedFrames error: {} ({})", magic_enum::enum_name(intResult),
+                          (UINT) intResult);
+            }
+        }
+    }
+
+    return true;
+}
 
 void XeFG_Dx12::EvaluateState(ID3D12Device* device, FG_Constants& fgConstants)
 {
@@ -1377,6 +1451,17 @@ bool XeFG_Dx12::Present()
         Deactivate();
         _waitingNewFrameData = true;
         return false;
+    }
+
+    if (_swapChainContext != nullptr && XeFGProxy::GetLastPresentStatus() != nullptr)
+    {
+        xefg_swapchain_present_status_t presentStatus {};
+        if (XeFGProxy::GetLastPresentStatus()(_swapChainContext, &presentStatus) == XEFG_SWAPCHAIN_RESULT_SUCCESS)
+        {
+            XeMfgLoader::RecordPresentStatus(presentStatus.framesPresented,
+                                             static_cast<int>(presentStatus.frameGenResult),
+                                             presentStatus.isFrameGenEnabled != 0);
+        }
     }
 
     _fgFramePresentId++;
