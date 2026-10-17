@@ -1,7 +1,9 @@
 #pragma once
 
+namespace DlssNr
+{
 // CPU seam identity only. It is never evidence that GPU work has completed.
-struct DlssNrResidualPair
+struct ResidualEvalPair
 {
     const void* command = nullptr;
     const void* parameters = nullptr;
@@ -21,3 +23,6 @@ struct DlssNrResidualPair
         return matches;
     }
 };
+} // namespace DlssNr
+
+using DlssNrResidualPair = DlssNr::ResidualEvalPair;
