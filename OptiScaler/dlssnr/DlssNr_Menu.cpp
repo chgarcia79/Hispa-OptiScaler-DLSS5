@@ -919,7 +919,7 @@ void RenderMenu(Config* config, float menuResScale)
         }
         }
 
-        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev4 / Pre-SR Multi-Pass & Anti-Starvation)");
+        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev5 / Pre-SR Multi-Pass, ResidualAcrossRR & Anti-Starvation)");
 
         bool preSr = config->DlssNrPreSR.value_or_default();
         if (ImGui::Checkbox("Pre-SR Multipass Mode", &preSr))
@@ -936,6 +936,20 @@ void RenderMenu(Config* config, float menuResScale)
                        "1 Pasada: Maximo rendimiento y respuesta ultra-rapida.\n"
                        "2 Pasadas: Balance optimo entre estabilidad y nitidez.\n"
                        "3 Pasadas: Maxima reduccion de artefactos y flicker.");
+
+            bool residualAcrossRr = config->DlssNrResidualAcrossRr.value_or_default();
+            if (ImGui::Checkbox("Preserve Pre-SR across Ray Reconstruction (ResidualAcrossRR)", &residualAcrossRr))
+                config->DlssNrResidualAcrossRr = residualAcrossRr;
+            HelpMarker("En juegos con DLSS-D (Ray Reconstruction), captura el delta Pre-SR y lo reaplica\n"
+                       "con acumulacion temporal tras el upscale para evitar que RR lave el efecto.");
+
+            if (residualAcrossRr)
+            {
+                float rrBlend = config->DlssNrResidualAcrossRrBlend.value_or_default();
+                if (ImGui::SliderFloat("RR Residual Temporal Blend", &rrBlend, 0.01f, 1.00f, "%.2f"))
+                    config->DlssNrResidualAcrossRrBlend = std::clamp(rrBlend, 0.01f, 1.00f);
+                HelpMarker("Peso del fotograma actual en la historia temporal del residual tras Ray Reconstruction (0.08 recomendado).");
+            }
         }
 
         bool antiStarv = config->DlssNrAntiStarvation.value_or_default();
