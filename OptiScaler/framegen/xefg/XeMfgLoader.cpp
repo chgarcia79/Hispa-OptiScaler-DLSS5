@@ -103,8 +103,7 @@ namespace XeMfgLoader
 {
 Status LastStatus() { std::scoped_lock lock(g_mutex); return g_status; }
 bool EnabledForSession() {
-    auto config = Config::Instance();
-    return config != nullptr && !config->ExternalFrameGeneration.value_or_default();
+    return Config::Instance() != nullptr;
 }
 bool IsSourceOptiScaler() { return true; }
 bool Pending() { std::scoped_lock lock(g_mutex); return AnyEnabledForSession() && !g_status.Patched && !g_status.PatchFailed; }
