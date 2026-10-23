@@ -52,6 +52,11 @@ bool LowLatency::deinit_current_tech()
 
 bool LowLatency::get_low_latency_tech_context(void** low_latency_context, LowLatencyMode* low_latency_tech)
 {
+    if (!low_latency_context || !low_latency_tech)
+        return false;
+
+    *low_latency_context = nullptr;
+    *low_latency_tech = LowLatencyMode::None;
     if (auto current_tech = currently_active_tech.load())
     {
         if (!current_tech || !low_latency_context || !low_latency_tech)

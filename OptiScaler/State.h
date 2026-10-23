@@ -283,6 +283,7 @@ class State
     // Takes effect up to the first time Opti can show anything on the screen
     // Beyond that use notifications
     bool postDone = false;
+    bool xefgHdrFormatUnsupported = false;
     flag_set<PostCode> postCodes;
 
     // Version check

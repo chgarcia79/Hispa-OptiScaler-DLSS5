@@ -57,6 +57,12 @@ cbuffer Params : register(b0)
     uint gResidualHistoryValid;
     uint gResidualMotionBaseX;
     uint gResidualMotionBaseY;
+    float gResidualConfidenceSensitivity;
+    uint gHistoryRejection;
+    float gHistoryExposureRatio;
+    float gHaloSuppression;
+    float gHaloBrightSuppression;
+    float gHaloRadius;
 };
 
 // Same registers and the same SPIR-V binding numbers as dlssnr.hlsl, including the slots these
@@ -101,6 +107,92 @@ float3 SanitizeFinite3(float3 v, float3 fallback)
                   SanitizeFinite(v.z, fallback.z));
 }
 
+static const float3 kLuma = float3(0.2126, 0.7152, 0.0722);
+static const float kNrEditFloor = 1.0 / 1024.0;
+
+float3 SrgbToLinear(float3 c)
+{
+    return (c <= 0.04045) ? (c / 12.92) : pow(max((c + 0.055) / 1.055, 0.0), 2.4);
+}
+
+float3 LinearToSrgb(float3 c)
+{
+    return (c <= 0.0031308) ? (c * 12.92) : (1.055 * pow(max(c, 0.0), 1.0 / 2.4) - 0.055);
+}
+
+float InputLight(int2 pixel)
+{
+    float3 colour = max(SanitizeFinite3(gSource.Load(int3(pixel, 0)).rgb, 0.0), 0.0);
+    float exposure = isfinite(gExposurePreMul) && gExposurePreMul > 1e-6 ? gExposurePreMul : 1.0;
+    return log2(max(dot(colour, kLuma) / exposure, kNrEditFloor));
+}
+
+float3 NrLogEdit(int2 pixel, out float inputLight)
+{
+    float3 proxy = max(SanitizeFinite3(SrgbToLinear(gSource.Load(int3(pixel, 0)).rgb), 0.0), 0.0);
+    float3 model = max(SanitizeFinite3(SrgbToLinear(gModel.Load(int3(pixel, 0)).rgb), proxy), 0.0);
+    inputLight = log2(max(dot(proxy, kLuma), kNrEditFloor));
+    return log2(max(model, kNrEditFloor)) - log2(max(proxy, kNrEditFloor));
+}
+
+float3 NrFitQualityModel(float3 value)
+{
+    float y = saturate(dot(value, kLuma));
+    float3 d = value - y;
+    float amount = 1.0;
+    [unroll] for (int c = 0; c < 3; ++c)
+    {
+        if (d[c] > 0.0) amount = min(amount, (1.0 - y) / d[c]);
+        else if (d[c] < 0.0) amount = min(amount, -y / d[c]);
+    }
+    return saturate(y + saturate(amount) * d);
+}
+
+float4 NrSuppressHalo(int2 pixel)
+{
+    float4 answer = gModel.Load(int3(pixel, 0));
+    if (gHaloSuppression <= 0.0 && gHaloBrightSuppression <= 0.0)
+        return answer;
+    float inputLight;
+    float3 edit = NrLogEdit(pixel, inputLight);
+    float a = dot(edit, kLuma);
+    float narrow = 0.0, wide = 0.0, narrowWeight = 0.0, wideWeight = 0.0;
+    float peak = inputLight, trough = inputLight;
+    int radius = int(clamp(round(gHaloRadius), 1.0, 4.0));
+    [unroll] for (int y = -1; y <= 1; ++y)
+    {
+        [unroll] for (int x = -1; x <= 1; ++x)
+        {
+            float spatialWeight = (x == 0 ? 2.0 : 1.0) * (y == 0 ? 2.0 : 1.0);
+            [unroll] for (int band = 0; band < 2; ++band)
+            {
+                int2 tap = clamp(pixel + int2(x, y) * radius * (band == 0 ? 1 : 3),
+                                 int2(0, 0), int2(gWidth - 1, gHeight - 1));
+                float light;
+                float value = dot(NrLogEdit(tap, light), kLuma);
+                peak = max(peak, light);
+                trough = min(trough, light);
+                float delta = light - inputLight;
+                float weight = spatialWeight * exp(-2.0 * delta * delta);
+                if (band == 0) { narrow += weight * value; narrowWeight += weight; }
+                else { wide += weight * value; wideWeight += weight; }
+            }
+        }
+    }
+    narrow /= max(narrowWeight, 1e-6);
+    wide /= max(wideWeight, 1e-6);
+    float fine = a - narrow, mid = narrow - wide;
+    float wmax = smoothstep(1.0, 3.0, peak - inputLight);
+    float wmin = smoothstep(1.0, 3.0, inputLight - trough);
+    float shapedFine = fine - saturate(gHaloSuppression) * wmax * min(fine, 0.0);
+    shapedFine -= saturate(gHaloBrightSuppression) * max(wmax, wmin) * min(shapedFine, 0.0);
+    float lift = shapedFine - fine - saturate(gHaloBrightSuppression) * wmin * min(mid, 0.0);
+    if (lift <= 1e-6)
+        return answer;
+    float3 corrected = NrFitQualityModel(max(SrgbToLinear(answer.rgb), 0.0) * exp2(min(lift, 2.0)));
+    return float4(LinearToSrgb(corrected), answer.a);
+}
+
 [numthreads(8, 8, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
@@ -122,14 +214,43 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         bool valid = gResidualHistoryValid != 0 && all(isfinite(motion)) && all(abs(motion) < 2.0) &&
                      all(prevUV >= 0.0) && all(prevUV <= 1.0);
 
-        float3 history = valid ? gOriginal.SampleLevel(gLinear, prevUV, 0).rgb : float3(0.0, 0.0, 0.0);
-        history = SanitizeFinite3(history, float3(0.0, 0.0, 0.0));
-
-        // Invalid reprojection: history is 0, so the pixel fades in from no edit at the normal blend
-        // rate over the next frames. A cold start/cut also fades in, without sampling uninitialized history.
+        float4 old = valid ? gOriginal.SampleLevel(gLinear, prevUV, 0) : float4(0.0, 0.0, 0.0, 0.0);
+        float3 history = SanitizeFinite3(old.rgb, float3(0.0, 0.0, 0.0));
         float a = clamp(gResidualBlend, 0.0, 1.0);
+        float inputLight = 1.0;
+        if (gHistoryRejection != 0)
+        {
+            inputLight = InputLight(int2(id.xy));
+            float loI = inputLight, hiI = inputLight;
+            float3 lo = delta, hi = delta;
+            [unroll] for (int y = -1; y <= 1; ++y)
+            {
+                [unroll] for (int x = -1; x <= 1; ++x)
+                {
+                    int2 q = clamp(int2(id.xy) + int2(x, y), int2(0, 0), int2(gWidth - 1, gHeight - 1));
+                    float3 edit = SanitizeFinite3(gModel.Load(int3(q, 0)).rgb - gSource.Load(int3(q, 0)).rgb, delta);
+                    lo = min(lo, edit);
+                    hi = max(hi, edit);
+                    float light = InputLight(q);
+                    loI = min(loI, light);
+                    hiI = max(hiI, light);
+                }
+            }
+            valid = valid && all(isfinite(old)) && isfinite(gHistoryExposureRatio) && gHistoryExposureRatio > 0.0;
+            history *= valid ? gHistoryExposureRatio : 1.0;
+            float changed = valid ? max(max(loI - old.a, old.a - hiI), 0.0) : 1.0;
+            a = max(a, smoothstep(0.1, 0.3, changed));
+            history = valid ? clamp(history, lo, hi) : delta;
+        }
+        if (gResidualConfidenceSensitivity > 0.0)
+            a = lerp(a, 1.0, saturate(length(delta - history) / gResidualConfidenceSensitivity));
+        gTarget[id.xy] = float4(lerp(history, delta, a), inputLight);
+        return;
+    }
 
-        gTarget[id.xy] = float4(lerp(history, delta, a), 1.0);
+    if (gMode == 2)
+    {
+        gTarget[id.xy] = NrSuppressHalo(int2(id.xy));
         return;
     }
 

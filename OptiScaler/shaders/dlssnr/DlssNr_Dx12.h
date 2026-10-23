@@ -42,7 +42,7 @@
 // have left six frames, spending exactly the headroom the previous note set aside. Forty-eight
 // restores eight frames at five dispatches. If a sixth is ever added, raise this with it rather than
 // spending the margin again.
-#define DLSSNR_NUM_OF_HEAPS 48
+#define DLSSNR_NUM_OF_HEAPS 64
 
 class DlssNr_Dx12 : public Shader_Dx12, public DlssNr_Common
 {

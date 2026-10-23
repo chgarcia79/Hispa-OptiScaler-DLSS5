@@ -42,6 +42,7 @@ bool DLSSFeatureVk::InitInternal(VkCommandBuffer InCmdList, NVSDK_NGX_Parameter*
 
         if (NVNGXProxy::VULKAN_CreateFeature() != nullptr)
         {
+            ScopedNgxDimensionRestoration restoreDims(InParameters);
             ProcessInitParams(InParameters);
 
             _p_dlssHandle = &_dlssHandle;

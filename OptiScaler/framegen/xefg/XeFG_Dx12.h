@@ -24,6 +24,7 @@ class XeFG_Dx12 : public virtual IFGFeature_Dx12
     bool _infiniteDepth = false;
     std::optional<bool> _haveHudless = std::nullopt;
     bool _uiComposition = false;
+    uint64_t _lastResetFrame = 0;
 
     std::unique_ptr<DI_Dx12> _depthInvert;
 

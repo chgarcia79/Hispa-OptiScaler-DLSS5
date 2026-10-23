@@ -41,6 +41,7 @@ bool DLSSFeatureDx11::InitInternal(ID3D11DeviceContext* InContext, NVSDK_NGX_Par
 
         if (NVNGXProxy::D3D11_CreateFeature() != nullptr)
         {
+            ScopedNgxDimensionRestoration restoreDims(InParameters);
             ProcessInitParams(InParameters);
 
             _p_dlssHandle = &_dlssHandle;

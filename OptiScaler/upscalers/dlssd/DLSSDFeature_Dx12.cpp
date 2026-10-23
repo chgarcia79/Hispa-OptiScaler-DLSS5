@@ -42,6 +42,7 @@ bool DLSSDFeatureDx12::InitDLSSD(ID3D12GraphicsCommandList* InCommandList, NVSDK
 
     if (NVNGXProxy::D3D12_CreateFeature() != nullptr)
     {
+        ScopedNgxDimensionRestoration restoreDims(InParameters);
         ProcessInitParams(InParameters);
 
         _p_dlssdHandle = &_dlssdHandle;

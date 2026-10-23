@@ -38,6 +38,38 @@ struct DetailedGpuTime
     bool includedInUpscalerTime = false;
 };
 
+struct ScopedNgxDimensionRestoration
+{
+    NVSDK_NGX_Parameter* Params;
+    unsigned int Width = 0, Height = 0, OutWidth = 0, OutHeight = 0;
+    NVSDK_NGX_Result HasW = NVSDK_NGX_Result_Fail, HasH = NVSDK_NGX_Result_Fail;
+    NVSDK_NGX_Result HasOutW = NVSDK_NGX_Result_Fail, HasOutH = NVSDK_NGX_Result_Fail;
+
+    explicit ScopedNgxDimensionRestoration(NVSDK_NGX_Parameter* InParams) : Params(InParams)
+    {
+        if (!Params)
+            return;
+        HasW = Params->Get(NVSDK_NGX_Parameter_Width, &Width);
+        HasH = Params->Get(NVSDK_NGX_Parameter_Height, &Height);
+        HasOutW = Params->Get(NVSDK_NGX_Parameter_OutWidth, &OutWidth);
+        HasOutH = Params->Get(NVSDK_NGX_Parameter_OutHeight, &OutHeight);
+    }
+
+    ~ScopedNgxDimensionRestoration()
+    {
+        if (!Params)
+            return;
+        if (HasW == NVSDK_NGX_Result_Success)
+            Params->Set(NVSDK_NGX_Parameter_Width, Width);
+        if (HasH == NVSDK_NGX_Result_Success)
+            Params->Set(NVSDK_NGX_Parameter_Height, Height);
+        if (HasOutW == NVSDK_NGX_Result_Success)
+            Params->Set(NVSDK_NGX_Parameter_OutWidth, OutWidth);
+        if (HasOutH == NVSDK_NGX_Result_Success)
+            Params->Set(NVSDK_NGX_Parameter_OutHeight, OutHeight);
+    }
+};
+
 class IFeature
 {
   private:

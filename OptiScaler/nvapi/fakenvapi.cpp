@@ -211,7 +211,11 @@ bool fakenvapi::updateModeAndContext()
     auto result = lowLatencyCtx->get_low_latency_tech_context(&_lowLatencyTechContext, &_lowLatencyMode);
 
     if (!result)
+    {
+        _lowLatencyTechContext = nullptr;
+        _lowLatencyMode = LowLatencyMode::None;
         LOG_TRACE_FAKENVAPI("Can't get Low Latency context from fakenvapi");
+    }
 
     return result;
 }

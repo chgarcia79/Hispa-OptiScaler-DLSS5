@@ -57,7 +57,7 @@ static bool inputFG = false;
 static bool inputFps = false;
 static bool inputFpsCycle = false;
 static uint64_t lastInputTick = 0;
-constexpr uint64_t debounceThreshold = 1000;
+constexpr uint64_t debounceThreshold = 500;
 
 static bool hasGamepad = false;
 static bool ffxInitTried = false;
@@ -184,6 +184,7 @@ void MenuCommon::UpdateManualInput(HWND targetHwnd)
             lastKey = vk;
             // receivingWmInputs = false;
             inputFlag = true;
+            lastInputTick = GetTickCount64();
             LOG_DEBUG("{}", logMessage);
         }
     };
@@ -1601,7 +1602,7 @@ void MenuCommon::RenderNrCompareTags()
     const char* leftText = swap ? "DLSS NR : ON" : "DLSS NR : OFF";
     const char* rightText = swap ? "DLSS NR : OFF" : "DLSS NR : ON";
 
-    ImDrawList* dl = ImGui::GetForegroundDrawList();
+    ImDrawList* dl = ImGui::GetForegroundDrawList(ImGui::GetMainViewport());
     ImFont* font = ImGui::GetFont();
     const float fontSize = ImGui::GetFontSize() * scale;
     const float margin = 10.0f * scale;
@@ -1634,7 +1635,8 @@ void MenuCommon::RenderNrCompareTags()
 
 void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
 {
-    RenderNrCompareTags();
+    if (ctx.newFrame)
+        RenderNrCompareTags();
 
 
     auto& state = ctx.state;
@@ -3917,6 +3919,24 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
                 {
                     cantActivate = true;
                     ImGui::TextColored(toneMapColor(ImVec4(1.0f, 0.0f, 0.0f, 1.f)), "XeFG only supports HDR10");
+                }
+            }
+
+            if (state.xefgHdrFormatUnsupported)
+            {
+                ImGui::TextColored(toneMapColor(ImVec4(1.0f, 0.25f, 0.25f, 1.0f)),
+                                   "Warning: RGBA16F swapchain detected. Intel XeSS-FG requires HDR10 (R10G10B10A2) or SDR 8-bit.");
+            }
+            if (state.api == API::Vulkan || state.swapchainApi == API::Vulkan)
+            {
+                cantActivate = true;
+                ImGui::TextColored(toneMapColor(ImVec4(1.0f, 0.25f, 0.25f, 1.0f)),
+                                   "Intel XeMFG requires DirectX 12 (current API: Vulkan - Inactive).");
+            }
+            if (false)
+            {
+                if (false)
+                {
                 }
             }
         }

@@ -26,7 +26,8 @@ enum DlssNrMode : uint32_t
 enum DlssNrResidualMode : uint32_t
 {
     DlssNrResidualMode_Accumulate = 0, // (edited - original) blended into MV-reprojected history
-    DlssNrResidualMode_Apply = 1       // base + delta * TransferStrength, clamped non-negative
+    DlssNrResidualMode_Apply = 1,      // base + delta * TransferStrength, clamped non-negative
+    DlssNrResidualMode_SuppressHalo = 2 // RenoDX Look post-NR halo suppression pass
 };
 
 // The meter's grid. 64 x 64 tiles over the whole frame, whatever its size.
@@ -203,6 +204,12 @@ struct alignas(256) DlssNrConstants
     uint32_t ResidualHistoryValid;
     uint32_t ResidualMotionBaseX;
     uint32_t ResidualMotionBaseY;
+    float ResidualConfidenceSensitivity;
+    uint32_t HistoryRejection;
+    float HistoryExposureRatio;
+    float HaloSuppression;
+    float HaloBrightSuppression;
+    float HaloRadius;
 };
 
 static_assert(sizeof(DlssNrConstants) == 256, "DlssNrConstants must remain 256-byte aligned");

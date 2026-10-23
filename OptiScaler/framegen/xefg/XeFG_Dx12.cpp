@@ -220,6 +220,22 @@ xefg_swapchain_d3d12_resource_data_t XeFG_Dx12::GetResourceData(FG_ResourceType 
     resourceParam.pResource = fResource->GetResource();
     resourceParam.incomingState = fResource->state;
 
+    const uint32_t targetWidth = _width > 0 ? _width : _constants.displayWidth;
+    const uint32_t targetHeight = _height > 0 ? _height : _constants.displayHeight;
+    if ((type == FG_ResourceType::HudlessColor || type == FG_ResourceType::UIColor) &&
+        targetWidth > 0 && targetHeight > 0 &&
+        (resourceParam.resourceSize.x != targetWidth || resourceParam.resourceSize.y != targetHeight))
+    {
+        static bool warnedSizeMismatch = false;
+        if (!warnedSizeMismatch)
+        {
+            warnedSizeMismatch = true;
+            LOG_WARN("XeFG: skipping optional plane {} due to subrect mismatch ({}x{} vs {}x{})",
+                     (int) type, resourceParam.resourceSize.x, resourceParam.resourceSize.y, targetWidth, targetHeight);
+        }
+        return xefg_swapchain_d3d12_resource_data_t {};
+    }
+
     switch (type)
     {
     case FG_ResourceType::Depth:
@@ -258,6 +274,16 @@ bool XeFG_Dx12::CreateSwapchain(IDXGIFactory* factory, ID3D12CommandQueue* cmdQu
                               desc->BufferDesc.Format, desc->Flags) == S_OK;
 
             *swapChain = State::Instance().currentFGSwapchain;
+            if (result)
+            {
+                _width = desc->BufferDesc.Width;
+                _height = desc->BufferDesc.Height;
+                _lastResetFrame = 0;
+            }
+            State::Instance().xefgHdrFormatUnsupported =
+                (desc->BufferDesc.Format == DXGI_FORMAT_R16G16B16A16_FLOAT ||
+                 desc->BufferDesc.Format == DXGI_FORMAT_R16G16B16A16_TYPELESS);
+            return result;
             return result;
         }
         // Game is creating new swapchain without releasing old one,
@@ -470,6 +496,16 @@ bool XeFG_Dx12::CreateSwapchain1(IDXGIFactory* factory, ID3D12CommandQueue* cmdQ
                               desc->BufferCount, desc->Width, desc->Height, desc->Format, desc->Flags) == S_OK;
 
             *swapChain = (IDXGISwapChain1*) State::Instance().currentFGSwapchain;
+            if (result)
+            {
+                _width = desc->Width;
+                _height = desc->Height;
+                _lastResetFrame = 0;
+            }
+            State::Instance().xefgHdrFormatUnsupported =
+                (desc->Format == DXGI_FORMAT_R16G16B16A16_FLOAT ||
+                 desc->Format == DXGI_FORMAT_R16G16B16A16_TYPELESS);
+            return result;
             return result;
         }
         // Game is creating new swapchain without releasing old one,
@@ -674,6 +710,7 @@ void XeFG_Dx12::Activate()
         {
             _isActive = true;
             _lastDispatchedFrame = 0;
+            _lastResetFrame = 0;
         }
 
         LOG_INFO("SetEnabled: true, result: {} ({})", magic_enum::enum_name(result), (UINT) result);
@@ -952,6 +989,13 @@ bool XeFG_Dx12::Dispatch()
 
     if (!Config::Instance()->FGSkipReset.value_or_default())
         constData.resetHistory = _reset[fIndex];
+        if (constData.resetHistory)
+        {
+            if (_lastResetFrame > 0 && (_frameCount - _lastResetFrame) < 3)
+                constData.resetHistory = false;
+            else
+                _lastResetFrame = _frameCount;
+        }
     else
         constData.resetHistory = false;
 

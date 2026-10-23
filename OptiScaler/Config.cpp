@@ -388,6 +388,16 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrAntiStarvation.set_from_config(readBool("DlssNr", "AntiStarvation"));
             DlssNrExposureBalance.set_from_config(readFloat("DlssNr", "ExposureBalance"));
             DlssNrWeight.set_from_config(readFloat("DlssNr", "Weight"));
+            DlssNrPass2Preset.set_from_config(readUInt("DlssNr", "Pass2Preset"));
+            DlssNrPass2Style.set_from_config(readUInt("DlssNr", "Pass2Style"));
+            DlssNrPass3Preset.set_from_config(readUInt("DlssNr", "Pass3Preset"));
+            DlssNrPass3Style.set_from_config(readUInt("DlssNr", "Pass3Style"));
+            DlssNrQualityProfile.set_from_config(readUInt("DlssNr", "QualityProfile"));
+            DlssNrHistoryRejection.set_from_config(readBool("DlssNr", "HistoryRejection"));
+            DlssNrResidualConfidenceSensitivity.set_from_config(readFloat("DlssNr", "ResidualConfidenceSensitivity"));
+            DlssNrHaloSuppression.set_from_config(readFloat("DlssNr", "HaloSuppression"));
+            DlssNrHaloBrightSuppression.set_from_config(readFloat("DlssNr", "HaloBrightSuppression"));
+            DlssNrHaloRadius.set_from_config(readFloat("DlssNr", "HaloRadius"));
             UseGenericAppIdWithDlss.set_from_config(readBool("DLSS", "UseGenericAppIdWithDlss"));
 
             RenderPresetOverride.set_from_config(readBool("DLSS", "RenderPresetOverride"));
@@ -1366,6 +1376,16 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "AntiStarvation", GetBoolValue(Instance()->DlssNrAntiStarvation.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ExposureBalance", GetFloatValue(Instance()->DlssNrExposureBalance.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Weight", GetFloatValue(Instance()->DlssNrWeight.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass2Preset", GetIntValue(Instance()->DlssNrPass2Preset.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass2Style", GetIntValue(Instance()->DlssNrPass2Style.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass3Preset", GetIntValue(Instance()->DlssNrPass3Preset.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass3Style", GetIntValue(Instance()->DlssNrPass3Style.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "QualityProfile", GetIntValue(Instance()->DlssNrQualityProfile.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "HistoryRejection", GetBoolValue(Instance()->DlssNrHistoryRejection.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "ResidualConfidenceSensitivity", GetFloatValue(Instance()->DlssNrResidualConfidenceSensitivity.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "HaloSuppression", GetFloatValue(Instance()->DlssNrHaloSuppression.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "HaloBrightSuppression", GetFloatValue(Instance()->DlssNrHaloBrightSuppression.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "HaloRadius", GetFloatValue(Instance()->DlssNrHaloRadius.value_for_config()).c_str());
         ini.SetValue("DLSS", "RenderPresetOverride",
                      GetBoolValue(Instance()->RenderPresetOverride.value_for_config()).c_str());
         ini.SetValue("DLSS", "RenderPresetForAll",

@@ -501,6 +501,16 @@ class Config
     CustomOptional<bool> DlssNrAntiStarvation { false };
     CustomOptional<float> DlssNrExposureBalance { 1.0f };
     CustomOptional<float> DlssNrWeight { 1.0f };
+    CustomOptional<uint32_t> DlssNrPass2Preset { 0 };
+    CustomOptional<uint32_t> DlssNrPass2Style { 0 };
+    CustomOptional<uint32_t> DlssNrPass3Preset { 0 };
+    CustomOptional<uint32_t> DlssNrPass3Style { 0 };
+    CustomOptional<uint32_t> DlssNrQualityProfile { 0 };
+    CustomOptional<bool> DlssNrHistoryRejection { false };
+    CustomOptional<float> DlssNrResidualConfidenceSensitivity { 0.0f };
+    CustomOptional<float> DlssNrHaloSuppression { 0.0f };
+    CustomOptional<float> DlssNrHaloBrightSuppression { 0.0f };
+    CustomOptional<float> DlssNrHaloRadius { 2.0f };
 
     // --- end DLSS 5 Neural Rendering -------------------------------------------------------------
 

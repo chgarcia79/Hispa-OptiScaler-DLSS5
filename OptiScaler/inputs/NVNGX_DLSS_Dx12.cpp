@@ -15,6 +15,7 @@
 
 #include <framegen/nvngx/Nvngx_FG.h>
 #include "FG/FSR3_Dx12_FG.h"
+#include "FG/DlssgParameterSanitizer.h"
 #include "FG/Upscaler_Inputs_Dx12.h"
 
 #include <imgui/ImGuiNotify.hpp>
@@ -759,6 +760,8 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_CreateFeature(ID3D12GraphicsComma
     const Config& cfg = *Config::Instance();
 
     // DLSSG replacements passthrough
+    if (InFeatureID == NVSDK_NGX_Feature_FrameGeneration)
+        DlssgParameterSanitizer::Sanitize(InParameters, true);
     if (State::Instance().activeFgNvngx != FGNvngxReplacement::None && Nvngx_FG::isDx12Available() &&
         InFeatureID == NVSDK_NGX_Feature_FrameGeneration)
     {
@@ -1125,6 +1128,8 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
     if (feature == NVSDK_NGX_Feature_FrameGeneration)
     {
         evalWithoutFG = 0;
+        DlssgParameterSanitizer::Sanitize(InParameters, false);
+        DlssgParameterSanitizer::LogEvaluateParameters(InParameters);
 
         int frameCount = 0;
         InParameters->Get("DLSSG.MultiFrameCount", &frameCount);
@@ -1222,7 +1227,7 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
         return NVSDK_NGX_Result_FAIL_FeatureNotFound;
     }
 
-    // DLSSG replacements passthrough
+    // DLSSG replacements passthrough (Evaluate)
     if (State::Instance().activeFgNvngx != FGNvngxReplacement::None && handleId >= NVNGX_PROVIDER_ID_OFFSET)
     {
         LOG_DEBUG("Passthrough to DLSSG Replacement's EvaluateFeature for handle {}", handleId);

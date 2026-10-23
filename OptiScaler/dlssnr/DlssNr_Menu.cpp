@@ -307,12 +307,24 @@ void RenderMenu(Config* config, float menuResScale)
 
         ImGui::TextUnformatted("Se aplica al compilar el modelo de IA en GPU.");
 
-        static const char* nrPresetNames[] = { "Por defecto (Default)", "Preset 1", "Preset 2", "Preset 3" };
-        int preset = (int) config->DlssNrPreset.value_or_default();
+        static const char* nrPresetNames[] = {
+            "Auto (Performance / Small FP8)",
+            "Quality (Honest Tench - Maxima Fidelidad)",
+            "Performance (Crazy Cuckoo Small FP8, +40% FPS)"
+        };
+        int preset = (int) std::min(config->DlssNrPreset.value_or_default(), 2u);
         if (ImGui::Combo("Preset del modelo IA", &preset, nrPresetNames, IM_ARRAYSIZE(nrPresetNames)))
             config->DlssNrPreset = (uint32_t) preset;
 
-        HelpMarker("Preset de pesos internos del modelo DLSS 5.");
+        HelpMarker("Modelos IA embebidos en nvngx_dlssnr.dll v310.9.16.0:\n"
+                   "0 - Auto: Selecciona Performance (Small FP8) por defecto.\n"
+                   "1 - Quality (Honest Tench): Red completa de maxima fidelidad.\n"
+                   "2 - Performance (Crazy Cuckoo Small FP8): Red cuantizada FP8 (+40% FPS en Tensor Cores).");
+        if (false)
+        if (ImGui::Combo("Preset del modelo IA", &preset, nrPresetNames, IM_ARRAYSIZE(nrPresetNames)))
+            config->DlssNrPreset = (uint32_t) preset;
+
+        // HelpMarker for v310.9.16.0 presets rendered above.
 
         static const char* nrStyleNames[] = { "Estandar (Standard)", "Natural", "Cinematografico (Cinematic)" };
         int style = (int) config->DlssNrStyle.value_or_default();
@@ -321,6 +333,38 @@ void RenderMenu(Config* config, float menuResScale)
             style = 2;
 
         if (ImGui::Combo("Estilo visual (Style)", &style, nrStyleNames, IM_ARRAYSIZE(nrStyleNames)))
+            config->DlssNrStyle = (uint32_t) style;
+
+        if (config->DlssNrPasses.value_or_default() > 1)
+        {
+            static const char* passPresetNames[] = {
+                "Auto (Heredar Pasada 1)",
+                "Quality (Honest Tench)",
+                "Performance (Small FP8, +40% FPS)"
+            };
+            static const char* passStyleNames[] = {
+                "Auto (Heredar Pasada 1)",
+                "Estandar (Standard)",
+                "Natural",
+                "Cinematografico (Cinematic)"
+            };
+            int p2Preset = (int) std::min(config->DlssNrPass2Preset.value_or_default(), 2u);
+            if (ImGui::Combo("Pasada 2 - Preset IA", &p2Preset, passPresetNames, IM_ARRAYSIZE(passPresetNames)))
+                config->DlssNrPass2Preset = (uint32_t) p2Preset;
+            int p2Style = (int) std::min(config->DlssNrPass2Style.value_or_default(), 3u);
+            if (ImGui::Combo("Pasada 2 - Estilo", &p2Style, passStyleNames, IM_ARRAYSIZE(passStyleNames)))
+                config->DlssNrPass2Style = (uint32_t) p2Style;
+            if (config->DlssNrPasses.value_or_default() > 2)
+            {
+                int p3Preset = (int) std::min(config->DlssNrPass3Preset.value_or_default(), 2u);
+                if (ImGui::Combo("Pasada 3 - Preset IA", &p3Preset, passPresetNames, IM_ARRAYSIZE(passPresetNames)))
+                    config->DlssNrPass3Preset = (uint32_t) p3Preset;
+                int p3Style = (int) std::min(config->DlssNrPass3Style.value_or_default(), 3u);
+                if (ImGui::Combo("Pasada 3 - Estilo", &p3Style, passStyleNames, IM_ARRAYSIZE(passStyleNames)))
+                    config->DlssNrPass3Style = (uint32_t) p3Style;
+            }
+        }
+        if (false)
             config->DlssNrStyle = (uint32_t) style;
 
         HelpMarker("The model's own processing profiles."
@@ -919,7 +963,76 @@ void RenderMenu(Config* config, float menuResScale)
         }
         }
 
-        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev5 / Pre-SR Multi-Pass, ResidualAcrossRR & Anti-Starvation)");
+        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev6 / Pre-SR Multi-Pass, ResidualAcrossRR & RenoDX Quality)");
+
+        static const char* qualityProfileNames[] = {
+            "Default (Estandar)",
+            "Anti-Sombra Movil (Caras y Paisajes)",
+            "Piel Natural / Cinematicas",
+            "Ray Reconstruction Estable (UE5 / PT)",
+            "Nitidez Paisajes (Con Anti-Halo)",
+            "Personalizado (Ajuste Manual)"
+        };
+        int qProfile = (int) std::min(config->DlssNrQualityProfile.value_or_default(), 5u);
+        if (ImGui::Combo("Perfil de Estabilidad y Sombras", &qProfile, qualityProfileNames, IM_ARRAYSIZE(qualityProfileNames)))
+        {
+            config->DlssNrQualityProfile = (uint32_t) qProfile;
+            if (qProfile == 0)
+            {
+                config->DlssNrHaloSuppression = 0.0f;
+                config->DlssNrHaloBrightSuppression = 0.0f;
+                config->DlssNrHaloRadius = 2.0f;
+                config->DlssNrHistoryRejection = false;
+                config->DlssNrResidualConfidenceSensitivity = 0.0f;
+                config->DlssNrMaxRatio = 2.0f;
+                config->DlssNrSkinStructure = -1.0f;
+                config->DlssNrAntiStarvation = false;
+            }
+            else if (qProfile == 1)
+            {
+                config->DlssNrAntiStarvation = true;
+                config->DlssNrHaloSuppression = 0.35f;
+                config->DlssNrHaloBrightSuppression = 0.25f;
+                config->DlssNrHaloRadius = 2.0f;
+                config->DlssNrSkinStructure = 0.45f;
+                config->DlssNrMaxRatio = 1.50f;
+                config->DlssNrHistoryRejection = true;
+                config->DlssNrResidualConfidenceSensitivity = 0.25f;
+            }
+            else if (qProfile == 2)
+            {
+                config->DlssNrAutoMask = true;
+                config->DlssNrSkinStructure = 0.30f;
+                config->DlssNrLocalStructure = 1.15f;
+                config->DlssNrHaloSuppression = 0.25f;
+                config->DlssNrHaloBrightSuppression = 0.15f;
+                config->DlssNrMaxRatio = 1.60f;
+            }
+            else if (qProfile == 3)
+            {
+                config->DlssNrResidualAcrossRr = true;
+                config->DlssNrResidualAcrossRrBlend = 0.06f;
+                config->DlssNrHistoryRejection = true;
+                config->DlssNrResidualConfidenceSensitivity = 0.35f;
+                config->DlssNrHaloSuppression = 0.20f;
+                config->DlssNrHaloBrightSuppression = 0.30f;
+            }
+            else if (qProfile == 4)
+            {
+                config->DlssNrTransferStrength = 1.15f;
+                config->DlssNrLocalStructure = 1.30f;
+                config->DlssNrHaloSuppression = 0.45f;
+                config->DlssNrHaloBrightSuppression = 0.20f;
+                config->DlssNrHaloRadius = 2.0f;
+                config->DlssNrMaxRatio = 1.80f;
+            }
+        }
+        HelpMarker("Selector rapido de perfiles visuales:\n"
+                   "- Default: Valores neutros originales.\n"
+                   "- Anti-Sombra Movil: Elimina el hervidero y movimiento de tonos de sombra en caras y paisajes.\n"
+                   "- Piel Natural: Suaviza sombras en primeros planos manteniendo detalle en el escenario.\n"
+                   "- Ray Reconstruction Estable: Maxima estabilidad temporal en Pre-SR con Path Tracing.\n"
+                   "- Nitidez Paisajes: Realce de detalle con supresion de halos oscuros.");
 
         bool preSr = config->DlssNrPreSR.value_or_default();
         if (ImGui::Checkbox("Pre-SR Multipass Mode", &preSr))
@@ -949,6 +1062,23 @@ void RenderMenu(Config* config, float menuResScale)
                 if (ImGui::SliderFloat("RR Residual Temporal Blend", &rrBlend, 0.01f, 1.00f, "%.2f"))
                     config->DlssNrResidualAcrossRrBlend = std::clamp(rrBlend, 0.01f, 1.00f);
                 HelpMarker("Peso del fotograma actual en la historia temporal del residual tras Ray Reconstruction (0.08 recomendado).");
+
+                bool histReject = config->DlssNrHistoryRejection.value_or_default();
+                if (ImGui::Checkbox("Rechazar historial obsoleto (History Rejection)", &histReject))
+                {
+                    config->DlssNrHistoryRejection = histReject;
+                    config->DlssNrQualityProfile = 5u;
+                }
+                HelpMarker("Recorta las ediciones antiguas a la vecindad 3x3 actual y descarta el historial cuando\n"
+                           "cambia la iluminacion subyacente, eliminando estelas de sombra en caras y paisajes.");
+
+                float confSens = config->DlssNrResidualConfidenceSensitivity.value_or_default();
+                if (ImGui::SliderFloat("Sensibilidad de confianza del historial", &confSens, 0.0f, 2.0f, "%.2f"))
+                {
+                    config->DlssNrResidualConfidenceSensitivity = std::clamp(confSens, 0.0f, 2.0f);
+                    config->DlssNrQualityProfile = 5u;
+                }
+                HelpMarker("Adapta la velocidad de mezcla temporal segun la diferencia respecto al historial (0 = desactivado).");
             }
         }
 
@@ -967,6 +1097,37 @@ void RenderMenu(Config* config, float menuResScale)
         if (ImGui::SliderFloat("Neural Blend Weight", &nrWeight, 0.0f, 1.0f, "%.2f"))
             config->DlssNrWeight = std::clamp(nrWeight, 0.0f, 1.0f);
         HelpMarker("Intensidad de mezcla del resultado neural frente al fotograma nativo.");
+
+        if (ImGui::TreeNode("Supresion de Halos y Sombras (RenoDX Look)"))
+        {
+            float haloSupp = config->DlssNrHaloSuppression.value_or_default();
+            if (ImGui::SliderFloat("Bordes oscuros junto a luces (Halo Suppression)", &haloSupp, 0.0f, 1.0f, "%.2f"))
+            {
+                config->DlssNrHaloSuppression = std::clamp(haloSupp, 0.0f, 1.0f);
+                config->DlssNrQualityProfile = 5u;
+            }
+            float haloBright = config->DlssNrHaloBrightSuppression.value_or_default();
+            if (ImGui::SliderFloat("Bordes oscuros junto a sombras (Bright Suppression)", &haloBright, 0.0f, 1.0f, "%.2f"))
+            {
+                config->DlssNrHaloBrightSuppression = std::clamp(haloBright, 0.0f, 1.0f);
+                config->DlssNrQualityProfile = 5u;
+            }
+            float haloRad = config->DlssNrHaloRadius.value_or_default();
+            if (ImGui::SliderFloat("Radio del filtro (pixeles NR)", &haloRad, 1.0f, 4.0f, "%.0f"))
+            {
+                config->DlssNrHaloRadius = std::clamp(haloRad, 1.0f, 4.0f);
+                config->DlssNrQualityProfile = 5u;
+            }
+            if (ImGui::SmallButton("Restaurar filtro de halos"))
+            {
+                config->DlssNrHaloSuppression = 0.0f;
+                config->DlssNrHaloBrightSuppression = 0.0f;
+                config->DlssNrHaloRadius = 2.0f;
+            }
+            HelpMarker("Corrige los bordes oscuros (dark-rims) y estabiliza las bandas finas/medias de sombra\n"
+                       "alrededor de rostros y objetos de alto contraste sin alterar la iluminacion general.");
+            ImGui::TreePop();
+        }
 
         ImGui::SeparatorText("Comparativa A/B");
 

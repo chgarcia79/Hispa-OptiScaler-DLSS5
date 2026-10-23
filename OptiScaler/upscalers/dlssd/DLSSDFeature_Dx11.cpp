@@ -40,6 +40,7 @@ bool DLSSDFeatureDx11::InitInternal(ID3D11DeviceContext* InContext, NVSDK_NGX_Pa
 
         if (NVNGXProxy::D3D11_CreateFeature() != nullptr)
         {
+            ScopedNgxDimensionRestoration restoreDims(InParameters);
             ProcessInitParams(InParameters);
 
             _p_dlssdHandle = &_dlssdHandle;

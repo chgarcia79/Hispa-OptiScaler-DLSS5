@@ -23,6 +23,7 @@ bool InputCommon::deinit_current_tech()
         old_tech->deinit();
 
         std::memset(frame_reports, 0, sizeof(frame_reports));
+        activeOutput = LowLatencyMode::None;
 
         return true;
     }
@@ -64,7 +65,7 @@ bool InputCommon::init_tech(IUnknown* pDevice, LowLatencyMode desiredMode)
             break;
         }
 
-        if (!isInitialized && desiredMode != LowLatencyMode::LatencyFlex)
+        if (!isInitialized && desiredMode != LowLatencyMode::LatencyFlex && desiredMode != LowLatencyMode::None)
         {
             isInitialized = try_init(std::make_shared<LatencyFlex>(), "LatencyFlex (Fallback)");
             if (isInitialized)
@@ -186,6 +187,8 @@ bool InputCommon::update_low_latency_tech(IUnknown* pDevice, std::optional<LowLa
             desiredMode = LowLatencyMode::XeLL;
         else if (vendorId == VendorId::AMD)
             desiredMode = LowLatencyMode::AntiLag2;
+        else if (vendorId == VendorId::Nvidia)
+            desiredMode = LowLatencyMode::None;
         // else if (vendorId == VendorId::Nvidia)
         //     desiredMode = LowLatencyMode::Reflex; // TODO: not supported yet
         else

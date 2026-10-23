@@ -224,6 +224,8 @@ struct NrState
     bool residualHistoryPrimed = false;
     bool residualStoreValid = false;
     bool residualModeActive = false;
+    bool residualHistoryRejection = false;
+    float residualHistoryPreExposure = 1.0f;
     unsigned int residualOutputWidth = 0;
     unsigned int residualOutputHeight = 0;
     DXGI_FORMAT residualOutputFormat = DXGI_FORMAT_UNKNOWN;
@@ -364,6 +366,10 @@ struct NrState
     float builtLocalTone = 0.0f;
     float builtSkinStructure = 0.0f;
     bool builtAutoMask = false;
+    unsigned int builtPass2Preset = 0;
+    unsigned int builtPass2Style = 0;
+    unsigned int builtPass3Preset = 0;
+    unsigned int builtPass3Style = 0;
     unsigned long long settledAt = 0;
 
     // Once something fails there is no recovering it mid-session, and retrying every frame turns a
@@ -1172,6 +1178,7 @@ ID3D12Resource* CreateGuideClone(ID3D12Device* device, ID3D12Resource* source)
 {
     D3D12_RESOURCE_DESC desc = source->GetDesc();
     desc.Format = TypedGuideFormat(desc.Format);
+    desc.MipLevels = 1;
     desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
     D3D12_HEAP_PROPERTIES heap {};
@@ -1201,7 +1208,7 @@ ID3D12Resource* CreateGuideClone(ID3D12Device* device, ID3D12Resource* source)
 ID3D12Resource* ReadableGuide(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList,
                               ID3D12Resource* source, ID3D12Resource** clone)
 {
-    if (source == nullptr || !IsTypeless(source->GetDesc().Format))
+    if (source == nullptr || (!IsTypeless(source->GetDesc().Format) && source->GetDesc().MipLevels == 1))
         return source;
 
     // A dynamic-resolution game reallocates its depth and motion vectors as the render size moves, so
@@ -1234,7 +1241,23 @@ ID3D12Resource* ReadableGuide(ID3D12Device* device, ID3D12GraphicsCommandList* c
 
     Barrier(cmdList, source, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATE_COPY_SOURCE);
-    cmdList->CopyResource(*clone, source);
+    if ((*clone)->GetDesc().MipLevels == source->GetDesc().MipLevels)
+    {
+        cmdList->CopyResource(*clone, source);
+    }
+    else
+    {
+        const D3D12_RESOURCE_DESC d = (*clone)->GetDesc();
+        if (d.Width > 0 && d.Height > 0)
+        {
+            D3D12_TEXTURE_COPY_LOCATION dstLoc { *clone, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX };
+            dstLoc.SubresourceIndex = 0;
+            D3D12_TEXTURE_COPY_LOCATION srcLoc { source, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX };
+            srcLoc.SubresourceIndex = 0;
+            const D3D12_BOX box { 0, 0, 0, static_cast<UINT>(d.Width), static_cast<UINT>(d.Height), 1 };
+            cmdList->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, &box);
+        }
+    }
     Barrier(cmdList, source, D3D12_RESOURCE_STATE_COPY_SOURCE,
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     Barrier(cmdList, *clone, D3D12_RESOURCE_STATE_COPY_DEST,
@@ -1331,7 +1354,11 @@ bool TuningMatchesFeature(const Config& cfg)
            g_nr.builtLocalStructure == cfg.DlssNrLocalStructure.value_or_default() &&
            g_nr.builtLocalTone == cfg.DlssNrLocalTone.value_or_default() &&
            g_nr.builtSkinStructure == cfg.DlssNrSkinStructure.value_or_default() &&
-           g_nr.builtAutoMask == cfg.DlssNrAutoMask.value_or_default();
+           g_nr.builtAutoMask == cfg.DlssNrAutoMask.value_or_default() &&
+           g_nr.builtPass2Preset == cfg.DlssNrPass2Preset.value_or_default() &&
+           g_nr.builtPass2Style == cfg.DlssNrPass2Style.value_or_default() &&
+           g_nr.builtPass3Preset == cfg.DlssNrPass3Preset.value_or_default() &&
+           g_nr.builtPass3Style == cfg.DlssNrPass3Style.value_or_default();
 }
 
 void RecordBuiltTuning(const Config& cfg)
@@ -1343,6 +1370,71 @@ void RecordBuiltTuning(const Config& cfg)
     g_nr.builtLocalTone = cfg.DlssNrLocalTone.value_or_default();
     g_nr.builtSkinStructure = cfg.DlssNrSkinStructure.value_or_default();
     g_nr.builtAutoMask = cfg.DlssNrAutoMask.value_or_default();
+    g_nr.builtPass2Preset = cfg.DlssNrPass2Preset.value_or_default();
+    g_nr.builtPass2Style = cfg.DlssNrPass2Style.value_or_default();
+    g_nr.builtPass3Preset = cfg.DlssNrPass3Preset.value_or_default();
+    g_nr.builtPass3Style = cfg.DlssNrPass3Style.value_or_default();
+}
+
+int ResolvePassPreset(const Config& cfg, unsigned int pass)
+{
+    const uint32_t basePreset = std::min(cfg.DlssNrPreset.value_or_default(), 3u);
+    if (pass == 1)
+    {
+        const uint32_t p2 = cfg.DlssNrPass2Preset.value_or_default();
+        return p2 == 1 ? 1 : (p2 == 2 ? 2 : (int) basePreset);
+    }
+    if (pass >= 2)
+    {
+        const uint32_t p3 = cfg.DlssNrPass3Preset.value_or_default();
+        return p3 == 1 ? 1 : (p3 == 2 ? 2 : (int) basePreset);
+    }
+    return (int) basePreset;
+}
+
+int ResolvePassStyle(const Config& cfg, unsigned int pass)
+{
+    const uint32_t baseStyle = std::min(cfg.DlssNrStyle.value_or_default(), 2u);
+    if (pass == 1)
+    {
+        const uint32_t s2 = cfg.DlssNrPass2Style.value_or_default();
+        return (s2 >= 1 && s2 <= 3) ? (int) (s2 - 1) : (int) baseStyle;
+    }
+    if (pass >= 2)
+    {
+        const uint32_t s3 = cfg.DlssNrPass3Style.value_or_default();
+        return (s3 >= 1 && s3 <= 3) ? (int) (s3 - 1) : (int) baseStyle;
+    }
+    return (int) baseStyle;
+}
+
+bool HaloEnabled(const Config& cfg)
+{
+    const float dark = cfg.DlssNrHaloSuppression.value_or_default();
+    const float bright = cfg.DlssNrHaloBrightSuppression.value_or_default();
+    return (std::isfinite(dark) && dark > 0.0f) || (std::isfinite(bright) && bright > 0.0f);
+}
+
+void ResolveNrRenderDimensions(NVSDK_NGX_Parameter* params, unsigned int& width, unsigned int& height)
+{
+    if (params != nullptr && (width == 0 || height == 0))
+    {
+        params->Get(NVSDK_NGX_Parameter_Width, &width);
+        params->Get(NVSDK_NGX_Parameter_Height, &height);
+    }
+    if (width == 0 || height == 0)
+    {
+        auto* currentFeature = State::Instance().currentFeature;
+        if (currentFeature != nullptr && currentFeature->RenderWidth() > 0 && currentFeature->RenderHeight() > 0)
+        {
+            width = currentFeature->RenderWidth();
+            height = currentFeature->RenderHeight();
+        }
+    }
+}
+
+void UnusedRecordStub()
+{
 }
 
 // Guards the module's state. Every caller is now on the game's render thread, so this is no longer
@@ -1847,7 +1939,8 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         }
     }
 
-    if (requestedPasses == 1)
+    const bool haloActive = HaloEnabled(cfg);
+    if (requestedPasses == 1 && !haloActive)
     {
         ParkNrResource(g_nr.passScratch);
         g_nr.passScratchFailed = false;
@@ -1922,7 +2015,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             g_nr.create(snippet->wstring().c_str(), State::Instance().NVNGX_ApplicationDataPath.c_str(),
                         device, cmdList, g_nr.capabilityParams, workWidth, workHeight,
                         (int) cfg.DlssNrPreset.value_or_default(),
-                        cfg.DlssNrIntensity.value_or_default(), (int) cfg.DlssNrStyle.value_or_default(),
+                        cfg.DlssNrIntensity.value_or_default(), ResolvePassStyle(cfg, 0),
                         cfg.DlssNrLocalStructure.value_or_default(), cfg.DlssNrLocalTone.value_or_default(),
                         cfg.DlssNrSkinStructure.value_or_default(),
                         cfg.DlssNrAutoMask.value_or_default() ? 1 : 0,
@@ -2029,8 +2122,8 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
                 // Later passes zero LocalTone to prevent compounding local contrast burn across cascaded passes.
                 g_nr.passFeature[pass] = g_nr.create(
                     snippet->wstring().c_str(), State::Instance().NVNGX_ApplicationDataPath.c_str(), device, cmdList,
-                    g_nr.capabilityParams, workWidth, workHeight, (int) cfg.DlssNrPreset.value_or_default(),
-                    cfg.DlssNrIntensity.value_or_default(), (int) cfg.DlssNrStyle.value_or_default(),
+                    g_nr.capabilityParams, workWidth, workHeight, ResolvePassPreset(cfg, pass),
+                    cfg.DlssNrIntensity.value_or_default(), ResolvePassStyle(cfg, pass),
                     cfg.DlssNrLocalStructure.value_or_default(), 0.0f, cfg.DlssNrSkinStructure.value_or_default(),
                     cfg.DlssNrAutoMask.value_or_default() ? 1 : 0, 1);
 
@@ -2392,7 +2485,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             cmdList, passFeature, g_nr.capabilityParams, passInput, depthIn, motionIn, passOutput,
             workWidth, workHeight, guideWidth, guideHeight, g_nr.guideDepthInverted ? 1 : 0,
             passReset ? 1 : 0, cfg.DlssNrIntensity.value_or_default(),
-            (int) cfg.DlssNrStyle.value_or_default(), cfg.DlssNrLocalStructure.value_or_default(),
+            ResolvePassStyle(cfg, pass), cfg.DlssNrLocalStructure.value_or_default(),
             passLocalTone, cfg.DlssNrSkinStructure.value_or_default(),
             cfg.DlssNrAutoMask.value_or_default() ? 1 : 0, g_nr.guideMvScaleX * mvToWorkX,
             g_nr.guideMvScaleY * mvToWorkY);
@@ -2417,6 +2510,25 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         g_ngxTime->End(cmdList);
 
     g_nr.reset = false;
+
+    if (result == NVSDK_NGX_Result_Success && finalAnswer != nullptr && haloActive &&
+        g_nr.passScratch != nullptr && cfg.DlssNrDebugView.value_or_default() != 2)
+    {
+        ID3D12Resource* haloTarget = (finalAnswer == g_nr.output) ? g_nr.passScratch : g_nr.output;
+        MakeModelWritable(haloTarget);
+        DlssNrConstants halo {};
+        halo.Mode = DlssNrResidualMode_SuppressHalo;
+        halo.Width = workWidth;
+        halo.Height = workHeight;
+        halo.HaloSuppression = std::clamp(cfg.DlssNrHaloSuppression.value_or_default(), 0.0f, 1.0f);
+        halo.HaloBrightSuppression = std::clamp(cfg.DlssNrHaloBrightSuppression.value_or_default(), 0.0f, 1.0f);
+        halo.HaloRadius = std::clamp(cfg.DlssNrHaloRadius.value_or_default(), 1.0f, 4.0f);
+        if (DispatchResidualPass(cmdList, halo, modelInput, finalAnswer, nullptr, nullptr, haloTarget))
+        {
+            finalAnswer = haloTarget;
+            MakeModelReadable(finalAnswer);
+        }
+    }
 
     if (workWidth > width || workHeight > height)
     {
@@ -2591,7 +2703,19 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             accum.Width = width;
             accum.Height = height;
             accum.ResidualBlend = std::clamp(cfg.DlssNrResidualAcrossRrBlend.value_or_default(), 0.01f, 1.0f);
-            accum.ResidualHistoryValid = g_nr.residualHistoryPrimed ? 1u : 0u;
+            const bool rejectHistory = cfg.DlssNrHistoryRejection.value_or_default();
+            accum.ResidualHistoryValid =
+                (g_nr.residualHistoryPrimed && g_nr.residualHistoryRejection == rejectHistory) ? 1u : 0u;
+            accum.HistoryRejection = rejectHistory ? 1u : 0u;
+            accum.ResidualConfidenceSensitivity =
+                std::clamp(cfg.DlssNrResidualConfidenceSensitivity.value_or_default(), 0.0f, 2.0f);
+            accum.ExposurePreMul = frame.PreExposure > 1e-6f ? frame.PreExposure : 1.0f;
+            accum.HistoryExposureRatio =
+                (g_nr.residualHistoryPreExposure > 1e-6f && frame.PreExposure > 1e-6f)
+                    ? (frame.PreExposure / g_nr.residualHistoryPreExposure)
+                    : 1.0f;
+            g_nr.residualHistoryRejection = rejectHistory;
+            g_nr.residualHistoryPreExposure = frame.PreExposure > 1e-6f ? frame.PreExposure : 1.0f;
             accum.GuideWidth = motionWidth;
             accum.GuideHeight = motionHeight;
             accum.ResidualMotionBaseX = 0;
@@ -2851,6 +2975,7 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
 
     params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, &frame.RenderSubrectWidth);
     params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, &frame.RenderSubrectHeight);
+    ResolveNrRenderDimensions(params, frame.RenderSubrectWidth, frame.RenderSubrectHeight);
 
     if (params->Get(NVSDK_NGX_Parameter_MV_Scale_X, &frame.MvScaleX) != NVSDK_NGX_Result_Success)
         frame.MvScaleX = 1.0f;
@@ -3070,6 +3195,7 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
 
     params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, &frame.RenderSubrectWidth);
     params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, &frame.RenderSubrectHeight);
+    ResolveNrRenderDimensions(params, frame.RenderSubrectWidth, frame.RenderSubrectHeight);
 
     if (frame.RenderSubrectWidth == 0 || frame.RenderSubrectHeight == 0)
     {
