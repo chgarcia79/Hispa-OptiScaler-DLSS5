@@ -1262,6 +1262,12 @@ HRESULT FGHooks::FGPresent(IDXGISwapChain* This, UINT SyncInterval, UINT Flags,
         LOG_DEBUG("Final SyncInterval: {}", SyncInterval);
     }
 
+    if (willPresent && SyncInterval > 0 && (Flags & DXGI_PRESENT_ALLOW_TEARING) != 0)
+    {
+        LOG_DEBUG("FGPresent: Stripping DXGI_PRESENT_ALLOW_TEARING because SyncInterval={} > 0", SyncInterval);
+        Flags &= ~DXGI_PRESENT_ALLOW_TEARING;
+    }
+
     // Used at wrapped_swapchain LocalPresent to determine is frame is interpolated or not
     if (willPresent)
         state.fgPresentIsCalled = true;
@@ -1271,6 +1277,30 @@ HRESULT FGHooks::FGPresent(IDXGISwapChain* This, UINT SyncInterval, UINT Flags,
         result = o_FGSCPresent(This, SyncInterval, Flags);
     else
         result = o_FGSCPresent1((IDXGISwapChain1*) This, SyncInterval, Flags, pPresentParameters);
+
+    if ((result == E_ABORT || result == DXGI_ERROR_INVALID_CALL) && SyncInterval > 0)
+    {
+        UINT retryFlags = Flags & ~DXGI_PRESENT_ALLOW_TEARING;
+        LOG_WARN("FGPresent failed with {:X} (SyncInterval={}), retrying with SyncInterval=0", (UINT) result,
+                 SyncInterval);
+        if (pPresentParameters == nullptr)
+            result = o_FGSCPresent(This, 0, retryFlags);
+        else
+            result = o_FGSCPresent1((IDXGISwapChain1*) This, 0, retryFlags, pPresentParameters);
+    }
+
+    if (result == E_ABORT)
+    {
+        HRESULT removedReason = S_OK;
+        if (state.currentD3D12Device != nullptr)
+            removedReason = state.currentD3D12Device->GetDeviceRemovedReason();
+
+        if (removedReason == S_OK)
+        {
+            LOG_WARN("FGPresent: Masking transient E_ABORT (0x80004004) to S_OK (device healthy) to prevent UE5 RHI crash");
+            result = S_OK;
+        }
+    }
 
     if (result == S_OK)
     {

@@ -323,6 +323,12 @@ static HRESULT LocalPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
         LOG_DEBUG("Final SyncInterval: {}", SyncInterval);
     }
 
+    if (willPresent && SyncInterval > 0 && (Flags & DXGI_PRESENT_ALLOW_TEARING) != 0)
+    {
+        LOG_DEBUG("LocalPresent: Stripping DXGI_PRESENT_ALLOW_TEARING because SyncInterval={} > 0", SyncInterval);
+        Flags &= ~DXGI_PRESENT_ALLOW_TEARING;
+    }
+
     // DXVK check, it's here because of upscaler time calculations
     if (IdentifyGpu::getPrimaryGpu().usesDxvk)
     {
@@ -402,6 +408,30 @@ static HRESULT LocalPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT 
         presentResult = pSwapChain->Present(SyncInterval, Flags);
     else
         presentResult = ((IDXGISwapChain1*) pSwapChain)->Present1(SyncInterval, Flags, pPresentParameters);
+
+    if ((presentResult == E_ABORT || presentResult == DXGI_ERROR_INVALID_CALL) && SyncInterval > 0)
+    {
+        UINT retryFlags = Flags & ~DXGI_PRESENT_ALLOW_TEARING;
+        LOG_WARN("LocalPresent failed with {:X} (SyncInterval={}), retrying with SyncInterval=0", (UINT) presentResult,
+                 SyncInterval);
+        if (pPresentParameters == nullptr)
+            presentResult = pSwapChain->Present(0, retryFlags);
+        else
+            presentResult = ((IDXGISwapChain1*) pSwapChain)->Present1(0, retryFlags, pPresentParameters);
+    }
+
+    if (presentResult == E_ABORT)
+    {
+        HRESULT removedReason = S_OK;
+        if (State::Instance().currentD3D12Device != nullptr)
+            removedReason = State::Instance().currentD3D12Device->GetDeviceRemovedReason();
+
+        if (removedReason == S_OK)
+        {
+            LOG_WARN("LocalPresent: Masking transient E_ABORT (0x80004004) to S_OK (device healthy) to prevent UE5 RHI crash");
+            presentResult = S_OK;
+        }
+    }
 
     if (presentResult == S_OK)
     {

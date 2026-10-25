@@ -284,10 +284,12 @@ static const QuirkEntry quirkTable[] = {
     // To enable DLSS-FG option
     QUIRK_ENTRY_UE(b1, GameQuirk::SpoofRegistry),
 
-    // Avowed
-    // NoColorBarrier needed to avoid post-loading crash with DLSS, AE required to fix FSR4 ghosting
+    // Avowed (UE-Alabama)
+    // NoColorBarrier & NoMVBarrier needed to avoid post-loading/present crash with DLSS/FG, AE required to fix FSR4 ghosting
     QUIRK_ENTRY_UE(avowed, GameQuirk::ForceAutoExposure, GameQuirk::DontUseUnrealColorBarriers,
-                   GameQuirk::DisableFSR2Inputs, GameQuirk::DisableFSR3Inputs),
+                   GameQuirk::DontUseUnrealMVBarriers, GameQuirk::DisableFSR2Inputs, GameQuirk::DisableFSR3Inputs),
+    QUIRK_ENTRY_UE(alabama, GameQuirk::ForceAutoExposure, GameQuirk::DontUseUnrealColorBarriers,
+                   GameQuirk::DontUseUnrealMVBarriers, GameQuirk::DisableFSR2Inputs, GameQuirk::DisableFSR3Inputs),
 
     // Starfield
     // SL spoof enough to unlock everything DLSS, Depth and Velocity needed to avoid FG artifacts

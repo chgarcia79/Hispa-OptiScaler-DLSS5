@@ -761,7 +761,7 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_CreateFeature(ID3D12GraphicsComma
 
     // DLSSG replacements passthrough
     if (InFeatureID == NVSDK_NGX_Feature_FrameGeneration)
-        DlssgParameterSanitizer::Sanitize(InParameters, true);
+        DlssgParameterSanitizer::Sanitize(InParameters, true, State::Instance().activeFgNvngx != FGNvngxReplacement::None && Nvngx_FG::isDx12Available());
     if (State::Instance().activeFgNvngx != FGNvngxReplacement::None && Nvngx_FG::isDx12Available() &&
         InFeatureID == NVSDK_NGX_Feature_FrameGeneration)
     {
@@ -1128,7 +1128,7 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
     if (feature == NVSDK_NGX_Feature_FrameGeneration)
     {
         evalWithoutFG = 0;
-        DlssgParameterSanitizer::Sanitize(InParameters, false);
+        DlssgParameterSanitizer::Sanitize(InParameters, false, State::Instance().activeFgNvngx != FGNvngxReplacement::None && handleId >= NVNGX_PROVIDER_ID_OFFSET);
         DlssgParameterSanitizer::LogEvaluateParameters(InParameters);
 
         int frameCount = 0;
