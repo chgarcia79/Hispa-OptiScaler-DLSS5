@@ -459,6 +459,8 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="shaders\dlssnr\DlssNr_DenoiseFirst_Helpers.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_DenoiseFirst_Dx12.h" />
     <ClInclude Include="shaders\dlssnr\precompile\dlssnr_denoise_first_Shader.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_DetailReuse_Dx12.h" />
+    <ClInclude Include="shaders\dlssnr\precompile\dlssnr_detail_reuse_Shader.h" />
     <ClInclude Include="hooks\Advapi32_Hooks.h" />
     <ClInclude Include="hooks\Crypt32_Hooks.h" />
     <ClInclude Include="hooks\Gdi32_Hooks.h" />
@@ -609,6 +611,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="shaders\depth_resample\DR_Dx12.h" />
     <ClInclude Include="shaders\depth_resample\precompile\dr_Shader.h" />
     <ClInclude Include="dlssnr\DlssNr_DriverGate.h" />
+    <ClInclude Include="dlssnr\DlssNr_VkExtensions.h" />
     <ClInclude Include="State.h" />
     <ClInclude Include="upscalers\xess\XeSSFeature_Dx11on12.h" />
     <ClInclude Include="upscalers\xess\XeSSFeature_Vk.h" />
@@ -844,6 +847,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClCompile Include="inputs\NVNGX_DLSS_Dx11.cpp" />
     <ClCompile Include="shaders\dlssnr\DlssNr_Dx12.cpp" />
     <ClCompile Include="shaders\dlssnr\DlssNr_DenoiseFirst_Dx12.cpp" />
+    <ClCompile Include="shaders\dlssnr\DlssNr_DetailReuse_Dx12.cpp" />
     <ClCompile Include="shaders\dlssnr\DlssNr_Vk.cpp" />
     <ClCompile Include="dlssnr\DlssNrFeature_Vk.cpp" />
     <ClCompile Include="dlssnr\DlssNr_ExposureScan.cpp" />

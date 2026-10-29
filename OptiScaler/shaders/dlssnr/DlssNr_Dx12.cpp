@@ -25,6 +25,7 @@
 #include <cstring>
 #include "DlssNr_ResidualPair.h"
 #include "DlssNr_DenoiseFirst_Dx12.h"
+#include "DlssNr_DetailReuse_Dx12.h"
 #include "precompile/DlssNr_Shader.h"
 #include "precompile/dlssnr_residual_Shader.h"
 #include "../output_scaling/OS_Dx12.h"
@@ -385,6 +386,7 @@ struct NrState
 NrState g_nr;
 std::unique_ptr<DlssNr_Dx12> g_compose;
 std::unique_ptr<DlssNr_DenoiseFirst_Dx12> g_denoiseFirst;
+std::unique_ptr<DlssNr_DetailReuse_Dx12> g_detailReuse;
 
 // What the pass costs on the GPU, for the breakdown in the overlay.
 std::unique_ptr<GpuTime_Dx12> g_gpuTime;
@@ -3191,6 +3193,8 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
 
     if (g_compose == nullptr)
         g_compose = std::make_unique<DlssNr_Dx12>("Neural Rendering", device);
+    if (Config::Instance()->DlssNrDetailReuseEnabled.value_or_default() && g_detailReuse == nullptr)
+        g_detailReuse = std::make_unique<DlssNr_DetailReuse_Dx12>("DLSS-NR DetailReuse", device);
 
     device->Release();
 
@@ -3200,7 +3204,16 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
         return;
     }
 
+    const auto outArrival = Config::Instance()->OutputResourceBarrier.has_value()
+                                ? (D3D12_RESOURCE_STATES) Config::Instance()->OutputResourceBarrier.value()
+                                : D3D12_RESOURCE_STATE_UNORDERED_ACCESS;
+    if (g_detailReuse != nullptr &&
+        g_detailReuse->TryReuseOrPrepareCapture(cmdList, target, depth, motion, frame.OutputWidth, frame.OutputHeight, frame, outArrival))
+        return;
+
     g_compose->Dispatch(cmdList, target, depth, motion, target, frame, timingQueue);
+    if (g_detailReuse != nullptr)
+        g_detailReuse->CompleteCaptureAfterNr(cmdList, target, depth, motion, frame.OutputWidth, frame.OutputHeight, frame, outArrival);
 }
 
 void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
@@ -3370,21 +3383,44 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
         }
     }
 
+    if (cfg.DlssNrDetailReuseEnabled.value_or_default() && g_detailReuse == nullptr)
+    {
+        try {
+            g_detailReuse = std::make_unique<DlssNr_DetailReuse_Dx12>("DLSS-NR DetailReuse", device);
+        } catch (...) {
+            g_detailReuse.reset();
+        }
+    }
+
     device->Release();
 
     if (g_compose != nullptr)
     {
-        if (useDenoiseFirst && g_denoiseFirst != nullptr &&
-            g_denoiseFirst->EvaluateAndCompose(cmdList, params, g_compose.get(), color, depth, motion, frame, timingQueue))
+        const uint32_t activeW = std::min<uint32_t>(frame.RenderSubrectWidth, (uint32_t) colorDesc.Width);
+        const uint32_t activeH = std::min<uint32_t>(frame.RenderSubrectHeight, colorDesc.Height);
+        const auto inArrival = cfg.ColorResourceBarrier.has_value()
+                                   ? (D3D12_RESOURCE_STATES) cfg.ColorResourceBarrier.value()
+                                   : D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE;
+        if (!residualAcrossRr && g_detailReuse != nullptr &&
+            g_detailReuse->TryReuseOrPrepareCapture(cmdList, color, depth, motion, activeW, activeH, frame, inArrival))
             return;
-        if (!cfg.DlssNrPreSR.value_or_default())
-            return;
-        if (residualAcrossRr)
+
+        bool ranDenoiseFirst = false;
+        if (useDenoiseFirst && g_denoiseFirst != nullptr)
+            ranDenoiseFirst = g_denoiseFirst->EvaluateAndCompose(cmdList, params, g_compose.get(), color, depth, motion, frame, timingQueue);
+        if (!ranDenoiseFirst)
         {
-            std::lock_guard<std::mutex> nrLock(g_nrMutex);
-            g_nr.residualPair.Arm(cmdList, params, output);
+            if (!cfg.DlssNrPreSR.value_or_default())
+                return;
+            if (residualAcrossRr)
+            {
+                std::lock_guard<std::mutex> nrLock(g_nrMutex);
+                g_nr.residualPair.Arm(cmdList, params, output);
+            }
+            g_compose->Dispatch(cmdList, color, depth, motion, color, frame, timingQueue);
         }
-        g_compose->Dispatch(cmdList, color, depth, motion, color, frame, timingQueue);
+        if (!residualAcrossRr && g_detailReuse != nullptr)
+            g_detailReuse->CompleteCaptureAfterNr(cmdList, color, depth, motion, activeW, activeH, frame, inArrival);
     }
 }
 
@@ -3663,6 +3699,7 @@ void Shutdown()
     g_lastNgxTime.reset();
     g_lastGpuTime.reset();
 
+    g_detailReuse.reset();
     g_denoiseFirst.reset();
     g_compose.reset();
 }

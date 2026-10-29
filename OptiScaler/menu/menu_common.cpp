@@ -4014,7 +4014,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
         ImGui::EndDisabled();
 
         bool xefgDepthResample = config->XeFGDepthResample.value_or_default();
-        if (ImGui::Checkbox("Depth Resample (Display-Res MVs)", &xefgDepthResample))
+        if (ImGui::Checkbox("Reescalar Depth a Motion Vectors de pantalla (Anti-Shimmering)", &xefgDepthResample))
             config->XeFGDepthResample = xefgDepthResample;
         ShowHelpMarker("Nearest-point depth resample to match Display-Res Motion Vectors when dimensions differ.");
 

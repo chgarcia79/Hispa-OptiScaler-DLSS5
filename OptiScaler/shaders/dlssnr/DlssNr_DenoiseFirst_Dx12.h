@@ -10,16 +10,15 @@
 #include "DlssNr_Dx12.h"
 #include "DlssNr_DenoiseFirst_Helpers.h"
 
+#include <SysUtils.h>
 #include <d3d12.h>
 #include <d3dx/d3dx12.h>
-#include <nvsdk_ngx.h>
-#include <nvsdk_ngx_params.h>
 #include <shaders/Shader_Dx12.h>
 #include <shaders/Shader_Dx12Utils.h>
 
 #define DENOISE_FIRST_NUM_HEAPS 8
 
-struct alignas(16) DenoiseFirstConstants
+struct alignas(256) DenoiseFirstConstants
 {
     uint32_t Width = 0;
     uint32_t Height = 0;

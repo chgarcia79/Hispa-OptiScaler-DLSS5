@@ -529,6 +529,10 @@ class Config
     CustomOptional<float> DlssNrHaloRadius { 2.0f };
     CustomOptional<bool> DlssNrDenoiseFirst { false };
     CustomOptional<float> DlssNrDenoiseFirstStrength { 1.0f };
+    CustomOptional<bool> DlssNrDetailReuseEnabled { false };
+    CustomOptional<uint32_t> DlssNrDetailReuseInterval { 2 };
+    CustomOptional<float> DlssNrDetailReuseBlend { 0.85f };
+    CustomOptional<float> DlssNrDetailReuseMotionReject { 0.50f };
 
     // --- end DLSS 5 Neural Rendering -------------------------------------------------------------
 

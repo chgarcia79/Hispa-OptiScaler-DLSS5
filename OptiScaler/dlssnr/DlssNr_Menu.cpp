@@ -357,7 +357,7 @@ void RenderMenu(Config* config, float menuResScale)
         HelpMarker("Ejecuta de 1 a 10 pasadas secuenciales del modelo neuronal DLSS 5.\n"
                    "Cada pasada adicional puede heredar el Preset/Estilo de la Pasada 1 o usar uno propio.");
 
-        if (config->DlssNrPasses.value_or_default() > 1)
+        if (config->DlssNrPasses.value_or_default() > 1 && ImGui::TreeNode("Overrides por Pasada (Pasadas 2..10)"))
         {
             static const char* passPresetNames[] = {
                 "Auto (Heredar Pasada 1)",
@@ -398,6 +398,7 @@ void RenderMenu(Config* config, float menuResScale)
                 if (ImGui::Combo(styleLabel, &pStyle, passStyleNames, IM_ARRAYSIZE(passStyleNames)))
                     *styleOpt = (uint32_t) pStyle;
             }
+            ImGui::TreePop();
         }
         if (false)
             config->DlssNrStyle = (uint32_t) style;
@@ -434,7 +435,7 @@ void RenderMenu(Config* config, float menuResScale)
         HelpMarker("Lets the model find skin itself rather than treating the frame uniformly.");
 
         bool matchGuides = config->DlssNrMatchGuides.value_or_default();
-        if (ImGui::Checkbox("Ajustar guias Depth/Motion a escala del modelo (MatchGuides)", &matchGuides))
+        if (ImGui::Checkbox("Ajustar guias Depth/Motion a escala interna (MatchGuides DX12)", &matchGuides))
             config->DlssNrMatchGuides = matchGuides;
         HelpMarker("Reescala Depth (R32F) y Motion Vectors (RG32F) con muestreo nearest-point a la resolucion\n"
                    "de trabajo del modelo para alinear los bordes con el color de entrada.");
@@ -1009,7 +1010,7 @@ void RenderMenu(Config* config, float menuResScale)
         }
         }
 
-        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev6 / Pre-SR Multi-Pass, ResidualAcrossRR & RenoDX Quality)");
+        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev8 / Pre-SR, Denoise-First 1:1, Detail Reuse & RenoDX Quality)");
 
         static const char* qualityProfileNames[] = {
             "Default (Estandar)",
@@ -1017,14 +1018,21 @@ void RenderMenu(Config* config, float menuResScale)
             "Piel Natural / Cinematicas",
             "Ray Reconstruction Estable (UE5 / PT)",
             "Nitidez Paisajes (Con Anti-Halo)",
+            "Path Tracing Denoise-First 1:1 (Cyberpunk PT / Witcher 3)",
+            "Ultra-FPS Cadencia Temporal 1:2 (+45% FPS)",
             "Personalizado (Ajuste Manual)"
         };
-        int qProfile = (int) std::min(config->DlssNrQualityProfile.value_or_default(), 5u);
+        const uint32_t rawProfile = config->DlssNrQualityProfile.value_or_default();
+        int qProfile = (rawProfile == 5u && !config->DlssNrDenoiseFirst.value_or_default())
+                           ? 7
+                           : (int) std::min(rawProfile, 7u);
         if (ImGui::Combo("Perfil de Estabilidad y Sombras", &qProfile, qualityProfileNames, IM_ARRAYSIZE(qualityProfileNames)))
         {
             config->DlssNrQualityProfile = (uint32_t) qProfile;
             if (qProfile == 0)
             {
+                config->DlssNrDenoiseFirst = false;
+                config->DlssNrDetailReuseEnabled = false;
                 config->DlssNrHaloSuppression = 0.0f;
                 config->DlssNrHaloBrightSuppression = 0.0f;
                 config->DlssNrHaloRadius = 2.0f;
@@ -1036,6 +1044,7 @@ void RenderMenu(Config* config, float menuResScale)
             }
             else if (qProfile == 1)
             {
+                config->DlssNrDenoiseFirst = false;
                 config->DlssNrAntiStarvation = true;
                 config->DlssNrHaloSuppression = 0.35f;
                 config->DlssNrHaloBrightSuppression = 0.25f;
@@ -1047,6 +1056,7 @@ void RenderMenu(Config* config, float menuResScale)
             }
             else if (qProfile == 2)
             {
+                config->DlssNrDenoiseFirst = false;
                 config->DlssNrAutoMask = true;
                 config->DlssNrSkinStructure = 0.30f;
                 config->DlssNrLocalStructure = 1.15f;
@@ -1056,6 +1066,8 @@ void RenderMenu(Config* config, float menuResScale)
             }
             else if (qProfile == 3)
             {
+                config->DlssNrDenoiseFirst = false;
+                config->DlssNrPreSR = true;
                 config->DlssNrResidualAcrossRr = true;
                 config->DlssNrResidualAcrossRrBlend = 0.06f;
                 config->DlssNrHistoryRejection = true;
@@ -1065,6 +1077,7 @@ void RenderMenu(Config* config, float menuResScale)
             }
             else if (qProfile == 4)
             {
+                config->DlssNrDenoiseFirst = false;
                 config->DlssNrTransferStrength = 1.15f;
                 config->DlssNrLocalStructure = 1.30f;
                 config->DlssNrHaloSuppression = 0.45f;
@@ -1072,13 +1085,87 @@ void RenderMenu(Config* config, float menuResScale)
                 config->DlssNrHaloRadius = 2.0f;
                 config->DlssNrMaxRatio = 1.80f;
             }
+            else if (qProfile == 5)
+            {
+                config->DlssNrPreSR = true;
+                config->DlssNrResidualAcrossRr = false;
+                config->DlssNrDenoiseFirst = true;
+                config->DlssNrDenoiseFirstStrength = 1.00f;
+                config->DlssNrAntiStarvation = true;
+                config->DlssNrHaloSuppression = 0.25f;
+                config->DlssNrHaloBrightSuppression = 0.20f;
+            }
+            else if (qProfile == 6)
+            {
+                config->DlssNrPreset = 2u;
+                config->DlssNrDetailReuseEnabled = true;
+                config->DlssNrDetailReuseInterval = 2u;
+                config->DlssNrDetailReuseBlend = 0.85f;
+                config->DlssNrDetailReuseMotionReject = 0.50f;
+            }
         }
-        HelpMarker("Selector rapido de perfiles visuales:\n"
+        HelpMarker("Selector rapido de perfiles visuales (0..7):\n"
                    "- Default: Valores neutros originales.\n"
-                   "- Anti-Sombra Movil: Elimina el hervidero y movimiento de tonos de sombra en caras y paisajes.\n"
-                   "- Piel Natural: Suaviza sombras en primeros planos manteniendo detalle en el escenario.\n"
-                   "- Ray Reconstruction Estable: Maxima estabilidad temporal en Pre-SR con Path Tracing.\n"
-                   "- Nitidez Paisajes: Realce de detalle con supresion de halos oscuros.");
+                   "- Anti-Sombra Movil: Elimina hervidero de sombra en caras y paisajes.\n"
+                   "- Piel Natural: Suaviza sombras en primeros planos.\n"
+                   "- Ray Reconstruction Estable: Acumulacion temporal ResidualAcrossRR.\n"
+                   "- Nitidez Paisajes: Realce de detalle con supresion de halos.\n"
+                   "- Path Tracing Denoise-First 1:1: Limpia ruido PT 1:1 antes de NR y transfiere el ratio con jitter.\n"
+                   "- Ultra-FPS Cadencia Temporal 1:2: Reproyecta detalle neural cada 2 fotogramas (+35%..+45% FPS).");
+
+        bool denoiseFirst = config->DlssNrDenoiseFirst.value_or_default();
+        if (ImGui::Checkbox("Denoise First 1:1 antes de NR (Anti-Ruido Path Tracing)", &denoiseFirst))
+        {
+            config->DlssNrDenoiseFirst = denoiseFirst;
+            config->DlssNrQualityProfile = 7u;
+        }
+        HelpMarker("Evalua un pase NGX 1:1 privado a resolucion interna antes de DLSS-NR, alimenta al modelo\n"
+                   "con imagen limpia y transfiere el ratio neural desplazado por jitter antes del escalador / RR.");
+
+        ImGui::BeginDisabled(!denoiseFirst);
+        float dfPct = config->DlssNrDenoiseFirstStrength.value_or_default() * 100.0f;
+        if (ImGui::SliderFloat("Fuerza Denoise-First (%)", &dfPct, 0.0f, 200.0f, "%.0f%%"))
+        {
+            config->DlssNrDenoiseFirstStrength = std::clamp(dfPct / 100.0f, 0.0f, 2.0f);
+            config->DlssNrQualityProfile = 7u;
+        }
+        ImGui::EndDisabled();
+
+        bool detailReuse = config->DlssNrDetailReuseEnabled.value_or_default();
+        if (ImGui::Checkbox("Reutilizar detalle neural entre fotogramas (Boost FPS)", &detailReuse))
+        {
+            config->DlssNrDetailReuseEnabled = detailReuse;
+            config->DlssNrQualityProfile = 7u;
+        }
+        HelpMarker("Evalua nvngx_dlssnr.dll cada N fotogramas y reproyecta el microdetalle neural con Motion Vectors\n"
+                   "y rechazo de desoclusiones por Depth en los fotogramas intermedios (+35%..+45% FPS).");
+
+        ImGui::BeginDisabled(!detailReuse);
+        static const char* reuseCadenceNames[] = {
+            "Cada 2 fotogramas (1:2 - Balanceado)",
+            "Cada 3 fotogramas (1:3 - Maximo FPS)"
+        };
+        int cadenceIdx = (config->DlssNrDetailReuseInterval.value_or_default() >= 3u) ? 1 : 0;
+        if (ImGui::Combo("Cadencia IA", &cadenceIdx, reuseCadenceNames, IM_ARRAYSIZE(reuseCadenceNames)))
+        {
+            config->DlssNrDetailReuseInterval = (cadenceIdx == 1) ? 3u : 2u;
+            config->DlssNrQualityProfile = 7u;
+        }
+
+        float reuseBlendPct = config->DlssNrDetailReuseBlend.value_or_default() * 100.0f;
+        if (ImGui::SliderFloat("Mezcla de detalle reutilizado (%)", &reuseBlendPct, 0.0f, 100.0f, "%.0f%%"))
+        {
+            config->DlssNrDetailReuseBlend = std::clamp(reuseBlendPct / 100.0f, 0.0f, 1.0f);
+            config->DlssNrQualityProfile = 7u;
+        }
+
+        float motionRejectPct = config->DlssNrDetailReuseMotionReject.value_or_default() * 100.0f;
+        if (ImGui::SliderFloat("Rechazo anti-ghosting en movimiento (%)", &motionRejectPct, 0.0f, 100.0f, "%.0f%%"))
+        {
+            config->DlssNrDetailReuseMotionReject = std::clamp(motionRejectPct / 100.0f, 0.0f, 1.0f);
+            config->DlssNrQualityProfile = 7u;
+        }
+        ImGui::EndDisabled();
 
         bool preSr = config->DlssNrPreSR.value_or_default();
         if (ImGui::Checkbox("Pre-SR Multipass Mode", &preSr))
@@ -1113,7 +1200,7 @@ void RenderMenu(Config* config, float menuResScale)
                 if (ImGui::Checkbox("Rechazar historial obsoleto (History Rejection)", &histReject))
                 {
                     config->DlssNrHistoryRejection = histReject;
-                    config->DlssNrQualityProfile = 5u;
+                    config->DlssNrQualityProfile = 7u;
                 }
                 HelpMarker("Recorta las ediciones antiguas a la vecindad 3x3 actual y descarta el historial cuando\n"
                            "cambia la iluminacion subyacente, eliminando estelas de sombra en caras y paisajes.");
@@ -1122,7 +1209,7 @@ void RenderMenu(Config* config, float menuResScale)
                 if (ImGui::SliderFloat("Sensibilidad de confianza del historial", &confSens, 0.0f, 2.0f, "%.2f"))
                 {
                     config->DlssNrResidualConfidenceSensitivity = std::clamp(confSens, 0.0f, 2.0f);
-                    config->DlssNrQualityProfile = 5u;
+                    config->DlssNrQualityProfile = 7u;
                 }
                 HelpMarker("Adapta la velocidad de mezcla temporal segun la diferencia respecto al historial (0 = desactivado).");
             }
@@ -1150,19 +1237,19 @@ void RenderMenu(Config* config, float menuResScale)
             if (ImGui::SliderFloat("Bordes oscuros junto a luces (Halo Suppression)", &haloSupp, 0.0f, 1.0f, "%.2f"))
             {
                 config->DlssNrHaloSuppression = std::clamp(haloSupp, 0.0f, 1.0f);
-                config->DlssNrQualityProfile = 5u;
+                config->DlssNrQualityProfile = 7u;
             }
             float haloBright = config->DlssNrHaloBrightSuppression.value_or_default();
             if (ImGui::SliderFloat("Bordes oscuros junto a sombras (Bright Suppression)", &haloBright, 0.0f, 1.0f, "%.2f"))
             {
                 config->DlssNrHaloBrightSuppression = std::clamp(haloBright, 0.0f, 1.0f);
-                config->DlssNrQualityProfile = 5u;
+                config->DlssNrQualityProfile = 7u;
             }
             float haloRad = config->DlssNrHaloRadius.value_or_default();
             if (ImGui::SliderFloat("Radio del filtro (pixeles NR)", &haloRad, 1.0f, 4.0f, "%.0f"))
             {
                 config->DlssNrHaloRadius = std::clamp(haloRad, 1.0f, 4.0f);
-                config->DlssNrQualityProfile = 5u;
+                config->DlssNrQualityProfile = 7u;
             }
             if (ImGui::SmallButton("Restaurar filtro de halos"))
             {

@@ -4,13 +4,12 @@
 // Preserves bindless game root signatures, skips heap capture during internal compute/NGX work,
 // safely retires D3D12/NGX resources across in-flight FG frames, and saves/restores NGX 1:1 params.
 
+#include <SysUtils.h>
+#include <State.h>
 #include <d3d12.h>
 #include <d3dx/d3dx12.h>
-#include <nvsdk_ngx.h>
-#include <nvsdk_ngx_params.h>
 #include <hooks/D3D12_Hooks.h>
 #include <proxies/NVNGX_Proxy.h>
-#include <resource_tracking/ResTrack_dx12.h>
 #include <vector>
 
 namespace DlssNrDx12Helpers
@@ -123,5 +122,66 @@ inline void Transition(ID3D12GraphicsCommandList* cmd, ID3D12Resource* res, D3D1
         auto b = CD3DX12_RESOURCE_BARRIER::Transition(res, from, to);
         cmd->ResourceBarrier(1, &b);
     }
+}
+
+inline DXGI_FORMAT ResolveSrvFormat(DXGI_FORMAT fmt)
+{
+    switch (fmt)
+    {
+    case DXGI_FORMAT_R32G32B32A32_TYPELESS: return DXGI_FORMAT_R32G32B32A32_FLOAT;
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS: return DXGI_FORMAT_R16G16B16A16_FLOAT;
+    case DXGI_FORMAT_R32G32_TYPELESS: return DXGI_FORMAT_R32G32_FLOAT;
+    case DXGI_FORMAT_R16G16_TYPELESS: return DXGI_FORMAT_R16G16_FLOAT;
+    case DXGI_FORMAT_R10G10B10A2_TYPELESS: return DXGI_FORMAT_R10G10B10A2_UNORM;
+    case DXGI_FORMAT_R8G8B8A8_TYPELESS: return DXGI_FORMAT_R8G8B8A8_UNORM;
+    case DXGI_FORMAT_B8G8R8A8_TYPELESS: return DXGI_FORMAT_B8G8R8A8_UNORM;
+    case DXGI_FORMAT_R32_TYPELESS:
+    case DXGI_FORMAT_D32_FLOAT: return DXGI_FORMAT_R32_FLOAT;
+    case DXGI_FORMAT_R32G8X24_TYPELESS:
+    case DXGI_FORMAT_D32_FLOAT_S8X24_UINT: return DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
+    case DXGI_FORMAT_R24G8_TYPELESS:
+    case DXGI_FORMAT_D24_UNORM_S8_UINT: return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
+    case DXGI_FORMAT_R16_TYPELESS:
+    case DXGI_FORMAT_D16_UNORM: return DXGI_FORMAT_R16_UNORM;
+    default: return fmt;
+    }
+}
+
+inline bool CreateSafeSrv(ID3D12Device* dev, ID3D12Resource* res, D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle,
+                          DXGI_FORMAT overrideFmt = DXGI_FORMAT_UNKNOWN)
+{
+    if (!dev || !res)
+        return false;
+    const auto desc = res->GetDesc();
+    if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || (desc.Flags & D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE))
+        return false;
+    const DXGI_FORMAT srvFmt = ResolveSrvFormat(overrideFmt != DXGI_FORMAT_UNKNOWN ? overrideFmt : desc.Format);
+    if (srvFmt == DXGI_FORMAT_UNKNOWN)
+        return false;
+    D3D12_SHADER_RESOURCE_VIEW_DESC srv {};
+    srv.Format = srvFmt;
+    srv.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+    srv.ViewDimension = desc.DepthOrArraySize > 1 ? D3D12_SRV_DIMENSION_TEXTURE2DARRAY : D3D12_SRV_DIMENSION_TEXTURE2D;
+    if (desc.DepthOrArraySize > 1)
+    {
+        srv.Texture2DArray.MipLevels = 1;
+        srv.Texture2DArray.ArraySize = 1;
+    }
+    else
+        srv.Texture2D.MipLevels = 1;
+    dev->CreateShaderResourceView(res, &srv, cpuHandle);
+    return true;
+}
+
+inline void CopySubRegion(ID3D12GraphicsCommandList* cmd, ID3D12Resource* dst, D3D12_RESOURCE_STATES dstState,
+                          ID3D12Resource* src, D3D12_RESOURCE_STATES srcState, uint32_t w, uint32_t h)
+{
+    Transition(cmd, src, srcState, D3D12_RESOURCE_STATE_COPY_SOURCE);
+    Transition(cmd, dst, dstState, D3D12_RESOURCE_STATE_COPY_DEST);
+    const CD3DX12_TEXTURE_COPY_LOCATION dstLoc(dst, 0), srcLoc(src, 0);
+    const CD3DX12_BOX box(0, 0, 0, w, h, 1);
+    cmd->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, &box);
+    Transition(cmd, dst, D3D12_RESOURCE_STATE_COPY_DEST, dstState);
+    Transition(cmd, src, D3D12_RESOURCE_STATE_COPY_SOURCE, srcState);
 }
 } // namespace DlssNrDx12Helpers

@@ -418,6 +418,13 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrDenoiseFirst.set_from_config(readBool("DlssNr", "DenoiseFirst"));
             if (auto s = readFloat("DlssNr", "DenoiseFirstStrength"); s.has_value())
                 DlssNrDenoiseFirstStrength.set_from_config(std::clamp(s.value(), 0.0f, 2.0f));
+            DlssNrDetailReuseEnabled.set_from_config(readBool("DlssNr", "DetailReuseEnabled"));
+            if (auto ri = readUInt("DlssNr", "DetailReuseInterval"); ri.has_value())
+                DlssNrDetailReuseInterval.set_from_config(std::clamp(ri.value(), 2u, 3u));
+            if (auto rb = readFloat("DlssNr", "DetailReuseBlend"); rb.has_value())
+                DlssNrDetailReuseBlend.set_from_config(std::clamp(rb.value(), 0.0f, 1.0f));
+            if (auto rm = readFloat("DlssNr", "DetailReuseMotionReject"); rm.has_value())
+                DlssNrDetailReuseMotionReject.set_from_config(std::clamp(rm.value(), 0.0f, 1.0f));
             UseGenericAppIdWithDlss.set_from_config(readBool("DLSS", "UseGenericAppIdWithDlss"));
 
             RenderPresetOverride.set_from_config(readBool("DLSS", "RenderPresetOverride"));
@@ -1426,6 +1433,10 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "HaloRadius", GetFloatValue(Instance()->DlssNrHaloRadius.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DenoiseFirst", GetBoolValue(Instance()->DlssNrDenoiseFirst.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DenoiseFirstStrength", GetFloatValue(Instance()->DlssNrDenoiseFirstStrength.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DetailReuseEnabled", GetBoolValue(Instance()->DlssNrDetailReuseEnabled.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DetailReuseInterval", GetIntValue(Instance()->DlssNrDetailReuseInterval.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DetailReuseBlend", GetFloatValue(Instance()->DlssNrDetailReuseBlend.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DetailReuseMotionReject", GetFloatValue(Instance()->DlssNrDetailReuseMotionReject.value_for_config()).c_str());
         ini.SetValue("DLSS", "RenderPresetOverride",
                      GetBoolValue(Instance()->RenderPresetOverride.value_for_config()).c_str());
         ini.SetValue("DLSS", "RenderPresetForAll",
