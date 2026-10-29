@@ -6,6 +6,7 @@
 
 
 #include <dlssnr/DlssNr_Capture.h>
+#include <dlssnr/DlssNr_DriverGate.h>
 #include <dlssnr/DlssNr_Proxy.h>
 #include <dlssnr/DlssNr_ExposureScan.h>
 
@@ -199,11 +200,11 @@ struct NrState
     //
     // Indexed by pass, so [0] is unused and the first extra pass is [1]. Wasting one pointer keeps
     // every index here equal to the pass number it belongs to.
-    void* passFeature[4] = {};
-    bool passNeedsReset[4] = {};
-    bool passCreateFailed[4] = {};
-    bool passPendingSubmission[4] = {};
-    unsigned long long passCreateEpoch[4] = {};
+    void* passFeature[10] = {};
+    bool passNeedsReset[10] = {};
+    bool passCreateFailed[10] = {};
+    bool passPendingSubmission[10] = {};
+    unsigned long long passCreateEpoch[10] = {};
 
     bool featurePendingSubmission = false;
     unsigned long long featureCreateEpoch = 0;
@@ -238,6 +239,10 @@ struct NrState
 
     // The frame shrunk for the model, when it is working below full resolution.
     ID3D12Resource* colorSmall = nullptr;
+    ID3D12Resource* depthSmall = nullptr;
+    ID3D12Resource* motionSmall = nullptr;
+    bool loggedGuideMatch = false;
+    uint32_t loggedMotionReference = 0, loggedMotionTexture = 0, loggedMotionWork = 0;
 
     // Supersampling (working scale > 1): the Output Scaling upsampler used to enlarge the proxy to the
     // model's larger-than-native working size with a real filter instead of the box minifier. Created
@@ -366,10 +371,8 @@ struct NrState
     float builtLocalTone = 0.0f;
     float builtSkinStructure = 0.0f;
     bool builtAutoMask = false;
-    unsigned int builtPass2Preset = 0;
-    unsigned int builtPass2Style = 0;
-    unsigned int builtPass3Preset = 0;
-    unsigned int builtPass3Style = 0;
+    unsigned int builtPassPreset[10] = {};
+    unsigned int builtPassStyle[10] = {};
     unsigned long long settledAt = 0;
 
     // Once something fails there is no recovering it mid-session, and retrying every frame turns a
@@ -755,7 +758,7 @@ void ReleaseSurfacesIfFormatChanged(DXGI_FORMAT needed)
     g_nr.featurePendingSubmission = false;
 
     // The extras go with it: they were built for this raster and this tuning too.
-    for (unsigned int i = 0; i < 4; ++i)
+    for (unsigned int i = 0; i < 10; ++i)
     {
         ParkNrFeature(g_nr.passFeature[i]);
         g_nr.passNeedsReset[i] = false;
@@ -1346,19 +1349,57 @@ void SetExtras(const Config& cfg, ID3D12Resource* ui, ID3D12Resource* backbuffer
                    uiWidth, uiHeight, bbWidth, bbHeight);
 }
 
+uint32_t GetConfiguredPassPreset(const Config& cfg, unsigned int pass)
+{
+    switch (pass)
+    {
+    case 1: return cfg.DlssNrPass2Preset.value_or_default();
+    case 2: return cfg.DlssNrPass3Preset.value_or_default();
+    case 3: return cfg.DlssNrPass4Preset.value_or_default();
+    case 4: return cfg.DlssNrPass5Preset.value_or_default();
+    case 5: return cfg.DlssNrPass6Preset.value_or_default();
+    case 6: return cfg.DlssNrPass7Preset.value_or_default();
+    case 7: return cfg.DlssNrPass8Preset.value_or_default();
+    case 8: return cfg.DlssNrPass9Preset.value_or_default();
+    case 9: return cfg.DlssNrPass10Preset.value_or_default();
+    default: return 0;
+    }
+}
+
+uint32_t GetConfiguredPassStyle(const Config& cfg, unsigned int pass)
+{
+    switch (pass)
+    {
+    case 1: return cfg.DlssNrPass2Style.value_or_default();
+    case 2: return cfg.DlssNrPass3Style.value_or_default();
+    case 3: return cfg.DlssNrPass4Style.value_or_default();
+    case 4: return cfg.DlssNrPass5Style.value_or_default();
+    case 5: return cfg.DlssNrPass6Style.value_or_default();
+    case 6: return cfg.DlssNrPass7Style.value_or_default();
+    case 7: return cfg.DlssNrPass8Style.value_or_default();
+    case 8: return cfg.DlssNrPass9Style.value_or_default();
+    case 9: return cfg.DlssNrPass10Style.value_or_default();
+    default: return 0;
+    }
+}
+
 bool TuningMatchesFeature(const Config& cfg)
 {
-    return g_nr.builtPreset == cfg.DlssNrPreset.value_or_default() &&
-           g_nr.builtIntensity == cfg.DlssNrIntensity.value_or_default() &&
-           g_nr.builtStyle == cfg.DlssNrStyle.value_or_default() &&
-           g_nr.builtLocalStructure == cfg.DlssNrLocalStructure.value_or_default() &&
-           g_nr.builtLocalTone == cfg.DlssNrLocalTone.value_or_default() &&
-           g_nr.builtSkinStructure == cfg.DlssNrSkinStructure.value_or_default() &&
-           g_nr.builtAutoMask == cfg.DlssNrAutoMask.value_or_default() &&
-           g_nr.builtPass2Preset == cfg.DlssNrPass2Preset.value_or_default() &&
-           g_nr.builtPass2Style == cfg.DlssNrPass2Style.value_or_default() &&
-           g_nr.builtPass3Preset == cfg.DlssNrPass3Preset.value_or_default() &&
-           g_nr.builtPass3Style == cfg.DlssNrPass3Style.value_or_default();
+    if (g_nr.builtPreset != cfg.DlssNrPreset.value_or_default() ||
+        g_nr.builtIntensity != cfg.DlssNrIntensity.value_or_default() ||
+        g_nr.builtStyle != cfg.DlssNrStyle.value_or_default() ||
+        g_nr.builtLocalStructure != cfg.DlssNrLocalStructure.value_or_default() ||
+        g_nr.builtLocalTone != cfg.DlssNrLocalTone.value_or_default() ||
+        g_nr.builtSkinStructure != cfg.DlssNrSkinStructure.value_or_default() ||
+        g_nr.builtAutoMask != cfg.DlssNrAutoMask.value_or_default())
+        return false;
+    for (unsigned int pass = 1; pass < 10; ++pass)
+    {
+        if (g_nr.builtPassPreset[pass] != GetConfiguredPassPreset(cfg, pass) ||
+            g_nr.builtPassStyle[pass] != GetConfiguredPassStyle(cfg, pass))
+            return false;
+    }
+    return true;
 }
 
 void RecordBuiltTuning(const Config& cfg)
@@ -1370,24 +1411,20 @@ void RecordBuiltTuning(const Config& cfg)
     g_nr.builtLocalTone = cfg.DlssNrLocalTone.value_or_default();
     g_nr.builtSkinStructure = cfg.DlssNrSkinStructure.value_or_default();
     g_nr.builtAutoMask = cfg.DlssNrAutoMask.value_or_default();
-    g_nr.builtPass2Preset = cfg.DlssNrPass2Preset.value_or_default();
-    g_nr.builtPass2Style = cfg.DlssNrPass2Style.value_or_default();
-    g_nr.builtPass3Preset = cfg.DlssNrPass3Preset.value_or_default();
-    g_nr.builtPass3Style = cfg.DlssNrPass3Style.value_or_default();
+    for (unsigned int pass = 1; pass < 10; ++pass)
+    {
+        g_nr.builtPassPreset[pass] = GetConfiguredPassPreset(cfg, pass);
+        g_nr.builtPassStyle[pass] = GetConfiguredPassStyle(cfg, pass);
+    }
 }
 
 int ResolvePassPreset(const Config& cfg, unsigned int pass)
 {
     const uint32_t basePreset = std::min(cfg.DlssNrPreset.value_or_default(), 3u);
-    if (pass == 1)
+    if (pass >= 1 && pass < 10)
     {
-        const uint32_t p2 = cfg.DlssNrPass2Preset.value_or_default();
-        return p2 == 1 ? 1 : (p2 == 2 ? 2 : (int) basePreset);
-    }
-    if (pass >= 2)
-    {
-        const uint32_t p3 = cfg.DlssNrPass3Preset.value_or_default();
-        return p3 == 1 ? 1 : (p3 == 2 ? 2 : (int) basePreset);
+        const uint32_t p = GetConfiguredPassPreset(cfg, pass);
+        return p == 1 ? 1 : (p == 2 ? 2 : (int) basePreset);
     }
     return (int) basePreset;
 }
@@ -1395,15 +1432,10 @@ int ResolvePassPreset(const Config& cfg, unsigned int pass)
 int ResolvePassStyle(const Config& cfg, unsigned int pass)
 {
     const uint32_t baseStyle = std::min(cfg.DlssNrStyle.value_or_default(), 2u);
-    if (pass == 1)
+    if (pass >= 1 && pass < 10)
     {
-        const uint32_t s2 = cfg.DlssNrPass2Style.value_or_default();
-        return (s2 >= 1 && s2 <= 3) ? (int) (s2 - 1) : (int) baseStyle;
-    }
-    if (pass >= 2)
-    {
-        const uint32_t s3 = cfg.DlssNrPass3Style.value_or_default();
-        return (s3 >= 1 && s3 <= 3) ? (int) (s3 - 1) : (int) baseStyle;
+        const uint32_t s = GetConfiguredPassStyle(cfg, pass);
+        return (s >= 1 && s <= 3) ? (int) (s - 1) : (int) baseStyle;
     }
     return (int) baseStyle;
 }
@@ -1689,6 +1721,14 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     std::lock_guard<std::mutex> nrLock(g_nrMutex);
     const Config& cfg = *Config::Instance();
 
+    if (DlssNr::DriverGate::Blocked())
+    {
+        g_nr.failed = true;
+        g_nr.reason = "NVIDIA driver is older than 610.88 (616.64+ recommended)";
+        LOG_ERROR("DLSS-NR (driver): {}", DlssNr::DriverGate::BlockedMessage(DlssNr::DriverGate::DetectedVersion()));
+        return;
+    }
+
     if (g_nr.failed || cmdList == nullptr || colour == nullptr || depth == nullptr ||
         motion == nullptr || output == nullptr)
     {
@@ -1853,7 +1893,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     const auto workWidth = (unsigned int) (width * workScale + 0.5f);
     const auto workHeight = (unsigned int) (height * workScale + 0.5f);
     const bool reduced = workWidth != width || workHeight != height;
-    const unsigned int configuredPasses = std::clamp(cfg.DlssNrPasses.value_or_default(), 1u, 3u);
+    const unsigned int configuredPasses = std::clamp(cfg.DlssNrPasses.value_or_default(), 1u, 10u);
     const bool proxyBackend = cfg.DlssNrUseProxy.value_or_default();
     const unsigned int requestedPasses = proxyBackend ? 1u : configuredPasses;
 
@@ -1873,7 +1913,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         ParkNrFeature(g_nr.feature);
         g_nr.featurePendingSubmission = false;
 
-        for (unsigned int i = 0; i < 4; ++i)
+        for (unsigned int i = 0; i < 10; ++i)
         {
             ParkNrFeature(g_nr.passFeature[i]);
             g_nr.passNeedsReset[i] = false;
@@ -1891,6 +1931,9 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             ParkNrResource(g_nr.colorCopy);
             ParkNrResource(g_nr.hdrCopy);
             ParkNrResource(g_nr.colorSmall);
+            ParkNrResource(g_nr.depthSmall);
+            ParkNrResource(g_nr.motionSmall);
+            g_nr.loggedGuideMatch = false;
             ParkNrResource(g_nr.outputNative);
             ParkNrResource(g_nr.residualEdited);
             ParkNrResource(g_nr.residualHistory[0]);
@@ -2071,7 +2114,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         LOG_INFO("DLSS-NR: primary feature ready after submitted epoch {}", g_nr.featureCreateEpoch);
     }
 
-    for (unsigned int pass = 1; pass < 4; ++pass)
+    for (unsigned int pass = 1; pass < 10; ++pass)
     {
         if (pass >= requestedPasses)
         {
@@ -2392,8 +2435,75 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         return;
     }
 
-    const float mvToWorkX = width != 0 ? (float) workWidth / (float) width : 1.0f;
-    const float mvToWorkY = height != 0 ? (float) workHeight / (float) height : 1.0f;
+    bool matchedGuides = false;
+    if (reduced && workWidth < width && cfg.DlssNrMatchGuides.value_or_default())
+    {
+        if (g_nr.depthSmall == nullptr)
+            g_nr.depthSmall = CreateScratch(device, DXGI_FORMAT_R32_FLOAT, workWidth, workHeight);
+        if (g_nr.motionSmall == nullptr)
+            g_nr.motionSmall = CreateScratch(device, DXGI_FORMAT_R32G32_FLOAT, workWidth, workHeight);
+        if (g_nr.depthSmall != nullptr && g_nr.motionSmall != nullptr)
+        {
+            DlssNrConstants resize {};
+            resize.Mode = DlssNrResidualMode_ResampleGuide;
+            resize.Width = workWidth;
+            resize.Height = workHeight;
+            resize.GuideWidth = guideWidth;
+            resize.GuideHeight = guideHeight;
+            const bool okDepth =
+                DispatchResidualPass(cmdList, resize, depthIn, nullptr, nullptr, nullptr, g_nr.depthSmall);
+            const bool okMotion =
+                okDepth && DispatchResidualPass(cmdList, resize, motionIn, nullptr, nullptr, nullptr, g_nr.motionSmall);
+            if (okMotion)
+            {
+                Barrier(cmdList, g_nr.depthSmall, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                Barrier(cmdList, g_nr.motionSmall, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+                        D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
+                depthIn = g_nr.depthSmall;
+                motionIn = g_nr.motionSmall;
+                matchedGuides = true;
+            }
+        }
+        if (!g_nr.loggedGuideMatch)
+        {
+            g_nr.loggedGuideMatch = true;
+            if (matchedGuides)
+                LOG_INFO("DLSS-NR guides matched to the working size: depth and motion {}x{} for a {}x{} model "
+                         "(the frame's guides are {}x{})",
+                         workWidth, workHeight, workWidth, workHeight, guideWidth, guideHeight);
+            else
+                LOG_WARN("DLSS-NR guides could not be matched to the working size; the model keeps the frame's "
+                         "{}x{} guides for its {}x{} colour",
+                         guideWidth, guideHeight, workWidth, workHeight);
+        }
+    }
+
+    const unsigned int evalGuideWidth = matchedGuides ? workWidth : guideWidth;
+    const unsigned int evalGuideHeight = matchedGuides ? workHeight : guideHeight;
+    const bool renderMotionScale = cfg.DlssNrRenderMotionScale.value_or_default();
+    const auto motionScale = DlssNrModelMotionScale(
+        { renderMotionScale, matchedGuides, frame.MotionVectorsLowResolution, workWidth, workHeight,
+          guideWidth, guideHeight, width, height, frame.RenderSubrectWidth, frame.RenderSubrectHeight,
+          frame.OutputWidth, frame.OutputHeight });
+    const float mvToWorkX = motionScale.x;
+    const float mvToWorkY = motionScale.y;
+    if (g_nr.loggedMotionReference != motionScale.referenceW ||
+        g_nr.loggedMotionTexture != motionScale.textureW || g_nr.loggedMotionWork != workWidth)
+    {
+        g_nr.loggedMotionReference = motionScale.referenceW;
+        g_nr.loggedMotionTexture = motionScale.textureW;
+        g_nr.loggedMotionWork = workWidth;
+        LOG_INFO("DLSS-NR model motion scale {:.1f} x {:.1f}: game scale {} x {} measured against {}x{} ({}), "
+                 "motion texture {}x{} ({}), model {}x{}",
+                 g_nr.guideMvScaleX * mvToWorkX, g_nr.guideMvScaleY * mvToWorkY, g_nr.guideMvScaleX, g_nr.guideMvScaleY,
+                 motionScale.referenceW, motionScale.referenceH,
+                 !renderMotionScale                 ? "frame size, RenderMotionScale=false"
+                 : frame.MotionVectorsLowResolution ? "render size, low-resolution vectors"
+                                                    : "output size",
+                 motionScale.textureW, motionScale.textureH,
+                 matchedGuides ? "matched to the working size" : "the game's region", workWidth, workHeight);
+    }
 
     SetExtras(cfg, nullptr, nullptr, 0, 0, 0, 0);
 
@@ -2401,7 +2511,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     {
         const unsigned int proxyResult = DlssNr::Proxy::Run(
             cmdList, device, modelInput, depthIn, motionIn, g_nr.output, workWidth, workHeight,
-            guideWidth, guideHeight, g_nr.guideDepthInverted, g_nr.reset,
+            evalGuideWidth, evalGuideHeight, g_nr.guideDepthInverted, g_nr.reset,
             g_nr.guideMvScaleX * mvToWorkX, g_nr.guideMvScaleY * mvToWorkY);
 
         g_nr.reset = false;
@@ -2483,7 +2593,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         MakeModelWritable(passOutput);
         result = g_nr.evaluate(
             cmdList, passFeature, g_nr.capabilityParams, passInput, depthIn, motionIn, passOutput,
-            workWidth, workHeight, guideWidth, guideHeight, g_nr.guideDepthInverted ? 1 : 0,
+            workWidth, workHeight, evalGuideWidth, evalGuideHeight, g_nr.guideDepthInverted ? 1 : 0,
             passReset ? 1 : 0, cfg.DlssNrIntensity.value_or_default(),
             ResolvePassStyle(cfg, pass), cfg.DlssNrLocalStructure.value_or_default(),
             passLocalTone, cfg.DlssNrSkinStructure.value_or_default(),
@@ -2819,6 +2929,14 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         Barrier(cmdList, g_nr.colorSmall, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
+    if (matchedGuides)
+    {
+        Barrier(cmdList, g_nr.depthSmall, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        Barrier(cmdList, g_nr.motionSmall, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+    }
+
     Barrier(cmdList, g_nr.colorCopy, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
 
@@ -2959,7 +3077,11 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
 
     DlssNrFrameInfo frame {};
     frame.DepthInverted = (createFlags & NVSDK_NGX_DLSS_Feature_Flags_DepthInverted) != 0;
+    frame.MotionVectorsLowResolution = (createFlags & NVSDK_NGX_DLSS_Feature_Flags_MVLowRes) != 0;
     frame.ColourIsLinearHdr = (createFlags & NVSDK_NGX_DLSS_Feature_Flags_IsHDR) != 0;
+    const auto targetDesc = target->GetDesc();
+    frame.OutputWidth = (unsigned int) targetDesc.Width;
+    frame.OutputHeight = targetDesc.Height;
     frame.BeforeUpscale = false;
     frame.RayReconstruction =
         State::Instance().dlssdActive || GetResource(params, "DLSSD.Color", "DLSSD.Output") != nullptr;
@@ -3152,6 +3274,7 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
 
     DlssNrFrameInfo frame {};
     frame.DepthInverted = (createFlags & NVSDK_NGX_DLSS_Feature_Flags_DepthInverted) != 0;
+    frame.MotionVectorsLowResolution = (createFlags & NVSDK_NGX_DLSS_Feature_Flags_MVLowRes) != 0;
     frame.ColourIsLinearHdr = (createFlags & NVSDK_NGX_DLSS_Feature_Flags_IsHDR) != 0 &&
                               colourAuthority != nullptr &&
                               FormatCanHoldLinearHdr(colourAuthority->GetDesc().Format);
@@ -3415,7 +3538,7 @@ void Shutdown()
     g_nr.feature = nullptr;
     g_nr.featurePendingSubmission = false;
 
-    for (unsigned int i = 0; i < 4; ++i)
+    for (unsigned int i = 0; i < 10; ++i)
     {
         if (g_nr.passFeature[i] != nullptr && g_nr.release != nullptr)
             g_nr.release(g_nr.passFeature[i]);
@@ -3427,8 +3550,9 @@ void Shutdown()
     }
 
     for (ID3D12Resource** res :
-         { &g_nr.output, &g_nr.passScratch, &g_nr.colorCopy, &g_nr.hdrCopy, &g_nr.colorSmall, &g_nr.outputNative,
-           &g_nr.residualEdited, &g_nr.residualHistory[0], &g_nr.residualHistory[1], &g_nr.residualComposed })
+         { &g_nr.output, &g_nr.passScratch, &g_nr.colorCopy, &g_nr.hdrCopy, &g_nr.colorSmall, &g_nr.depthSmall,
+           &g_nr.motionSmall, &g_nr.outputNative, &g_nr.residualEdited, &g_nr.residualHistory[0],
+           &g_nr.residualHistory[1], &g_nr.residualComposed })
     {
         if (*res != nullptr)
         {

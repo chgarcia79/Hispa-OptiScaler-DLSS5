@@ -238,6 +238,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             FGXeFGHighResMV.set_from_config(readBool("XeFG", "HighResMV"));
             FGXeFGDebugView.set_from_config(readBool("XeFG", "DebugView"));
             FGXeFGForceBorderless.set_from_config(readBool("XeFG", "ForceBorderless"));
+            XeFGDepthResample.set_from_config(readBool("XeFG", "DepthResample"));
         }
 
         {
@@ -392,6 +393,22 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrPass2Style.set_from_config(readUInt("DlssNr", "Pass2Style"));
             DlssNrPass3Preset.set_from_config(readUInt("DlssNr", "Pass3Preset"));
             DlssNrPass3Style.set_from_config(readUInt("DlssNr", "Pass3Style"));
+            DlssNrPass4Preset.set_from_config(readUInt("DlssNr", "Pass4Preset"));
+            DlssNrPass4Style.set_from_config(readUInt("DlssNr", "Pass4Style"));
+            DlssNrPass5Preset.set_from_config(readUInt("DlssNr", "Pass5Preset"));
+            DlssNrPass5Style.set_from_config(readUInt("DlssNr", "Pass5Style"));
+            DlssNrPass6Preset.set_from_config(readUInt("DlssNr", "Pass6Preset"));
+            DlssNrPass6Style.set_from_config(readUInt("DlssNr", "Pass6Style"));
+            DlssNrPass7Preset.set_from_config(readUInt("DlssNr", "Pass7Preset"));
+            DlssNrPass7Style.set_from_config(readUInt("DlssNr", "Pass7Style"));
+            DlssNrPass8Preset.set_from_config(readUInt("DlssNr", "Pass8Preset"));
+            DlssNrPass8Style.set_from_config(readUInt("DlssNr", "Pass8Style"));
+            DlssNrPass9Preset.set_from_config(readUInt("DlssNr", "Pass9Preset"));
+            DlssNrPass9Style.set_from_config(readUInt("DlssNr", "Pass9Style"));
+            DlssNrPass10Preset.set_from_config(readUInt("DlssNr", "Pass10Preset"));
+            DlssNrPass10Style.set_from_config(readUInt("DlssNr", "Pass10Style"));
+            DlssNrMatchGuides.set_from_config(readBool("DlssNr", "MatchGuides"));
+            DlssNrRenderMotionScale.set_from_config(readBool("DlssNr", "RenderMotionScale"));
             DlssNrQualityProfile.set_from_config(readUInt("DlssNr", "QualityProfile"));
             DlssNrHistoryRejection.set_from_config(readBool("DlssNr", "HistoryRejection"));
             DlssNrResidualConfidenceSensitivity.set_from_config(readFloat("DlssNr", "ResidualConfidenceSensitivity"));
@@ -1164,6 +1181,8 @@ bool Config::SaveIni()
         ini.SetValue("XeFG", "DebugView", GetBoolValue(Instance()->FGXeFGDebugView.value_for_config()).c_str());
         ini.SetValue("XeFG", "ForceBorderless",
                      GetBoolValue(Instance()->FGXeFGForceBorderless.value_for_config()).c_str());
+        ini.SetValue("XeFG", "DepthResample",
+                     GetBoolValue(Instance()->XeFGDepthResample.value_for_config()).c_str());
     }
 
     {
@@ -1380,6 +1399,22 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "Pass2Style", GetIntValue(Instance()->DlssNrPass2Style.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Pass3Preset", GetIntValue(Instance()->DlssNrPass3Preset.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Pass3Style", GetIntValue(Instance()->DlssNrPass3Style.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass4Preset", GetIntValue(Instance()->DlssNrPass4Preset.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass4Style", GetIntValue(Instance()->DlssNrPass4Style.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass5Preset", GetIntValue(Instance()->DlssNrPass5Preset.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass5Style", GetIntValue(Instance()->DlssNrPass5Style.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass6Preset", GetIntValue(Instance()->DlssNrPass6Preset.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass6Style", GetIntValue(Instance()->DlssNrPass6Style.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass7Preset", GetIntValue(Instance()->DlssNrPass7Preset.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass7Style", GetIntValue(Instance()->DlssNrPass7Style.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass8Preset", GetIntValue(Instance()->DlssNrPass8Preset.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass8Style", GetIntValue(Instance()->DlssNrPass8Style.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass9Preset", GetIntValue(Instance()->DlssNrPass9Preset.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass9Style", GetIntValue(Instance()->DlssNrPass9Style.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass10Preset", GetIntValue(Instance()->DlssNrPass10Preset.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Pass10Style", GetIntValue(Instance()->DlssNrPass10Style.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "MatchGuides", GetBoolValue(Instance()->DlssNrMatchGuides.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "RenderMotionScale", GetBoolValue(Instance()->DlssNrRenderMotionScale.value_for_config()).c_str());
     ini.SetValue("DlssNr", "QualityProfile", GetIntValue(Instance()->DlssNrQualityProfile.value_for_config()).c_str());
     ini.SetValue("DlssNr", "HistoryRejection", GetBoolValue(Instance()->DlssNrHistoryRejection.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ResidualConfidenceSensitivity", GetFloatValue(Instance()->DlssNrResidualConfidenceSensitivity.value_for_config()).c_str());
@@ -1882,6 +1917,7 @@ bool Config::SaveXeFG()
     ini.SetValue("XeFG", "DepthInverted", GetBoolValue(Instance()->FGXeFGDepthInverted.value_for_config()).c_str());
     ini.SetValue("XeFG", "JitteredMV", GetBoolValue(Instance()->FGXeFGJitteredMV.value_for_config()).c_str());
     ini.SetValue("XeFG", "HighResMV", GetBoolValue(Instance()->FGXeFGHighResMV.value_for_config()).c_str());
+    ini.SetValue("XeFG", "DepthResample", GetBoolValue(Instance()->XeFGDepthResample.value_for_config()).c_str());
 
     auto pathWStr = absoluteFileName.wstring();
     LOG_INFO("Trying to save ini to: {0}", wstring_to_string(pathWStr));

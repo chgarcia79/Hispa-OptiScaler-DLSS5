@@ -108,6 +108,13 @@ class IFGFeature
     virtual bool HasResource(FG_ResourceType type, int index = -1) = 0;
     virtual bool SetInterpolatedFrameCount(UINT interpolatedFrameCount) = 0;
 
+    // For callers that may run inside the backend's own Present (the overlay menu). Backends whose
+    // runtime cannot be re-entered from there queue the request and apply it on the next frame.
+    virtual void RequestInterpolatedFrameCount(UINT interpolatedFrameCount)
+    {
+        SetInterpolatedFrameCount(interpolatedFrameCount);
+    }
+
     int GetIndex();
     int GetIndexWillBeDispatched();
     UINT64 StartNewFrame();

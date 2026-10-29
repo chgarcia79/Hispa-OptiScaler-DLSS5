@@ -17,7 +17,9 @@
 
 #include <vulkan/vulkan.h>
 
+#include <mutex>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace DlssNr::VkExt
@@ -100,6 +102,84 @@ inline bool ListHas(const char* const* list, uint32_t count, const char* needle)
     }
 
     return false;
+}
+
+struct PNextInspection
+{
+    bool vulkan12Features = false;
+    bool bufferDeviceAddressFeatures = false;
+    bool bufferDeviceAddressEnabled = false;
+    bool features2 = false;
+    bool storageExtendedEnabled = false;
+};
+
+// Inspects the application's pNext chain without ever mutating app-owned structures.
+inline PNextInspection InspectPNextChain(const void* pNext)
+{
+    PNextInspection out {};
+
+    for (auto* link = reinterpret_cast<const VkBaseInStructure*>(pNext); link != nullptr; link = link->pNext)
+    {
+        switch (link->sType)
+        {
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_VULKAN_1_2_FEATURES:
+        {
+            out.vulkan12Features = true;
+            const auto* v12 = reinterpret_cast<const VkPhysicalDeviceVulkan12Features*>(link);
+            out.bufferDeviceAddressEnabled = out.bufferDeviceAddressEnabled || (v12->bufferDeviceAddress == VK_TRUE);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES:
+        {
+            out.bufferDeviceAddressFeatures = true;
+            const auto* bda = reinterpret_cast<const VkPhysicalDeviceBufferDeviceAddressFeatures*>(link);
+            out.bufferDeviceAddressEnabled = out.bufferDeviceAddressEnabled || (bda->bufferDeviceAddress == VK_TRUE);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_EXT:
+        {
+            out.bufferDeviceAddressFeatures = true;
+            const auto* bdaExt = reinterpret_cast<const VkPhysicalDeviceBufferDeviceAddressFeaturesEXT*>(link);
+            out.bufferDeviceAddressEnabled =
+                out.bufferDeviceAddressEnabled || (bdaExt->bufferDeviceAddress == VK_TRUE);
+            break;
+        }
+        case VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2:
+        {
+            out.features2 = true;
+            const auto* f2 = reinterpret_cast<const VkPhysicalDeviceFeatures2*>(link);
+            out.storageExtendedEnabled =
+                out.storageExtendedEnabled || (f2->features.shaderStorageImageExtendedFormats == VK_TRUE);
+            break;
+        }
+        default:
+            break;
+        }
+    }
+
+    return out;
+}
+
+inline std::mutex g_extDevicesMutex;
+inline std::unordered_map<VkDevice, bool> g_deviceExtBda;
+
+inline void RecordDeviceExtAddress(VkDevice device, bool usesExt)
+{
+    if (device == VK_NULL_HANDLE)
+        return;
+
+    std::lock_guard<std::mutex> lock(g_extDevicesMutex);
+    g_deviceExtBda[device] = usesExt;
+}
+
+inline bool DeviceUsesExtBufferDeviceAddress(VkDevice device)
+{
+    if (device == VK_NULL_HANDLE)
+        return false;
+
+    std::lock_guard<std::mutex> lock(g_extDevicesMutex);
+    const auto it = g_deviceExtBda.find(device);
+    return it != g_deviceExtBda.end() && it->second;
 }
 
 } // namespace DlssNr::VkExt

@@ -3990,7 +3990,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
                         config->FGXeFGInterpolationCount = newCount;
                         if (XeMfgLoader::IsEnabled())
                             XeMfgLoader::SetMaxGeneratedFrames(newCount);
-                        fgOutput->SetInterpolatedFrameCount(newCount);
+                        fgOutput->RequestInterpolatedFrameCount(newCount);
                     }
                 }
 
@@ -4012,6 +4012,11 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
                        "Reverts back to previous XeFG 2 behaviour\n\n"
                        "Fixes artifacting transparent HUD/UI");
         ImGui::EndDisabled();
+
+        bool xefgDepthResample = config->XeFGDepthResample.value_or_default();
+        if (ImGui::Checkbox("Depth Resample (Display-Res MVs)", &xefgDepthResample))
+            config->XeFGDepthResample = xefgDepthResample;
+        ShowHelpMarker("Nearest-point depth resample to match Display-Res Motion Vectors when dimensions differ.");
 
         bool fgDV = config->FGXeFGDebugView.value_or_default();
         if (ImGui::Checkbox("Debug View##2", &fgDV))

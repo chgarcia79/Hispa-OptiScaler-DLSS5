@@ -134,15 +134,19 @@ __declspec(dllexport) int dlssnr_call_last_create = 0;
 
 using PFN_NrVkInitExt = int(__cdecl *)(unsigned long long, const wchar_t *, void *, void *, void *,
                                        const void *, int);
+using PFN_NrVkInitExt2 = int(__cdecl *)(unsigned long long, const wchar_t *, void *, void *, void *,
+                                        void *, void *, int, const void *);
 using PFN_NrVkCreate = int(__cdecl *)(void *, int, const void *, void **);
 using PFN_NrVkEvaluate = int(__cdecl *)(void *, const void *, const void *, void *);
 
 struct VkSnippet {
     HMODULE module = nullptr;
     PFN_NrVkInitExt init = nullptr;
+    PFN_NrVkInitExt2 initExt2 = nullptr;
     PFN_NrVkCreate create = nullptr;
     PFN_NrVkEvaluate evaluate = nullptr;
     PFN_NrRelease release = nullptr;
+    void *device = nullptr;
     bool initialised = false;
 };
 
@@ -160,6 +164,7 @@ bool loadVkSnippet(const wchar_t *path) {
     }
 
     g_vk.init = (PFN_NrVkInitExt) GetProcAddress(g_vk.module, "NVSDK_NGX_VULKAN_Init_Ext");
+    g_vk.initExt2 = (PFN_NrVkInitExt2) GetProcAddress(g_vk.module, "NVSDK_NGX_VULKAN_Init_Ext2");
     g_vk.create = (PFN_NrVkCreate) GetProcAddress(g_vk.module, "NVSDK_NGX_VULKAN_CreateFeature");
     g_vk.evaluate = (PFN_NrVkEvaluate) GetProcAddress(g_vk.module, "NVSDK_NGX_VULKAN_EvaluateFeature");
     g_vk.release = (PFN_NrRelease) GetProcAddress(g_vk.module, "NVSDK_NGX_VULKAN_ReleaseFeature");
@@ -585,7 +590,7 @@ __declspec(dllexport) int dlssnr_vk_probe(const wchar_t *snippetPath) {
     loadVkSnippet(snippetPath);
 
     int bits = 0;
-    bits |= g_vk.init != nullptr ? 1 : 0;
+    bits |= (g_vk.init != nullptr || g_vk.initExt2 != nullptr) ? 1 : 0;
     bits |= g_vk.create != nullptr ? 2 : 0;
     bits |= g_vk.evaluate != nullptr ? 4 : 0;
     bits |= g_vk.release != nullptr ? 8 : 0;
@@ -600,7 +605,7 @@ __declspec(dllexport) int dlssnr_vk_init(const wchar_t *snippetPath, const wchar
         return -1;
     }
 
-    if (g_vk.initialised) {
+    if (g_vk.initialised && g_vk.device == device) {
         return 1;
     }
 
@@ -611,6 +616,39 @@ __declspec(dllexport) int dlssnr_vk_init(const wchar_t *snippetPath, const wchar
 
     dlssnr_vk_last_init = (int) result;
     g_vk.initialised = result == 1;
+    if (g_vk.initialised) {
+        g_vk.device = device;
+    }
+
+    return (int) result;
+}
+
+__declspec(dllexport) int dlssnr_vk_init_ext2(const wchar_t *snippetPath, const wchar_t *dataPath,
+                                              void *instance, void *physicalDevice, void *device,
+                                              void *getInstanceProcAddr, void *getDeviceProcAddr,
+                                              int sdkVersion) {
+    if (!loadVkSnippet(snippetPath) || (g_vk.initExt2 == nullptr && g_vk.init == nullptr)) {
+        return -1;
+    }
+
+    if (g_vk.initialised && g_vk.device == device) {
+        return 1;
+    }
+
+    // Keep volatile assignment so the compiler never tail-calls and breaks NGX's caller module check.
+    volatile int result = -1;
+    if (g_vk.initExt2 != nullptr && getInstanceProcAddr != nullptr && getDeviceProcAddr != nullptr) {
+        result = g_vk.initExt2(0x0, dataPath, instance, physicalDevice, device, getInstanceProcAddr,
+                               getDeviceProcAddr, sdkVersion, nullptr);
+    } else if (g_vk.init != nullptr) {
+        result = g_vk.init(0x0, dataPath, instance, physicalDevice, device, nullptr, sdkVersion);
+    }
+
+    dlssnr_vk_last_init = (int) result;
+    g_vk.initialised = result == 1;
+    if (g_vk.initialised) {
+        g_vk.device = device;
+    }
 
     return (int) result;
 }

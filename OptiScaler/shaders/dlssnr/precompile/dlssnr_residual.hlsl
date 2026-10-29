@@ -248,6 +248,17 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return;
     }
 
+    if (gMode == 3)
+    {
+        uint srcW = max(gGuideWidth, 1u);
+        uint srcH = max(gGuideHeight, 1u);
+        int2 srcOff = int2(int(gResidualMotionBaseX), int(gResidualMotionBaseY));
+        int2 local = clamp(int2(((float2(id.xy) + 0.5) * float2(srcW, srcH)) / float2(gWidth, gHeight)),
+                           int2(0, 0), int2(int(srcW) - 1, int(srcH) - 1));
+        gTarget[id.xy] = gSource.Load(int3(srcOff + local, 0));
+        return;
+    }
+
     if (gMode == 2)
     {
         gTarget[id.xy] = NrSuppressHalo(int2(id.xy));

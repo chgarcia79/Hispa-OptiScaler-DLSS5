@@ -1,4 +1,4 @@
-﻿<?xml version="1.0" encoding="utf-8"?>
+<?xml version="1.0" encoding="utf-8"?>
 <Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
   <ItemGroup>
     <Filter Include="Header Files">
@@ -249,6 +249,18 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="shaders\rcas\RCAS_Dx12.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\depth_resample\DR_Common.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\depth_resample\DR_Dx12.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\depth_resample\precompile\dr_Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_DriverGate.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="include\imgui\imgui.h">
@@ -522,6 +534,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="inputs\FG\Upscaler_Inputs_Dx12.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="inputs\FG\FgDepthResample.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="upscalers\FeatureProvider_Dx11.h">
@@ -1098,6 +1113,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="shaders\rcas\RCAS_Dx12.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="shaders\depth_resample\DR_Dx12.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="include\imgui\imgui.cpp">

@@ -1117,6 +1117,15 @@ void* XeFG_Dx12::SwapchainContext() { return _swapChainContext; }
 
 XeFG_Dx12::~XeFG_Dx12() { Shutdown(); }
 
+// The overlay menu is drawn inside the real swapchain's Present, which Intel's runtime issues from its own
+// Present, while FGPresent holds Mutex. Calling into XeFG from there re-enters Intel's Present and taking
+// Mutex blocks on the menu's own call chain; both freeze the game. Queue it for the next frame instead.
+void XeFG_Dx12::RequestInterpolatedFrameCount(UINT interpolatedFrameCount)
+{
+    LOG_INFO("XeFG interpolation count {} requested; applying on the next present", interpolatedFrameCount);
+    _pendingInterpolationCount.store(static_cast<int>(interpolatedFrameCount), std::memory_order_release);
+}
+
 bool XeFG_Dx12::SetInterpolatedFrameCount(UINT interpolatedFrameCount)
 {
     LOG_INFO("XeFG SetInterpolatedFrameCount called with count: {}", interpolatedFrameCount);
@@ -1387,6 +1396,11 @@ void XeFG_Dx12::CreateObjects(ID3D12Device* InDevice)
 
 bool XeFG_Dx12::Present()
 {
+    // Game's present thread, before the frame reaches Intel: the place to apply a menu request.
+    const int pendingCount = _pendingInterpolationCount.exchange(-1, std::memory_order_acq_rel);
+    if (pendingCount >= 0)
+        SetInterpolatedFrameCount(static_cast<UINT>(pendingCount));
+
     auto fIndex = GetIndexWillBeDispatched();
     LOG_DEBUG("fIndex: {}", fIndex);
 

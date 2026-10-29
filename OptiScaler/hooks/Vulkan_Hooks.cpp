@@ -131,8 +131,11 @@ static VkResult hkvkCreateInstance(const VkInstanceCreateInfo* pCreateInfo, cons
 
     if (result == VK_SUCCESS)
     {
-        State::Instance().VulkanInstance = *pInstance;
-        LOG_DEBUG("State::Instance().VulkanInstance captured: {0:X}", (UINT64) State::Instance().VulkanInstance);
+        if (!State::Instance().creatingD3DDevice)
+        {
+            State::Instance().VulkanInstance = *pInstance;
+            LOG_DEBUG("State::Instance().VulkanInstance captured: {0:X}", (UINT64) State::Instance().VulkanInstance);
+        }
 
 #ifdef VULKAN_DEBUG_LAYER
         auto address = vkGetInstanceProcAddr(State::Instance().VulkanInstance, "vkCreateDebugUtilsMessengerEXT");
@@ -191,6 +194,24 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevice
     // offers -- asking for an extension a driver does not have makes vkCreateDevice fail and the game
     // not start.
     DlssNr::VkExt::Merged nrExtensions;
+    VkDeviceCreateInfo fallbackCreateInfo = localCreteInfo;
+
+    VkPhysicalDeviceBufferDeviceAddressFeatures nrBdaFeatures {};
+    nrBdaFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
+    nrBdaFeatures.bufferDeviceAddress = VK_TRUE;
+
+    VkPhysicalDeviceBufferDeviceAddressFeaturesEXT nrExtBdaFeatures {};
+    nrExtBdaFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_EXT;
+    nrExtBdaFeatures.bufferDeviceAddress = VK_TRUE;
+
+    VkPhysicalDeviceFeatures nrLocalEnabledFeatures {};
+    bool nrAdjusted = false;
+    bool nrExtBdaActive = false;
+
+    const bool gameExtAddress =
+        DlssNr::VkExt::ListHas(localCreteInfo.ppEnabledExtensionNames, localCreteInfo.enabledExtensionCount,
+                               VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+    const auto pnextInfo = DlssNr::VkExt::InspectPNextChain(localCreteInfo.pNext);
 
     if (Config::Instance()->DlssNrEnabled.value_or_default())
     {
@@ -204,8 +225,15 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevice
 
         for (const char* want : DlssNr::VkExt::kDevice)
         {
-            const bool already = DlssNr::VkExt::ListHas(localCreteInfo.ppEnabledExtensionNames,
-                                                        localCreteInfo.enabledExtensionCount, want);
+            // VK_EXT_buffer_device_address and VK_KHR_buffer_device_address are mutually exclusive in Vulkan.
+            if (gameExtAddress && std::string(want) == VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME)
+            {
+                present += std::string(present.empty() ? "" : ", ") + VK_EXT_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME;
+                continue;
+            }
+
+            const bool already =
+                DlssNr::VkExt::ListHas(nrExtensions.names.data(), (uint32_t) nrExtensions.names.size(), want);
 
             if (already)
                 present += std::string(present.empty() ? "" : ", ") + want;
@@ -218,23 +246,107 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevice
             }
         }
 
-        LOG_INFO("DLSS-NR Vulkan: device offers {} extensions. game already enabled: [{}]. added here: "
-                 "[{}]. NOT AVAILABLE: [{}]",
-                 supported.size(), present.empty() ? "none" : present, added.empty() ? "none" : added,
-                 missing.empty() ? "none" : missing);
-
-        if (!missing.empty())
-            LOG_WARN("DLSS-NR Vulkan: the native path is not possible on this device -- the model's kernels "
-                     "cannot be loaded without the extensions listed as NOT AVAILABLE");
-
         if (!added.empty())
         {
             localCreteInfo.ppEnabledExtensionNames = nrExtensions.names.data();
             localCreteInfo.enabledExtensionCount = (uint32_t) nrExtensions.names.size();
+            nrAdjusted = true;
         }
+
+        auto getFeatures2 = o_vkGetPhysicalDeviceFeatures2;
+        if (getFeatures2 == nullptr && o_vkGetInstanceProcAddr != nullptr &&
+            State::Instance().VulkanInstance != VK_NULL_HANDLE)
+        {
+            getFeatures2 = (PFN_vkGetPhysicalDeviceFeatures2) o_vkGetInstanceProcAddr(
+                State::Instance().VulkanInstance, "vkGetPhysicalDeviceFeatures2");
+        }
+
+        bool addressSupported = false;
+        bool storageExtendedSupported = false;
+        if (getFeatures2 != nullptr)
+        {
+            VkPhysicalDeviceBufferDeviceAddressFeatures queryKhr {};
+            queryKhr.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES;
+            VkPhysicalDeviceBufferDeviceAddressFeaturesEXT queryExt {};
+            queryExt.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_BUFFER_DEVICE_ADDRESS_FEATURES_EXT;
+
+            VkPhysicalDeviceFeatures2 queryFeatures {};
+            queryFeatures.sType = VK_STRUCTURE_TYPE_PHYSICAL_DEVICE_FEATURES_2;
+            queryFeatures.pNext = gameExtAddress ? static_cast<void*>(&queryExt) : static_cast<void*>(&queryKhr);
+            getFeatures2(physicalDevice, &queryFeatures);
+
+            addressSupported =
+                (gameExtAddress ? queryExt.bufferDeviceAddress : queryKhr.bufferDeviceAddress) == VK_TRUE;
+            storageExtendedSupported = (queryFeatures.features.shaderStorageImageExtendedFormats == VK_TRUE);
+        }
+
+        const bool khrAddressListed =
+            !gameExtAddress &&
+            DlssNr::VkExt::ListHas(localCreteInfo.ppEnabledExtensionNames, localCreteInfo.enabledExtensionCount,
+                                   VK_KHR_BUFFER_DEVICE_ADDRESS_EXTENSION_NAME);
+
+        bool chainedKhrBda = false;
+        bool chainedExtBda = false;
+        if (!pnextInfo.vulkan12Features && !pnextInfo.bufferDeviceAddressFeatures && addressSupported &&
+            !gameExtAddress && khrAddressListed)
+        {
+            nrBdaFeatures.pNext = const_cast<void*>(localCreteInfo.pNext);
+            localCreteInfo.pNext = &nrBdaFeatures;
+            chainedKhrBda = true;
+            nrAdjusted = true;
+            added += std::string(added.empty() ? "" : ", ") + "bufferDeviceAddress";
+        }
+        else if (!pnextInfo.bufferDeviceAddressFeatures && addressSupported && gameExtAddress)
+        {
+            nrExtBdaFeatures.pNext = const_cast<void*>(localCreteInfo.pNext);
+            localCreteInfo.pNext = &nrExtBdaFeatures;
+            chainedExtBda = true;
+            nrAdjusted = true;
+            added += std::string(added.empty() ? "" : ", ") + "bufferDeviceAddress (EXT)";
+        }
+
+        if (!pnextInfo.features2 && storageExtendedSupported)
+        {
+            if (localCreteInfo.pEnabledFeatures != nullptr)
+                nrLocalEnabledFeatures = *localCreteInfo.pEnabledFeatures;
+
+            if (nrLocalEnabledFeatures.shaderStorageImageExtendedFormats != VK_TRUE)
+            {
+                nrLocalEnabledFeatures.shaderStorageImageExtendedFormats = VK_TRUE;
+                localCreteInfo.pEnabledFeatures = &nrLocalEnabledFeatures;
+                nrAdjusted = true;
+                added += std::string(added.empty() ? "" : ", ") + "shaderStorageImageExtendedFormats";
+            }
+        }
+
+        const bool bdaActive = pnextInfo.bufferDeviceAddressEnabled || chainedKhrBda || chainedExtBda;
+        nrExtBdaActive = gameExtAddress && bdaActive;
+
+        LOG_INFO("DLSS-NR Vulkan: device offers {} extensions. game already enabled: [{}]. added here: "
+                 "[{}]. NOT AVAILABLE: [{}] (ext_bda={})",
+                 supported.size(), present.empty() ? "none" : present, added.empty() ? "none" : added,
+                 missing.empty() ? "none" : missing, nrExtBdaActive);
+
+        if (!missing.empty())
+            LOG_WARN("DLSS-NR Vulkan: the native path is not possible on this device -- the model's kernels "
+                     "cannot be loaded without the extensions listed as NOT AVAILABLE");
+    }
+    else
+    {
+        nrExtBdaActive = gameExtAddress && pnextInfo.bufferDeviceAddressEnabled;
     }
 
     auto result = o_vkCreateDevice(physicalDevice, &localCreteInfo, pAllocator, pDevice);
+    if (result != VK_SUCCESS && nrAdjusted)
+    {
+        LOG_WARN("DLSS-NR Vulkan: vkCreateDevice failed with {} after NGX adjustments; retrying unadjusted createInfo",
+                 (int) result);
+        nrExtBdaActive = gameExtAddress && pnextInfo.bufferDeviceAddressEnabled;
+        result = o_vkCreateDevice(physicalDevice, &fallbackCreateInfo, pAllocator, pDevice);
+    }
+
+    if (result == VK_SUCCESS && pDevice != nullptr)
+        DlssNr::VkExt::RecordDeviceExtAddress(*pDevice, nrExtBdaActive);
 
     if (Config::Instance()->DlssNrEnabled.value_or_default())
         LOG_INFO("DLSS-NR Vulkan: vkCreateDevice returned {} with {} extensions requested", (int) result,
@@ -247,11 +359,15 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevice
             // Disabled to prevent unnecessary object release
             // MenuOverlayVk::DestroyVulkanObjects(false);
 
-            _PD = physicalDevice;
-            LOG_DEBUG("_PD captured: {0:X}", (UINT64) _PD);
-            _device = *pDevice;
-            LOG_DEBUG("_device captured: {0:X}", (UINT64) _device);
-            HookDevice(_device);
+            HookDevice(*pDevice);
+
+            if (!State::Instance().creatingD3DDevice)
+            {
+                _PD = physicalDevice;
+                LOG_DEBUG("_PD captured: {0:X}", (UINT64) _PD);
+                _device = *pDevice;
+                LOG_DEBUG("_device captured: {0:X}", (UINT64) _device);
+            }
         }
 
         ScopedSkipSpoofingGlobal skipSpoofingGlobal {};

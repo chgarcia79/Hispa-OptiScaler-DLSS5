@@ -69,6 +69,7 @@ struct GpuInformation
     // Nvidia
     bool dlssCapable = false;
     NV_GPU_ARCH_INFO nvidiaArchInfo {};
+    uint32_t nvidiaDriverVersion = 0; // NVAPI encoding, e.g. 61664 = 616.64; 0 = unknown
     bool noDisplayConnected = false;
 };
 

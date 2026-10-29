@@ -505,6 +505,22 @@ class Config
     CustomOptional<uint32_t> DlssNrPass2Style { 0 };
     CustomOptional<uint32_t> DlssNrPass3Preset { 0 };
     CustomOptional<uint32_t> DlssNrPass3Style { 0 };
+    CustomOptional<uint32_t> DlssNrPass4Preset { 0 };
+    CustomOptional<uint32_t> DlssNrPass4Style { 0 };
+    CustomOptional<uint32_t> DlssNrPass5Preset { 0 };
+    CustomOptional<uint32_t> DlssNrPass5Style { 0 };
+    CustomOptional<uint32_t> DlssNrPass6Preset { 0 };
+    CustomOptional<uint32_t> DlssNrPass6Style { 0 };
+    CustomOptional<uint32_t> DlssNrPass7Preset { 0 };
+    CustomOptional<uint32_t> DlssNrPass7Style { 0 };
+    CustomOptional<uint32_t> DlssNrPass8Preset { 0 };
+    CustomOptional<uint32_t> DlssNrPass8Style { 0 };
+    CustomOptional<uint32_t> DlssNrPass9Preset { 0 };
+    CustomOptional<uint32_t> DlssNrPass9Style { 0 };
+    CustomOptional<uint32_t> DlssNrPass10Preset { 0 };
+    CustomOptional<uint32_t> DlssNrPass10Style { 0 };
+    CustomOptional<bool> DlssNrMatchGuides { true };
+    CustomOptional<bool> DlssNrRenderMotionScale { true };
     CustomOptional<uint32_t> DlssNrQualityProfile { 0 };
     CustomOptional<bool> DlssNrHistoryRejection { false };
     CustomOptional<float> DlssNrResidualConfidenceSensitivity { 0.0f };
@@ -876,6 +892,7 @@ class Config
     CustomOptional<bool> FGXeFGHighResMV { false };
     CustomOptional<bool> FGXeFGDebugView { false };
     CustomOptional<bool> FGXeFGForceBorderless { false };
+    CustomOptional<bool> XeFGDepthResample { true };
 
     // DLSSG
     CustomOptional<int> FGDLSSGInterpolationCount { 1 }; // For Opti's own SL instance

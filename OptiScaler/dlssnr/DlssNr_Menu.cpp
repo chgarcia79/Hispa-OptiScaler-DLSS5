@@ -2,10 +2,12 @@
 #include "DlssNrFeature_Vk.h"
 
 #include "DlssNr.h"
+#include "DlssNr_DriverGate.h"
 #include "DlssNr_ExposureScan.h"
 
 
 #include <Config.h>
+#include <State.h>
 #include <menu/menu_common.h>
 
 #include <imgui/imgui.h>
@@ -90,15 +92,29 @@ void RenderMenu(Config* config, float menuResScale)
         ScopedIndent indent {};
         ImGui::Spacing();
 
+        const bool driverBlocked = DlssNr::DriverGate::Blocked();
         bool enabled = config->DlssNrEnabled.value_or_default();
+        ImGui::BeginDisabled(driverBlocked && !enabled);
         if (ImGui::Checkbox("Activar Neural Rendering (DLSS 5)", &enabled))
             config->DlssNrEnabled = enabled;
+        ImGui::EndDisabled();
 
         HelpMarker("Sintetiza microdetalle y reconstruccion neuronal en la salida del escalador,\n"
                    "antes de la generacion de fotogramas.\n\n"
                    "Requiere dos archivos junto a OptiScaler:\n"
                    "  nvngx_dlssnr.dll       Modelo de NVIDIA (~165 MB)\n"
                    "  nvngx.dll_dlssnr.dll   Forwarder puente (~108 KB)");
+
+        if (driverBlocked)
+        {
+            const std::string gateMsg = DlssNr::DriverGate::BlockedMessage(DlssNr::DriverGate::DetectedVersion());
+            ImGui::TextColored(ImVec4(1.0f, 0.45f, 0.35f, 1.0f), "%s", gateMsg.c_str());
+        }
+        else if (enabled && State::Instance().activeFgOutput == FGOutput::DLSSG)
+        {
+            ImGui::TextColored(ImVec4(0.95f, 0.78f, 0.35f, 1.0f),
+                               "DLSS-G activo: Neural Rendering procesa el fotograma antes de Frame Generation.");
+        }
 
         ImGui::TextDisabled("Se puede activar/desactivar con tecla en Keybinds (\"Neural Rendering\").");
 
@@ -335,6 +351,12 @@ void RenderMenu(Config* config, float menuResScale)
         if (ImGui::Combo("Estilo visual (Style)", &style, nrStyleNames, IM_ARRAYSIZE(nrStyleNames)))
             config->DlssNrStyle = (uint32_t) style;
 
+        int modelPasses = (int) std::clamp(config->DlssNrPasses.value_or_default(), 1u, 10u);
+        if (ImGui::SliderInt("Pasadas del modelo IA (1..10)", &modelPasses, 1, 10))
+            config->DlssNrPasses = (uint32_t) std::clamp(modelPasses, 1, 10);
+        HelpMarker("Ejecuta de 1 a 10 pasadas secuenciales del modelo neuronal DLSS 5.\n"
+                   "Cada pasada adicional puede heredar el Preset/Estilo de la Pasada 1 o usar uno propio.");
+
         if (config->DlssNrPasses.value_or_default() > 1)
         {
             static const char* passPresetNames[] = {
@@ -348,20 +370,33 @@ void RenderMenu(Config* config, float menuResScale)
                 "Natural",
                 "Cinematografico (Cinematic)"
             };
-            int p2Preset = (int) std::min(config->DlssNrPass2Preset.value_or_default(), 2u);
-            if (ImGui::Combo("Pasada 2 - Preset IA", &p2Preset, passPresetNames, IM_ARRAYSIZE(passPresetNames)))
-                config->DlssNrPass2Preset = (uint32_t) p2Preset;
-            int p2Style = (int) std::min(config->DlssNrPass2Style.value_or_default(), 3u);
-            if (ImGui::Combo("Pasada 2 - Estilo", &p2Style, passStyleNames, IM_ARRAYSIZE(passStyleNames)))
-                config->DlssNrPass2Style = (uint32_t) p2Style;
-            if (config->DlssNrPasses.value_or_default() > 2)
+            CustomOptional<uint32_t>* const passPresets[9] = {
+                &config->DlssNrPass2Preset, &config->DlssNrPass3Preset, &config->DlssNrPass4Preset,
+                &config->DlssNrPass5Preset, &config->DlssNrPass6Preset, &config->DlssNrPass7Preset,
+                &config->DlssNrPass8Preset, &config->DlssNrPass9Preset, &config->DlssNrPass10Preset
+            };
+            CustomOptional<uint32_t>* const passStyles[9] = {
+                &config->DlssNrPass2Style, &config->DlssNrPass3Style, &config->DlssNrPass4Style,
+                &config->DlssNrPass5Style, &config->DlssNrPass6Style, &config->DlssNrPass7Style,
+                &config->DlssNrPass8Style, &config->DlssNrPass9Style, &config->DlssNrPass10Style
+            };
+            const uint32_t totalPasses = std::clamp(config->DlssNrPasses.value_or_default(), 1u, 10u);
+            for (uint32_t passNum = 2; passNum <= totalPasses; ++passNum)
             {
-                int p3Preset = (int) std::min(config->DlssNrPass3Preset.value_or_default(), 2u);
-                if (ImGui::Combo("Pasada 3 - Preset IA", &p3Preset, passPresetNames, IM_ARRAYSIZE(passPresetNames)))
-                    config->DlssNrPass3Preset = (uint32_t) p3Preset;
-                int p3Style = (int) std::min(config->DlssNrPass3Style.value_or_default(), 3u);
-                if (ImGui::Combo("Pasada 3 - Estilo", &p3Style, passStyleNames, IM_ARRAYSIZE(passStyleNames)))
-                    config->DlssNrPass3Style = (uint32_t) p3Style;
+                char presetLabel[48];
+                char styleLabel[48];
+                std::snprintf(presetLabel, sizeof(presetLabel), "Pasada %u - Preset IA", passNum);
+                std::snprintf(styleLabel, sizeof(styleLabel), "Pasada %u - Estilo", passNum);
+
+                auto* presetOpt = passPresets[passNum - 2];
+                int pPreset = (int) std::min(presetOpt->value_or_default(), 2u);
+                if (ImGui::Combo(presetLabel, &pPreset, passPresetNames, IM_ARRAYSIZE(passPresetNames)))
+                    *presetOpt = (uint32_t) pPreset;
+
+                auto* styleOpt = passStyles[passNum - 2];
+                int pStyle = (int) std::min(styleOpt->value_or_default(), 3u);
+                if (ImGui::Combo(styleLabel, &pStyle, passStyleNames, IM_ARRAYSIZE(passStyleNames)))
+                    *styleOpt = (uint32_t) pStyle;
             }
         }
         if (false)
@@ -397,6 +432,17 @@ void RenderMenu(Config* config, float menuResScale)
             config->DlssNrAutoMask = autoMask;
 
         HelpMarker("Lets the model find skin itself rather than treating the frame uniformly.");
+
+        bool matchGuides = config->DlssNrMatchGuides.value_or_default();
+        if (ImGui::Checkbox("Ajustar guias Depth/Motion a escala del modelo (MatchGuides)", &matchGuides))
+            config->DlssNrMatchGuides = matchGuides;
+        HelpMarker("Reescala Depth (R32F) y Motion Vectors (RG32F) con muestreo nearest-point a la resolucion\n"
+                   "de trabajo del modelo para alinear los bordes con el color de entrada.");
+
+        bool renderMotionScale = config->DlssNrRenderMotionScale.value_or_default();
+        if (ImGui::Checkbox("Escala precisa de vectores de movimiento (RenderMotionScale)", &renderMotionScale))
+            config->DlssNrRenderMotionScale = renderMotionScale;
+        HelpMarker("Convierte MVScale respecto al subrect de renderizado real o resolucion de salida del escalador.");
 
         ImGui::SeparatorText("Colour");
 
@@ -1042,13 +1088,13 @@ void RenderMenu(Config* config, float menuResScale)
 
         if (preSr)
         {
-            int passes = (int) config->DlssNrPasses.value_or_default();
-            if (ImGui::SliderInt("DLSS-NR Pre-SR Passes", &passes, 1, 3))
-                config->DlssNrPasses = (uint32_t) std::clamp(passes, 1, 3);
-            HelpMarker("Numero de pasadas de evaluacion de la red neuronal DLSS 5 a resolucion base:\n"
+            int passes = (int) std::clamp(config->DlssNrPasses.value_or_default(), 1u, 10u);
+            if (ImGui::SliderInt("DLSS-NR Pre-SR Passes", &passes, 1, 10))
+                config->DlssNrPasses = (uint32_t) std::clamp(passes, 1, 10);
+            HelpMarker("Numero de pasadas de evaluacion de la red neuronal DLSS 5 a resolucion base (1..10):\n"
                        "1 Pasada: Maximo rendimiento y respuesta ultra-rapida.\n"
-                       "2 Pasadas: Balance optimo entre estabilidad y nitidez.\n"
-                       "3 Pasadas: Maxima reduccion de artefactos y flicker.");
+                       "2-3 Pasadas: Balance optimo entre estabilidad y nitidez.\n"
+                       "4-10 Pasadas: Compuesto multipasada avanzado con Preset/Estilo independiente por pasada.");
 
             bool residualAcrossRr = config->DlssNrResidualAcrossRr.value_or_default();
             if (ImGui::Checkbox("Preserve Pre-SR across Ray Reconstruction (ResidualAcrossRR)", &residualAcrossRr))

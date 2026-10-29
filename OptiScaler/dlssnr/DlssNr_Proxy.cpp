@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "DlssNr_Proxy.h"
+#include "DlssNr_DriverGate.h"
 
 
 #include <Config.h>
@@ -152,6 +153,13 @@ unsigned int Run(ID3D12GraphicsCommandList* cmdList, ID3D12Device* device, ID3D1
 {
     if (g_proxy.failed || !Available())
         return 0;
+
+    if (DriverGate::Blocked())
+    {
+        g_proxy.failed = true;
+        LOG_ERROR("DLSS-NR (driver): {}", DriverGate::BlockedMessage(DriverGate::DetectedVersion()));
+        return (unsigned int) NVSDK_NGX_Result_FAIL_OutOfDate;
+    }
 
     const Config& cfg = *Config::Instance();
 

@@ -194,6 +194,7 @@ class StreamlineHooks
     inline static decltype(&slGetNewFrameToken) o_slGetNewFrameToken = nullptr;
     inline static decltype(&slIsFeatureSupported) o_slIsFeatureSupported = nullptr;
     inline static decltype(&slIsFeatureLoaded) o_slIsFeatureLoaded = nullptr;
+    inline static decltype(&slSetFeatureLoaded) o_slSetFeatureLoaded = nullptr;
     inline static decltype(&slGetFeatureRequirements) o_slGetFeatureRequirements = nullptr;
     inline static decltype(&slGetFeatureVersion) o_slGetFeatureVersion = nullptr;
     inline static decltype(&slGetFeatureFunction) o_slGetFeatureFunction = nullptr;
@@ -209,6 +210,7 @@ class StreamlineHooks
     static sl::Result hkslInit(const sl::Preferences& pref, uint64_t sdkVersion);
     static sl::Result hkslIsFeatureSupported(sl::Feature feature, const sl::AdapterInfo& adapterInfo);
     static sl::Result hkslIsFeatureLoaded(sl::Feature feature, bool& loaded);
+    static sl::Result hkslSetFeatureLoaded(sl::Feature feature, bool loaded);
     static sl::Result hkslGetFeatureRequirements(sl::Feature feature, sl::FeatureRequirements& requirements);
     static sl::Result hkslGetFeatureVersion(sl::Feature feature, sl::FeatureVersion& version);
     static sl::Result hkslGetFeatureFunction(sl::Feature feature, const char* functionName, void*& function);
@@ -314,6 +316,7 @@ class StreamlineHooks
 
     // Function signature checking
     VALIDATE_MEMBER_HOOK(hkslInit, decltype(&slInit))
+    VALIDATE_MEMBER_HOOK(hkslSetFeatureLoaded, decltype(&slSetFeatureLoaded))
     VALIDATE_MEMBER_HOOK(hkslInit_sl1, decltype(&sl1::slInit))
     VALIDATE_MEMBER_HOOK(hkslSetTag_sl1, decltype(&sl1::slSetTag))
     VALIDATE_MEMBER_HOOK(hkslSetConstants_sl1, decltype(&sl1::slSetConstants))

@@ -1,12 +1,15 @@
 #include "pch.h"
 
 #include "DlssNrFeature_Vk.h"
+#include "DlssNr_DriverGate.h"
+#include "DlssNr_VkExtensions.h"
 
 #include <Config.h>
 #include <State.h>
 #include <Util.h>
 #include <NVNGX_Parameter.h>
 
+#include <shaders/dlssnr/DlssNr_Common.h>
 #include <shaders/dlssnr/DlssNr_Vk.h>
 #include <shaders/output_scaling/OS_Vk.h>
 
@@ -16,6 +19,7 @@
 #include <memory>
 #include <mutex>
 #include <string>
+#include <string_view>
 
 namespace DlssNr
 {
@@ -27,6 +31,7 @@ namespace
 // it, whichever API is being used, so these calls go through the same shim the D3D12 path does.
 using PFN_VkProbe = int(__cdecl*)(const wchar_t*);
 using PFN_VkInit = int(__cdecl*)(const wchar_t*, const wchar_t*, void*, void*, void*, int);
+using PFN_VkInitExt2 = int(__cdecl*)(const wchar_t*, const wchar_t*, void*, void*, void*, void*, void*, int);
 using PFN_VkCreate = void*(__cdecl*)(void*, void*, unsigned int, unsigned int, int, float, int, float, float, float,
                                      int, int);
 using PFN_VkEvaluate = int(__cdecl*)(void*, void*, void*, void*, void*, void*, void*, unsigned int, unsigned int,
@@ -58,9 +63,18 @@ struct VkState
     HMODULE forwarder = nullptr;
     PFN_VkProbe probe = nullptr;
     PFN_VkInit init = nullptr;
+    PFN_VkInitExt2 initExt2 = nullptr;
     PFN_VkCreate create = nullptr;
     PFN_VkEvaluate evaluate = nullptr;
     PFN_VkRelease release = nullptr;
+
+    int builtPreset = -1;
+    int builtStyle = -1;
+    float builtIntensity = -1.0f;
+    float builtLocalStructure = -1.0f;
+    float builtLocalTone = -1.0f;
+    float builtSkinStructure = -99.0f;
+    int builtAutoMask = -1;
 
     VkInstance instance = VK_NULL_HANDLE;
     VkPhysicalDevice physicalDevice = VK_NULL_HANDLE;
@@ -397,6 +411,34 @@ void TransitionForeign(VkCommandBuffer cmd, VkImage image, VkImageSubresourceRan
 // Bring-up
 // ---------------------------------------------------------------------------------------------
 
+// NR's EXT backend must not select core/KHR buffer-device-address entry points when the device was
+// created with VK_EXT_buffer_device_address instead of VK_KHR_buffer_device_address.
+PFN_vkVoidFunction VKAPI_CALL GetExtNgxDeviceProcAddr(VkDevice device, const char* name)
+{
+    if (name == nullptr)
+        return nullptr;
+
+    const std::string_view entry(name);
+    if (entry == "vkGetBufferDeviceAddress" || entry == "vkGetBufferDeviceAddressKHR")
+        return nullptr;
+
+    return vkGetDeviceProcAddr(device, name);
+}
+
+PFN_vkVoidFunction VKAPI_CALL GetExtNgxInstanceProcAddr(VkInstance instance, const char* name)
+{
+    if (name == nullptr)
+        return nullptr;
+
+    const std::string_view entry(name);
+    if (entry == "vkGetBufferDeviceAddress" || entry == "vkGetBufferDeviceAddressKHR")
+        return nullptr;
+    if (entry == "vkGetDeviceProcAddr")
+        return reinterpret_cast<PFN_vkVoidFunction>(&GetExtNgxDeviceProcAddr);
+
+    return vkGetInstanceProcAddr(instance, name);
+}
+
 bool LoadForwarder()
 {
     if (g_vk.forwarder != nullptr)
@@ -423,6 +465,7 @@ bool LoadForwarder()
 
     g_vk.probe = (PFN_VkProbe) GetProcAddress(g_vk.forwarder, "dlssnr_vk_probe");
     g_vk.init = (PFN_VkInit) GetProcAddress(g_vk.forwarder, "dlssnr_vk_init");
+    g_vk.initExt2 = (PFN_VkInitExt2) GetProcAddress(g_vk.forwarder, "dlssnr_vk_init_ext2");
     g_vk.create = (PFN_VkCreate) GetProcAddress(g_vk.forwarder, "dlssnr_vk_create");
     g_vk.evaluate = (PFN_VkEvaluate) GetProcAddress(g_vk.forwarder, "dlssnr_vk_evaluate");
     g_vk.release = (PFN_VkRelease) GetProcAddress(g_vk.forwarder, "dlssnr_vk_release");
@@ -498,6 +541,9 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
     auto& cfg = *Config::Instance();
 
     if (!cfg.DlssNrEnabled.value_or_default())
+        return;
+
+    if (DlssNr::DriverGate::Blocked())
         return;
 
     if (cmdBuffer == VK_NULL_HANDLE || params == nullptr || device == VK_NULL_HANDLE ||
@@ -602,8 +648,16 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
 
     const uint32_t width = colour->Resource.ImageViewInfo.Width;
     const uint32_t height = colour->Resource.ImageViewInfo.Height;
-    const uint32_t guideWidth = depth->Resource.ImageViewInfo.Width;
-    const uint32_t guideHeight = depth->Resource.ImageViewInfo.Height;
+    unsigned int renderSubW = 0;
+    unsigned int renderSubH = 0;
+    params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, &renderSubW);
+    params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, &renderSubH);
+    const uint32_t rawDepthW = depth->Resource.ImageViewInfo.Width;
+    const uint32_t rawDepthH = depth->Resource.ImageViewInfo.Height;
+    const uint32_t guideWidth =
+        (renderSubW != 0 && renderSubW <= rawDepthW) ? renderSubW : rawDepthW;
+    const uint32_t guideHeight =
+        (renderSubH != 0 && renderSubH <= rawDepthH) ? renderSubH : rawDepthH;
 
     if (width == 0 || height == 0)
         return;
@@ -657,19 +711,25 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
             return;
         }
 
+        const bool useExtBda = DlssNr::VkExt::DeviceUsesExtBufferDeviceAddress(device);
         const int result =
-            g_vk.init(snippet->wstring().c_str(), State::Instance().NVNGX_ApplicationDataPath.c_str(),
-                      (void*) instance, (void*) physicalDevice, (void*) device, 0x0000015);
+            (useExtBda && g_vk.initExt2 != nullptr)
+                ? g_vk.initExt2(snippet->wstring().c_str(), State::Instance().NVNGX_ApplicationDataPath.c_str(),
+                                (void*) instance, (void*) physicalDevice, (void*) device,
+                                (void*) &GetExtNgxInstanceProcAddr, (void*) &GetExtNgxDeviceProcAddr, 0x0000015)
+                : g_vk.init(snippet->wstring().c_str(), State::Instance().NVNGX_ApplicationDataPath.c_str(),
+                            (void*) instance, (void*) physicalDevice, (void*) device, 0x0000015);
 
         if (result != 1)
         {
-            LOG_ERROR("DLSS-NR Vulkan: NVSDK_NGX_VULKAN_Init_Ext returned {}", result);
+            LOG_ERROR("DLSS-NR Vulkan: NVSDK_NGX_VULKAN_Init_Ext{} returned {}", useExtBda ? "2" : "", result);
             Fail("the model would not initialise on this Vulkan device");
             return;
         }
 
         g_vk.ngxInitialised = true;
-        LOG_INFO("DLSS-NR Vulkan: the model initialised on this device");
+        LOG_INFO("DLSS-NR Vulkan: the model initialised on this device{}",
+                 useExtBda ? " (EXT buffer_device_address)" : "");
     }
 
     if (g_vk.capabilityParams == nullptr)
@@ -776,13 +836,35 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
         g_vk.reset = true;
     }
 
+    const int wantPreset = (int) cfg.DlssNrPreset.value_or_default();
+    const int wantStyle = (int) cfg.DlssNrStyle.value_or_default();
+    const float wantIntensity = cfg.DlssNrIntensity.value_or_default();
+    const float wantLocalStructure = cfg.DlssNrLocalStructure.value_or_default();
+    const float wantLocalTone = cfg.DlssNrLocalTone.value_or_default();
+    const float wantSkinStructure = cfg.DlssNrSkinStructure.value_or_default();
+    const int wantAutoMask = cfg.DlssNrAutoMask.value_or_default() ? 1 : 0;
+
+    if (g_vk.feature != nullptr &&
+        (g_vk.builtPreset != wantPreset || g_vk.builtStyle != wantStyle ||
+         std::abs(g_vk.builtIntensity - wantIntensity) > 1e-4f ||
+         std::abs(g_vk.builtLocalStructure - wantLocalStructure) > 1e-4f ||
+         std::abs(g_vk.builtLocalTone - wantLocalTone) > 1e-4f ||
+         std::abs(g_vk.builtSkinStructure - wantSkinStructure) > 1e-4f || g_vk.builtAutoMask != wantAutoMask))
+    {
+        if (g_vk.device != VK_NULL_HANDLE)
+            vkDeviceWaitIdle(g_vk.device);
+
+        if (g_vk.release != nullptr)
+            g_vk.release(g_vk.feature);
+
+        g_vk.feature = nullptr;
+    }
+
     if (g_vk.feature == nullptr)
     {
-        g_vk.feature = g_vk.create(
-            (void*) cmdBuffer, g_vk.capabilityParams, workWidth, workHeight, (int) cfg.DlssNrPreset.value_or_default(),
-            cfg.DlssNrIntensity.value_or_default(), (int) cfg.DlssNrStyle.value_or_default(),
-            cfg.DlssNrLocalStructure.value_or_default(), cfg.DlssNrLocalTone.value_or_default(),
-            cfg.DlssNrSkinStructure.value_or_default(), cfg.DlssNrAutoMask.value_or_default() ? 1 : 0, 1);
+        g_vk.feature = g_vk.create((void*) cmdBuffer, g_vk.capabilityParams, workWidth, workHeight, wantPreset,
+                                   wantIntensity, wantStyle, wantLocalStructure, wantLocalTone, wantSkinStructure,
+                                   wantAutoMask, 1);
 
         if (g_vk.feature == nullptr)
         {
@@ -790,7 +872,16 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
             return;
         }
 
-        LOG_INFO("DLSS-NR Vulkan: feature up at {}x{} (frame {}x{})", workWidth, workHeight, width, height);
+        g_vk.builtPreset = wantPreset;
+        g_vk.builtStyle = wantStyle;
+        g_vk.builtIntensity = wantIntensity;
+        g_vk.builtLocalStructure = wantLocalStructure;
+        g_vk.builtLocalTone = wantLocalTone;
+        g_vk.builtSkinStructure = wantSkinStructure;
+        g_vk.builtAutoMask = wantAutoMask;
+
+        LOG_INFO("DLSS-NR Vulkan: feature up at {}x{} (frame {}x{}, preset {}, style {})", workWidth, workHeight, width,
+                 height, wantPreset, wantStyle);
         g_vk.reset = true;
     }
 
@@ -1045,12 +1136,40 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
 
     Transition(cmdBuffer, g_vk.output, VK_IMAGE_LAYOUT_GENERAL);
 
+    float gameMvScaleX = 1.0f;
+    float gameMvScaleY = 1.0f;
+    params->Get(NVSDK_NGX_Parameter_MV_Scale_X, &gameMvScaleX);
+    params->Get(NVSDK_NGX_Parameter_MV_Scale_Y, &gameMvScaleY);
+
+    const bool lowResVectors = (createFlags & NVSDK_NGX_DLSS_Feature_Flags_MVLowRes) != 0;
+    const uint32_t rawMotionW = motion->Resource.ImageViewInfo.Width;
+    const uint32_t rawMotionH = motion->Resource.ImageViewInfo.Height;
+    const uint32_t motionGuideW = (renderSubW != 0 && renderSubW <= rawMotionW) ? renderSubW : rawMotionW;
+    const uint32_t motionGuideH = (renderSubH != 0 && renderSubH <= rawMotionH) ? renderSubH : rawMotionH;
+
+    DlssNrMotionScaleInput mvScaleIn {};
+    mvScaleIn.renderMotionScale = cfg.DlssNrRenderMotionScale.value_or_default();
+    mvScaleIn.matchedGuides = false;
+    mvScaleIn.lowResVectors = lowResVectors;
+    mvScaleIn.workW = workWidth;
+    mvScaleIn.workH = workHeight;
+    mvScaleIn.guideW = motionGuideW;
+    mvScaleIn.guideH = motionGuideH;
+    mvScaleIn.frameW = width;
+    mvScaleIn.frameH = height;
+    mvScaleIn.renderW = renderSubW != 0 ? renderSubW : motionGuideW;
+    mvScaleIn.renderH = renderSubH != 0 ? renderSubH : motionGuideH;
+    mvScaleIn.outputW = width;
+    mvScaleIn.outputH = height;
+    const DlssNrMotionScale mvScale = DlssNrModelMotionScale(mvScaleIn);
+
     const int evaluated = g_vk.evaluate(
         (void*) cmdBuffer, g_vk.feature, g_vk.capabilityParams, &modelInput->ngx, depth, motion, &g_vk.output.ngx,
         workWidth, workHeight, guideWidth, guideHeight, depthInverted ? 1 : 0, g_vk.reset ? 1 : 0,
         cfg.DlssNrIntensity.value_or_default(), (int) cfg.DlssNrStyle.value_or_default(),
         cfg.DlssNrLocalStructure.value_or_default(), cfg.DlssNrLocalTone.value_or_default(),
-        cfg.DlssNrSkinStructure.value_or_default(), cfg.DlssNrAutoMask.value_or_default() ? 1 : 0, 1.0f, 1.0f);
+        cfg.DlssNrSkinStructure.value_or_default(), cfg.DlssNrAutoMask.value_or_default() ? 1 : 0,
+        gameMvScaleX * mvScale.x, gameMvScaleY * mvScale.y);
 
     g_vk.reset = false;
     g_vk.frames++;

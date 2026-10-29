@@ -285,6 +285,14 @@ sl::Result StreamlineHooks::hkslIsFeatureLoaded(sl::Feature feature, bool& loade
     return o_slIsFeatureLoaded(feature, loaded);
 }
 
+sl::Result StreamlineHooks::hkslSetFeatureLoaded(sl::Feature feature, bool loaded)
+{
+    if (!Config::Instance()->FGNativePassthrough.value_or_default() && feature == sl::kFeatureDLSS_G)
+        return sl::Result::eOk;
+
+    return o_slSetFeatureLoaded(feature, loaded);
+}
+
 sl::Result StreamlineHooks::hkslGetFeatureRequirements(sl::Feature feature, sl::FeatureRequirements& requirements)
 {
     if (!Config::Instance()->FGNativePassthrough.value_or_default() && feature == sl::kFeatureDLSS_G)
@@ -1756,6 +1764,9 @@ void StreamlineHooks::unhookInterposer()
     if (o_slInit)
         DetourDetach(&(PVOID&) o_slInit, hkslInit);
 
+    if (o_slSetFeatureLoaded)
+        DetourDetach(&(PVOID&) o_slSetFeatureLoaded, hkslSetFeatureLoaded);
+
     if (o_slInit_sl1)
         DetourDetach(&(PVOID&) o_slInit_sl1, hkslInit_sl1);
 
@@ -1781,6 +1792,7 @@ void StreamlineHooks::unhookInterposer()
     else
     {
         o_slInit = nullptr;
+        o_slSetFeatureLoaded = nullptr;
         o_slInit_sl1 = nullptr;
         o_slSetTag = nullptr;
         o_slSetTagForFrame = nullptr;
@@ -1823,13 +1835,14 @@ void StreamlineHooks::hookInterposer(HMODULE slInterposer)
         unhookInterposer();
 
     {
-        char dllPath[MAX_PATH];
-        GetModuleFileNameA(slInterposer, dllPath, MAX_PATH);
-
-        LOG_TRACE("slInterposer path: {}", dllPath);
-
-        version_t sl_version;
-        Util::GetFileVersion(string_to_wstring(dllPath), &sl_version);
+        // Keep the Windows path in UTF-16, including non-ASCII and long game paths.
+        wchar_t dllPath[32768] {};
+        const DWORD pathLength = GetModuleFileNameW(slInterposer, dllPath, ARRAYSIZE(dllPath));
+        version_t sl_version {};
+        if (pathLength == 0 || pathLength >= ARRAYSIZE(dllPath) || !Util::GetFileVersion(dllPath, &sl_version))
+            LOG_WARN("Could not read sl.interposer.dll's version");
+        else
+            LOG_TRACE("slInterposer path: {}", wstring_to_string(dllPath));
 
         State::Instance().streamlineVersion.major = sl_version.major;
         State::Instance().streamlineVersion.minor = sl_version.minor;
@@ -1869,6 +1882,8 @@ void StreamlineHooks::hookInterposer(HMODULE slInterposer)
                 KernelBaseProxy::GetProcAddress_()(slInterposer, "slGetFeatureVersion"));
             o_slGetFeatureFunction = reinterpret_cast<decltype(&slGetFeatureFunction)>(
                 KernelBaseProxy::GetProcAddress_()(slInterposer, "slGetFeatureFunction"));
+            o_slSetFeatureLoaded = reinterpret_cast<decltype(&slSetFeatureLoaded)>(
+                KernelBaseProxy::GetProcAddress_()(slInterposer, "slSetFeatureLoaded"));
 
             if (o_slInit != nullptr)
             {
@@ -1910,6 +1925,9 @@ void StreamlineHooks::hookInterposer(HMODULE slInterposer)
 
                     if (o_slGetFeatureFunction != nullptr)
                         DetourAttach(&(PVOID&) o_slGetFeatureFunction, hkslGetFeatureFunction);
+
+                    if (o_slSetFeatureLoaded != nullptr)
+                        DetourAttach(&(PVOID&) o_slSetFeatureLoaded, hkslSetFeatureLoaded);
                 }
 
                 // if (o_slAllocateResources != nullptr)
@@ -1938,6 +1956,7 @@ void StreamlineHooks::hookInterposer(HMODULE slInterposer)
                     o_slGetFeatureRequirements = nullptr;
                     o_slGetFeatureVersion = nullptr;
                     o_slGetFeatureFunction = nullptr;
+                    o_slSetFeatureLoaded = nullptr;
                 }
             }
         }
