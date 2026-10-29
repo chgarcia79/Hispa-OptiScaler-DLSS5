@@ -415,6 +415,9 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrHaloSuppression.set_from_config(readFloat("DlssNr", "HaloSuppression"));
             DlssNrHaloBrightSuppression.set_from_config(readFloat("DlssNr", "HaloBrightSuppression"));
             DlssNrHaloRadius.set_from_config(readFloat("DlssNr", "HaloRadius"));
+            DlssNrDenoiseFirst.set_from_config(readBool("DlssNr", "DenoiseFirst"));
+            if (auto s = readFloat("DlssNr", "DenoiseFirstStrength"); s.has_value())
+                DlssNrDenoiseFirstStrength.set_from_config(std::clamp(s.value(), 0.0f, 2.0f));
             UseGenericAppIdWithDlss.set_from_config(readBool("DLSS", "UseGenericAppIdWithDlss"));
 
             RenderPresetOverride.set_from_config(readBool("DLSS", "RenderPresetOverride"));
@@ -1421,6 +1424,8 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "HaloSuppression", GetFloatValue(Instance()->DlssNrHaloSuppression.value_for_config()).c_str());
     ini.SetValue("DlssNr", "HaloBrightSuppression", GetFloatValue(Instance()->DlssNrHaloBrightSuppression.value_for_config()).c_str());
     ini.SetValue("DlssNr", "HaloRadius", GetFloatValue(Instance()->DlssNrHaloRadius.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DenoiseFirst", GetBoolValue(Instance()->DlssNrDenoiseFirst.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DenoiseFirstStrength", GetFloatValue(Instance()->DlssNrDenoiseFirstStrength.value_for_config()).c_str());
         ini.SetValue("DLSS", "RenderPresetOverride",
                      GetBoolValue(Instance()->RenderPresetOverride.value_for_config()).c_str());
         ini.SetValue("DLSS", "RenderPresetForAll",

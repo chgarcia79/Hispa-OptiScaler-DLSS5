@@ -558,6 +558,22 @@ HMODULE LibraryLoadHooks::LoadLibraryCheckW(std::wstring libName, LPCWSTR lpLibF
         return module;
     }
 
+    if (CheckDllNameW(&libName, &ffxVkUpscalerNamesW))
+    {
+        if (FfxApiProxy::VkModule_SR() != nullptr)
+        {
+            auto module = NtdllProxy::LoadLibraryExW_Ldr(FfxApiProxy::VkModule_SR_Path().c_str(), NULL, NULL);
+            return module;
+        }
+
+        auto module = NtdllProxy::LoadLibraryExW_Ldr(libName.c_str(), NULL, NULL);
+
+        if (module != nullptr)
+            FfxApiProxy::InitFfxVk_SR(module);
+
+        return module;
+    }
+
     if (CheckDllNameW(&libName, &ffxVkNamesW))
     {
         if (FfxApiProxy::VkModule() != nullptr)

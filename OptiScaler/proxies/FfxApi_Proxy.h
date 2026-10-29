@@ -80,6 +80,7 @@ class FfxApiProxy
     inline static FfxModule denoiser_dx12;
     inline static FfxModule radiance_dx12;
     inline static FfxModule main_vk;
+    inline static FfxModule upscaling_vk;
 
     inline static FfxModule main_dx12_hooked;
     inline static FfxModule upscaling_dx12_hooked;
@@ -87,6 +88,7 @@ class FfxApiProxy
     inline static FfxModule denoiser_dx12_hooked;
     inline static FfxModule radiance_dx12_hooked;
     inline static FfxModule main_vk_hooked;
+    inline static FfxModule upscaling_vk_hooked;
 
     inline static ankerl::unordered_dense::map<ffxContext, FFXStructType> contextToType;
 
@@ -204,8 +206,11 @@ class FfxApiProxy
 
     static bool InitFfxDx12(HMODULE module = nullptr)
     {
-        // if dll already loaded
-        if (main_dx12.dll != nullptr && main_dx12.CreateContext != nullptr)
+        // if dll already loaded (monolithic/loader or modular SDK 2.4.0 upscaler/FG)
+        if (module == nullptr &&
+            ((main_dx12.dll != nullptr && main_dx12.CreateContext != nullptr) ||
+             (upscaling_dx12.dll != nullptr && upscaling_dx12.CreateContext != nullptr) ||
+             (fg_dx12.dll != nullptr && fg_dx12.CreateContext != nullptr)))
             return true;
 
         spdlog::info("");
@@ -1462,12 +1467,138 @@ class FfxApiProxy
     }
 
     static HMODULE VkModule() { return main_vk.dll; }
+    static HMODULE VkModule_SR() { return upscaling_vk.dll; }
     static std::wstring VkModule_Path() { return main_vk.filePath; }
+    static std::wstring VkModule_SR_Path() { return upscaling_vk.filePath; }
+
+    static bool InitFfxVk_SR(HMODULE module = nullptr)
+    {
+        if (upscaling_vk.dll != nullptr && upscaling_vk.CreateContext != nullptr)
+            return true;
+
+        if (module != nullptr && upscaling_vk_hooked.dll == nullptr)
+            upscaling_vk_hooked.dll = module;
+
+        if (upscaling_vk.dll == nullptr)
+        {
+            std::vector<std::wstring> dllNames = { L"amd_fidelityfx_upscaler_vk.dll" };
+            auto optiPath = Config::Instance()->MainDllPath.value();
+            auto overridePath = Config::Instance()->FfxVkPath.value_or(L"");
+
+            for (size_t i = 0; i < dllNames.size(); i++)
+            {
+                LOG_DEBUG("Trying to load {}", wstring_to_string(dllNames[i]));
+
+                if (upscaling_vk_hooked.dll == nullptr)
+                {
+                    Util::LoadProxyLibrary(dllNames[i], optiPath, overridePath, &upscaling_vk_hooked.dll,
+                                           &upscaling_vk.dll);
+                }
+                else
+                {
+                    HMODULE memModule = nullptr;
+                    Util::LoadProxyLibrary(dllNames[i], optiPath, overridePath, &memModule, &upscaling_vk.dll);
+                }
+
+                if (upscaling_vk.dll != nullptr)
+                    break;
+            }
+        }
+
+        if (upscaling_vk.dll == nullptr && upscaling_vk_hooked.dll != nullptr)
+            upscaling_vk = upscaling_vk_hooked;
+
+        if (upscaling_vk.dll != nullptr)
+        {
+            FSR4ModelSelection::Hook(upscaling_vk.dll, FSR4Source::SDK);
+
+            wchar_t modulePath[MAX_PATH] {};
+            GetModuleFileNameW(upscaling_vk.dll, modulePath, MAX_PATH);
+            upscaling_vk.filePath = std::wstring(modulePath);
+            LOG_INFO("Loaded Vulkan SR from {}", wstring_to_string(upscaling_vk.filePath));
+        }
+
+        if (upscaling_vk.dll != nullptr && upscaling_vk.Configure == nullptr)
+        {
+            upscaling_vk.Configure =
+                (PfnFfxConfigure) KernelBaseProxy::GetProcAddress_()(upscaling_vk.dll, "ffxConfigure");
+            upscaling_vk.CreateContext =
+                (PfnFfxCreateContext) KernelBaseProxy::GetProcAddress_()(upscaling_vk.dll, "ffxCreateContext");
+            upscaling_vk.DestroyContext =
+                (PfnFfxDestroyContext) KernelBaseProxy::GetProcAddress_()(upscaling_vk.dll, "ffxDestroyContext");
+            upscaling_vk.Dispatch =
+                (PfnFfxDispatch) KernelBaseProxy::GetProcAddress_()(upscaling_vk.dll, "ffxDispatch");
+            upscaling_vk.Query = (PfnFfxQuery) KernelBaseProxy::GetProcAddress_()(upscaling_vk.dll, "ffxQuery");
+        }
+
+        if (upscaling_vk_hooked.dll != nullptr && upscaling_vk_hooked.Configure == nullptr)
+        {
+            upscaling_vk_hooked.Configure =
+                (PfnFfxConfigure) KernelBaseProxy::GetProcAddress_()(upscaling_vk_hooked.dll, "ffxConfigure");
+            upscaling_vk_hooked.CreateContext =
+                (PfnFfxCreateContext) KernelBaseProxy::GetProcAddress_()(upscaling_vk_hooked.dll, "ffxCreateContext");
+            upscaling_vk_hooked.DestroyContext =
+                (PfnFfxDestroyContext) KernelBaseProxy::GetProcAddress_()(upscaling_vk_hooked.dll, "ffxDestroyContext");
+            upscaling_vk_hooked.Dispatch =
+                (PfnFfxDispatch) KernelBaseProxy::GetProcAddress_()(upscaling_vk_hooked.dll, "ffxDispatch");
+            upscaling_vk_hooked.Query =
+                (PfnFfxQuery) KernelBaseProxy::GetProcAddress_()(upscaling_vk_hooked.dll, "ffxQuery");
+        }
+        else if (upscaling_vk_hooked.Configure == nullptr)
+        {
+            upscaling_vk_hooked = upscaling_vk;
+        }
+
+        if (Config::Instance()->EnableFfxInputs.value_or_default() && upscaling_vk_hooked.dll != nullptr &&
+            upscaling_vk_hooked.CreateContext != nullptr && !upscaling_vk_hooked.hooked)
+        {
+            DetourTransactionBegin();
+            DetourUpdateThread(GetCurrentThread());
+
+            if (upscaling_vk_hooked.Configure != nullptr)
+                DetourAttach(&(PVOID&) upscaling_vk_hooked.Configure, ffxConfigure_Vk);
+            if (upscaling_vk_hooked.CreateContext != nullptr)
+                DetourAttach(&(PVOID&) upscaling_vk_hooked.CreateContext, ffxCreateContext_Vk);
+            if (upscaling_vk_hooked.DestroyContext != nullptr)
+                DetourAttach(&(PVOID&) upscaling_vk_hooked.DestroyContext, ffxDestroyContext_Vk);
+            if (upscaling_vk_hooked.Dispatch != nullptr)
+                DetourAttach(&(PVOID&) upscaling_vk_hooked.Dispatch, ffxDispatch_Vk);
+            if (upscaling_vk_hooked.Query != nullptr)
+                DetourAttach(&(PVOID&) upscaling_vk_hooked.Query, ffxQuery_Vk);
+
+            auto detourResult = DetourTransactionCommit();
+            if (detourResult != NO_ERROR)
+            {
+                LOG_ERROR("DetourTransactionCommit (upscaling_vk) result: {:X}", detourResult);
+                upscaling_vk_hooked.Configure = nullptr;
+                upscaling_vk_hooked.CreateContext = nullptr;
+                upscaling_vk_hooked.DestroyContext = nullptr;
+                upscaling_vk_hooked.Dispatch = nullptr;
+                upscaling_vk_hooked.Query = nullptr;
+            }
+            else
+            {
+                if (upscaling_vk.dll == upscaling_vk_hooked.dll)
+                    upscaling_vk = upscaling_vk_hooked;
+
+                upscaling_vk_hooked.hooked = true;
+                State::Instance().fsrHooks = true;
+            }
+        }
+
+        bool loadResult = upscaling_vk.CreateContext != nullptr;
+        if (!loadResult)
+            upscaling_vk.dll = nullptr;
+
+        return loadResult;
+    }
 
     static bool InitFfxVk(HMODULE module = nullptr)
     {
-        // if dll already loaded
-        if (main_vk.dll != nullptr && main_vk.CreateContext != nullptr)
+        // if dll already loaded (monolithic/loader or modular SDK 2.4.0 Vulkan upscaler)
+        if (module == nullptr &&
+            ((main_vk.dll != nullptr && main_vk.CreateContext != nullptr) ||
+             (upscaling_vk.dll != nullptr && upscaling_vk.CreateContext != nullptr)))
             return true;
 
         spdlog::info("");
@@ -1477,8 +1608,8 @@ class FfxApiProxy
 
         if (main_vk.dll == nullptr)
         {
-            // Try new api first
-            std::vector<std::wstring> dllNames = { L"amd_fidelityfx_vk.dll" };
+            // Try SDK 2.4.0 loader first, then legacy monolithic amd_fidelityfx_vk.dll
+            std::vector<std::wstring> dllNames = { L"amd_fidelityfx_loader_vk.dll", L"amd_fidelityfx_vk.dll" };
 
             auto optiPath = Config::Instance()->MainDllPath.value();
 
@@ -1510,6 +1641,7 @@ class FfxApiProxy
             wchar_t modulePath[MAX_PATH];
             DWORD len = GetModuleFileNameW(main_vk.dll, modulePath, MAX_PATH);
             main_vk.filePath = std::wstring(modulePath);
+            main_vk.isLoader = IsLoader(main_vk.filePath);
 
             LOG_INFO("Loaded from {}", wstring_to_string(main_vk.filePath));
         }
@@ -1561,7 +1693,9 @@ class FfxApiProxy
             }
         }
 
-        bool loadResult = main_vk.CreateContext != nullptr;
+        InitFfxVk_SR();
+
+        bool loadResult = main_vk.CreateContext != nullptr || upscaling_vk.CreateContext != nullptr;
 
         LOG_INFO("LoadResult: {}", loadResult);
 
@@ -1575,7 +1709,10 @@ class FfxApiProxy
 
     static feature_version VersionVk()
     {
-        if (main_vk.version.major == 0 && main_vk.Query != nullptr)
+        PfnFfxQuery queryFn = upscaling_vk.Query != nullptr ? upscaling_vk.Query : main_vk.Query;
+        feature_version& targetVer = upscaling_vk.Query != nullptr ? upscaling_vk.version : main_vk.version;
+
+        if (targetVer.major == 0 && queryFn != nullptr)
         {
             ffxQueryDescGetVersions versionQuery {};
             versionQuery.header.type = FFX_API_QUERY_DESC_TYPE_GET_VERSIONS;
@@ -1583,12 +1720,11 @@ class FfxApiProxy
             uint64_t versionCount = 0;
             versionQuery.outputCount = &versionCount;
 
-            auto queryResult = main_vk.Query(nullptr, &versionQuery.header);
+            auto queryResult = queryFn(nullptr, &versionQuery.header);
 
             // get number of versions for allocation
             if (versionCount > 0 && queryResult == FFX_API_RETURN_OK)
             {
-
                 std::vector<uint64_t> versionIds;
                 std::vector<const char*> versionNames;
                 versionIds.resize(versionCount);
@@ -1596,33 +1732,123 @@ class FfxApiProxy
                 versionQuery.versionIds = versionIds.data();
                 versionQuery.versionNames = versionNames.data();
 
-                queryResult = main_vk.Query(nullptr, &versionQuery.header);
+                queryResult = queryFn(nullptr, &versionQuery.header);
 
                 if (queryResult == FFX_API_RETURN_OK)
                 {
-                    main_vk.version.parse_version(versionNames[0]);
-                    LOG_INFO("FfxApi Vulkan version: {}.{}.{}", main_vk.version.major, main_vk.version.minor,
-                             main_vk.version.patch);
+                    targetVer.parse_version(versionNames[0]);
+                    main_vk.version = targetVer;
+                    LOG_INFO("FfxApi Vulkan version: {}.{}.{}", targetVer.major, targetVer.minor, targetVer.patch);
                 }
                 else
                 {
-                    LOG_WARN("main_vk.Query 2 result: {}", (UINT) queryResult);
+                    LOG_WARN("Vulkan Query 2 result: {}", (UINT) queryResult);
                 }
             }
             else
             {
-                LOG_WARN("main_vk.Query result: {}", (UINT) queryResult);
+                LOG_WARN("Vulkan Query result: {}", (UINT) queryResult);
             }
         }
 
-        return main_vk.version;
+        return targetVer.major != 0 ? targetVer : main_vk.version;
     }
 
-    static PfnFfxCreateContext VULKAN_CreateContext() { return main_vk.CreateContext; }
-    static PfnFfxDestroyContext VULKAN_DestroyContext() { return main_vk.DestroyContext; }
-    static PfnFfxConfigure VULKAN_Configure() { return main_vk.Configure; }
-    static PfnFfxQuery VULKAN_Query() { return main_vk.Query; }
-    static PfnFfxDispatch VULKAN_Dispatch() { return main_vk.Dispatch; }
+    static ffxReturnCode_t VULKAN_CreateContext_Dispatch(ffxContext* context, ffxCreateContextDescHeader* desc,
+                                                         const ffxAllocationCallbacks* memCb)
+    {
+        auto type = desc != nullptr ? GetType(desc->type) : FFXStructType::Unknown;
+        if (type == FFXStructType::Upscaling && upscaling_vk.CreateContext != nullptr)
+        {
+            auto res = upscaling_vk.CreateContext(context, desc, memCb);
+            if (context != nullptr && *context != nullptr)
+                contextToType[*context] = type;
+            return res;
+        }
+        if (main_vk.CreateContext != nullptr)
+            return main_vk.CreateContext(context, desc, memCb);
+        if (upscaling_vk.CreateContext != nullptr)
+            return upscaling_vk.CreateContext(context, desc, memCb);
+        return FFX_API_RETURN_NO_PROVIDER;
+    }
+
+    static ffxReturnCode_t VULKAN_DestroyContext_Dispatch(ffxContext* context, const ffxAllocationCallbacks* memCb)
+    {
+        if (context != nullptr && *context != nullptr && contextToType.contains(*context))
+        {
+            auto type = contextToType[*context];
+            contextToType.erase(*context);
+            if (type == FFXStructType::Upscaling && upscaling_vk.DestroyContext != nullptr)
+                return upscaling_vk.DestroyContext(context, memCb);
+        }
+        if (main_vk.DestroyContext != nullptr)
+            return main_vk.DestroyContext(context, memCb);
+        if (upscaling_vk.DestroyContext != nullptr)
+            return upscaling_vk.DestroyContext(context, memCb);
+        return FFX_API_RETURN_NO_PROVIDER;
+    }
+
+    static ffxReturnCode_t VULKAN_Configure_Dispatch(ffxContext* context, const ffxConfigureDescHeader* desc)
+    {
+        auto type = desc != nullptr ? GetType(desc->type) : FFXStructType::Unknown;
+        if (type == FFXStructType::Upscaling && upscaling_vk.Configure != nullptr)
+            return upscaling_vk.Configure(context, desc);
+        if (main_vk.Configure != nullptr)
+            return main_vk.Configure(context, desc);
+        if (upscaling_vk.Configure != nullptr)
+            return upscaling_vk.Configure(context, desc);
+        return FFX_API_RETURN_NO_PROVIDER;
+    }
+
+    static ffxReturnCode_t VULKAN_Query_Dispatch(ffxContext* context, ffxQueryDescHeader* desc)
+    {
+        auto type = desc != nullptr ? GetIndirectType(desc) : FFXStructType::Unknown;
+        if (type == FFXStructType::Upscaling && upscaling_vk.Query != nullptr)
+            return upscaling_vk.Query(context, desc);
+        if (main_vk.Query != nullptr)
+            return main_vk.Query(context, desc);
+        if (upscaling_vk.Query != nullptr)
+            return upscaling_vk.Query(context, desc);
+        return FFX_API_RETURN_NO_PROVIDER;
+    }
+
+    static ffxReturnCode_t VULKAN_Dispatch_Dispatch(ffxContext* context, const ffxDispatchDescHeader* desc)
+    {
+        auto type = desc != nullptr ? GetType(desc->type) : FFXStructType::Unknown;
+        if (type == FFXStructType::Upscaling && upscaling_vk.Dispatch != nullptr)
+            return upscaling_vk.Dispatch(context, desc);
+        if (main_vk.Dispatch != nullptr)
+            return main_vk.Dispatch(context, desc);
+        if (upscaling_vk.Dispatch != nullptr)
+            return upscaling_vk.Dispatch(context, desc);
+        return FFX_API_RETURN_NO_PROVIDER;
+    }
+
+    static PfnFfxCreateContext VULKAN_CreateContext()
+    {
+        return (upscaling_vk.CreateContext != nullptr || main_vk.CreateContext != nullptr)
+                   ? &VULKAN_CreateContext_Dispatch
+                   : nullptr;
+    }
+    static PfnFfxDestroyContext VULKAN_DestroyContext()
+    {
+        return (upscaling_vk.DestroyContext != nullptr || main_vk.DestroyContext != nullptr)
+                   ? &VULKAN_DestroyContext_Dispatch
+                   : nullptr;
+    }
+    static PfnFfxConfigure VULKAN_Configure()
+    {
+        return (upscaling_vk.Configure != nullptr || main_vk.Configure != nullptr) ? &VULKAN_Configure_Dispatch
+                                                                                   : nullptr;
+    }
+    static PfnFfxQuery VULKAN_Query()
+    {
+        return (upscaling_vk.Query != nullptr || main_vk.Query != nullptr) ? &VULKAN_Query_Dispatch : nullptr;
+    }
+    static PfnFfxDispatch VULKAN_Dispatch()
+    {
+        return (upscaling_vk.Dispatch != nullptr || main_vk.Dispatch != nullptr) ? &VULKAN_Dispatch_Dispatch : nullptr;
+    }
 
     static std::string ReturnCodeToString(ffxReturnCode_t result)
     {

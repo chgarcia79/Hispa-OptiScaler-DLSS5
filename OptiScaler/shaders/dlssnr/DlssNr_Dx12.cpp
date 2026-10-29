@@ -24,6 +24,7 @@
 #include <algorithm>
 #include <cstring>
 #include "DlssNr_ResidualPair.h"
+#include "DlssNr_DenoiseFirst_Dx12.h"
 #include "precompile/DlssNr_Shader.h"
 #include "precompile/dlssnr_residual_Shader.h"
 #include "../output_scaling/OS_Dx12.h"
@@ -383,6 +384,7 @@ struct NrState
 
 NrState g_nr;
 std::unique_ptr<DlssNr_Dx12> g_compose;
+std::unique_ptr<DlssNr_DenoiseFirst_Dx12> g_denoiseFirst;
 
 // What the pass costs on the GPU, for the breakdown in the overlay.
 std::unique_ptr<GpuTime_Dx12> g_gpuTime;
@@ -3213,7 +3215,8 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
         g_nr.residualStoreValid = false;
     }
 
-    if (!cfg.DlssNrEnabled.value_or_default() || !cfg.DlssNrPreSR.value_or_default())
+    const bool useDenoiseFirst = cfg.DlssNrDenoiseFirst.value_or_default();
+    if (!cfg.DlssNrEnabled.value_or_default() || (!cfg.DlssNrPreSR.value_or_default() && !useDenoiseFirst))
         return;
 
     if (cmdList == nullptr || params == nullptr)
@@ -3255,7 +3258,7 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
 
     const bool rayReconstruction =
         State::Instance().dlssdActive || GetResource(params, "DLSSD.Color", "DLSSD.Output") != nullptr;
-    const bool residualAcrossRr = cfg.DlssNrResidualAcrossRr.value_or_default() && rayReconstruction;
+    const bool residualAcrossRr = !useDenoiseFirst && cfg.DlssNrResidualAcrossRr.value_or_default() && rayReconstruction;
 
     if (residualAcrossRr &&
         (cfg.DlssNrHoldFrame.value_or_default() || cfg.DlssNrDebugView.value_or_default() != 0 ||
@@ -3358,10 +3361,24 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
         }
     }
 
+    if (useDenoiseFirst && g_denoiseFirst == nullptr)
+    {
+        try {
+            g_denoiseFirst = std::make_unique<DlssNr_DenoiseFirst_Dx12>("DLSS-NR DenoiseFirst", device);
+        } catch (...) {
+            g_denoiseFirst.reset();
+        }
+    }
+
     device->Release();
 
     if (g_compose != nullptr)
     {
+        if (useDenoiseFirst && g_denoiseFirst != nullptr &&
+            g_denoiseFirst->EvaluateAndCompose(cmdList, params, g_compose.get(), color, depth, motion, frame, timingQueue))
+            return;
+        if (!cfg.DlssNrPreSR.value_or_default())
+            return;
         if (residualAcrossRr)
         {
             std::lock_guard<std::mutex> nrLock(g_nrMutex);
@@ -3646,6 +3663,7 @@ void Shutdown()
     g_lastNgxTime.reset();
     g_lastGpuTime.reset();
 
+    g_denoiseFirst.reset();
     g_compose.reset();
 }
 } // namespace DlssNr

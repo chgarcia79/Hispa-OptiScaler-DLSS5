@@ -596,6 +596,15 @@
     <ClInclude Include="shaders\Shader_Dx12Utils.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="shaders\dlssnr\DlssNr_DenoiseFirst_Helpers.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\dlssnr\DlssNr_DenoiseFirst_Dx12.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\dlssnr\precompile\dlssnr_denoise_first_Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="shaders\Shader_Dx12.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1305,6 +1314,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="hooks\Kernel_Hooks.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="shaders\dlssnr\DlssNr_DenoiseFirst_Dx12.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="shaders\Shader_Dx12.cpp">

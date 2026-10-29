@@ -527,6 +527,8 @@ class Config
     CustomOptional<float> DlssNrHaloSuppression { 0.0f };
     CustomOptional<float> DlssNrHaloBrightSuppression { 0.0f };
     CustomOptional<float> DlssNrHaloRadius { 2.0f };
+    CustomOptional<bool> DlssNrDenoiseFirst { false };
+    CustomOptional<float> DlssNrDenoiseFirstStrength { 1.0f };
 
     // --- end DLSS 5 Neural Rendering -------------------------------------------------------------
 

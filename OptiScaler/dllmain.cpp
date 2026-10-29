@@ -1099,6 +1099,13 @@ static void CheckWorkingMode()
     }
 
     // FFX Vulkan
+    HMODULE ffxVkUpscalerModule = GetDllNameWModule(&ffxVkUpscalerNamesW);
+    if (ffxVkUpscalerModule != nullptr)
+    {
+        LOG_DEBUG("amd_fidelityfx_upscaler_vk.dll already in memory");
+        FfxApiProxy::InitFfxVk_SR(ffxVkUpscalerModule);
+    }
+
     HMODULE ffxVkModule = nullptr;
     ffxVkModule = GetDllNameWModule(&ffxVkNamesW);
     if (ffxVkModule != nullptr)

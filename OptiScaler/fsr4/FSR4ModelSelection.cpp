@@ -106,7 +106,7 @@ void FSR4ModelSelection::Hook(HMODULE module, FSR4Source source)
     if (module == nullptr)
         return;
 
-    if (source == FSR4Source::SDK && (o_getModelBlobSDK || o_createModelSDK))
+    if (source == FSR4Source::SDK && (o_getModelBlobSDK || o_createModelSDK || o_createModelSDK2))
     {
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
@@ -117,15 +117,19 @@ void FSR4ModelSelection::Hook(HMODULE module, FSR4Source source)
         if (o_createModelSDK)
             DetourDetach(&(PVOID&) o_createModelSDK, hkcreateModelSDK);
 
+        if (o_createModelSDK2)
+            DetourDetach(&(PVOID&) o_createModelSDK2, hkcreateModelSDK2);
+
         if (DetourTransactionCommit() == NO_ERROR)
         {
             LOG_DEBUG("Unhooked old model selection hooks for SDK");
 
             o_createModelSDK = nullptr;
+            o_createModelSDK2 = nullptr;
             o_getModelBlobSDK = nullptr;
         }
     }
-    else if (source == FSR4Source::DriverDll && (o_getModelBlobDriver || o_createModelDriver))
+    else if (source == FSR4Source::DriverDll && (o_getModelBlobDriver || o_createModelDriver || o_createModelDriver2))
     {
         DetourTransactionBegin();
         DetourUpdateThread(GetCurrentThread());
@@ -133,14 +137,18 @@ void FSR4ModelSelection::Hook(HMODULE module, FSR4Source source)
         if (o_getModelBlobDriver)
             DetourDetach(&(PVOID&) o_getModelBlobDriver, hkgetModelBlobDriver);
 
-        else if (o_createModelDriver)
+        if (o_createModelDriver)
             DetourDetach(&(PVOID&) o_createModelDriver, hkcreateModelDriver);
+
+        if (o_createModelDriver2)
+            DetourDetach(&(PVOID&) o_createModelDriver2, hkcreateModelDriver2);
 
         if (DetourTransactionCommit() == NO_ERROR)
         {
             LOG_DEBUG("Unhooked old model selection hooks for the driver dll");
 
             o_createModelDriver = nullptr;
+            o_createModelDriver2 = nullptr;
             o_getModelBlobDriver = nullptr;
         }
     }

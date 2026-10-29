@@ -166,14 +166,19 @@ bool FFXFeatureVk::InitFFX(const NVSDK_NGX_Parameter* InParameters)
 
         _contextDesc.header.pNext = &backendDesc.header;
 
-        if (Config::Instance()->FfxUpscalerIndex.value_or_default() < 0 ||
-            Config::Instance()->FfxUpscalerIndex.value_or_default() >= State::Instance().ffxUpscalerVersionIds.size())
-            Config::Instance()->FfxUpscalerIndex.set_volatile_value(0);
-
         ffxOverrideVersion ov = { 0 };
-        ov.header.type = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
-        ov.versionId = State::Instance().ffxUpscalerVersionIds[Config::Instance()->FfxUpscalerIndex.value_or_default()];
-        backendDesc.header.pNext = &ov.header;
+        if (!State::Instance().ffxUpscalerVersionIds.empty())
+        {
+            if (Config::Instance()->FfxUpscalerIndex.value_or_default() < 0 ||
+                Config::Instance()->FfxUpscalerIndex.value_or_default() >=
+                    State::Instance().ffxUpscalerVersionIds.size())
+                Config::Instance()->FfxUpscalerIndex.set_volatile_value(0);
+
+            ov.header.type = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
+            ov.versionId =
+                State::Instance().ffxUpscalerVersionIds[Config::Instance()->FfxUpscalerIndex.value_or_default()];
+            backendDesc.header.pNext = &ov.header;
+        }
 
         LOG_DEBUG("_createContext!");
         auto ret = FfxApiProxy::VULKAN_CreateContext()(&_context, &_contextDesc.header, NULL);
@@ -185,9 +190,17 @@ bool FFXFeatureVk::InitFFX(const NVSDK_NGX_Parameter* InParameters)
         }
     }
 
-    auto version = State::Instance().ffxUpscalerVersionNames[Config::Instance()->FfxUpscalerIndex.value_or_default()];
     _name = "FSR";
-    parse_version(version);
+    if (!State::Instance().ffxUpscalerVersionNames.empty())
+    {
+        auto version =
+            State::Instance().ffxUpscalerVersionNames[Config::Instance()->FfxUpscalerIndex.value_or_default()];
+        parse_version(version);
+    }
+    else
+    {
+        _version = FfxApiProxy::VersionVk();
+    }
 
     SetInit(true);
 

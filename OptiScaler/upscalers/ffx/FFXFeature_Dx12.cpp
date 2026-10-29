@@ -653,15 +653,19 @@ bool FFXFeatureDx12::InitFFX(const NVSDK_NGX_Parameter* InParameters)
 
         _contextDesc.header.pNext = &backendDesc.header;
 
-        if (Config::Instance()->FfxUpscalerIndex.value_or_default() < 0 ||
-            Config::Instance()->FfxUpscalerIndex.value_or_default() >= State::Instance().ffxUpscalerVersionIds.size())
-            Config::Instance()->FfxUpscalerIndex.set_volatile_value(0);
-
         ffxOverrideVersion override = { 0 };
-        override.header.type = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
-        override.versionId =
-            State::Instance().ffxUpscalerVersionIds[Config::Instance()->FfxUpscalerIndex.value_or_default()];
-        backendDesc.header.pNext = &override.header;
+        if (!State::Instance().ffxUpscalerVersionIds.empty())
+        {
+            if (Config::Instance()->FfxUpscalerIndex.value_or_default() < 0 ||
+                Config::Instance()->FfxUpscalerIndex.value_or_default() >=
+                    State::Instance().ffxUpscalerVersionIds.size())
+                Config::Instance()->FfxUpscalerIndex.set_volatile_value(0);
+
+            override.header.type = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
+            override.versionId =
+                State::Instance().ffxUpscalerVersionIds[Config::Instance()->FfxUpscalerIndex.value_or_default()];
+            backendDesc.header.pNext = &override.header;
+        }
 
         LOG_DEBUG("_createContext!");
 
@@ -677,10 +681,17 @@ bool FFXFeatureDx12::InitFFX(const NVSDK_NGX_Parameter* InParameters)
             }
         }
 
-        auto version =
-            State::Instance().ffxUpscalerVersionNames[Config::Instance()->FfxUpscalerIndex.value_or_default()];
         _name = "FSR";
-        parse_version(version);
+        if (!State::Instance().ffxUpscalerVersionNames.empty())
+        {
+            auto version =
+                State::Instance().ffxUpscalerVersionNames[Config::Instance()->FfxUpscalerIndex.value_or_default()];
+            parse_version(version);
+        }
+        else
+        {
+            _version = FfxApiProxy::VersionDx12_SR();
+        }
     }
 
     SetInit(true);

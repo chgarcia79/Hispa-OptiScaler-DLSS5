@@ -1155,21 +1155,28 @@ void FSRFG_Dx12::CreateContext(ID3D12Device* device, FG_Constants& fgConstants)
     }
 
     {
-        // Currently 0 is non-ML FG and 1 is ML FG
-        if (Config::Instance()->FfxFGIndex.value_or_default() < 0 ||
-            Config::Instance()->FfxFGIndex.value_or_default() >= State::Instance().ffxFGVersionIds.size())
-            Config::Instance()->FfxFGIndex.set_volatile_value(0);
-
+        // Currently 0 is non-ML FG (3.1.x) and 1 is ML FG (4.0.x)
         ffxOverrideVersion override = { 0 };
-        override.header.type = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
-        override.versionId = State::Instance().ffxFGVersionIds[Config::Instance()->FfxFGIndex.value_or_default()];
+        if (!State::Instance().ffxFGVersionIds.empty())
+        {
+            if (Config::Instance()->FfxFGIndex.value_or_default() < 0 ||
+                Config::Instance()->FfxFGIndex.value_or_default() >= State::Instance().ffxFGVersionIds.size())
+                Config::Instance()->FfxFGIndex.set_volatile_value(0);
 
-        if (_linkedHudlesDesc)
-            hudlessDesc.header.pNext = &override.header;
+            override.header.type = FFX_API_DESC_TYPE_OVERRIDE_VERSION;
+            override.versionId = State::Instance().ffxFGVersionIds[Config::Instance()->FfxFGIndex.value_or_default()];
+
+            if (_linkedHudlesDesc)
+                hudlessDesc.header.pNext = &override.header;
+            else
+                backendDesc.header.pNext = &override.header;
+        }
+
+        if (!State::Instance().ffxFGVersionNames.empty())
+            _version.parse_version(
+                State::Instance().ffxFGVersionNames[Config::Instance()->FfxFGIndex.value_or_default()]);
         else
-            backendDesc.header.pNext = &override.header;
-
-        _version.parse_version(State::Instance().ffxFGVersionNames[Config::Instance()->FfxFGIndex.value_or_default()]);
+            _version = FfxApiProxy::VersionDx12_FG();
 
         ScopedSkipSpoofingGlobal skipSpoofingGlobal {};
         ScopedSkipHeapCapture skipHeapCapture {};
