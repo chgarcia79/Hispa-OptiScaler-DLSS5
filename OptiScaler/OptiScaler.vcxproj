@@ -611,7 +611,14 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="shaders\depth_resample\DR_Dx12.h" />
     <ClInclude Include="shaders\depth_resample\precompile\dr_Shader.h" />
     <ClInclude Include="dlssnr\DlssNr_DriverGate.h" />
+    <ClInclude Include="dlssnr\DlssNr_GameNr.h" />
+    <ClInclude Include="dlssnr\DlssNr_GameNrLog.h" />
+    <ClInclude Include="dlssnr\DlssNr_GameNrRuntime.h" />
+    <ClInclude Include="dlssnr\DlssNr_OwnNr.h" />
     <ClInclude Include="dlssnr\DlssNr_VkExtensions.h" />
+    <ClInclude Include="hooks\FgGpuTimeSource.h" />
+    <ClInclude Include="hooks\StreamlineLogPrefs.h" />
+    <ClInclude Include="misc\GameRootSearch.h" />
     <ClInclude Include="State.h" />
     <ClInclude Include="upscalers\xess\XeSSFeature_Dx11on12.h" />
     <ClInclude Include="upscalers\xess\XeSSFeature_Vk.h" />
@@ -853,6 +860,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClCompile Include="dlssnr\DlssNr_ExposureScan.cpp" />
     <ClCompile Include="dlssnr\DlssNr_Proxy.cpp" />
     <ClCompile Include="dlssnr\DlssNr_Menu.cpp" />
+    <ClCompile Include="dlssnr\DlssNr_GameNrRuntime.cpp" />
     <ClCompile Include="inputs\NVNGX_DLSS_Dx12.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="inputs\NVNGX_DLSS_Vk.cpp" />

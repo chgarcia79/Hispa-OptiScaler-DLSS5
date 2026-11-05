@@ -6,6 +6,7 @@
 #include <cfloat>
 
 #include <dlssnr/DlssNr.h>
+#include <dlssnr/DlssNr_OwnNr.h>
 
 #include "input/input_system.h"
 
@@ -1241,14 +1242,24 @@ void MenuCommon::HandleMenuShortcuts(RenderMenuContext& ctx)
         if (inputDlssNr)
         {
             inputDlssNr = false;
-            config->DlssNrEnabled = !config->DlssNrEnabled.value_or_default();
-            LOG_DEBUG("Neural Rendering toggle key pressed, setting DlssNrEnabled to {}",
-                      config->DlssNrEnabled.value_or_default());
+            if (DlssNr::IsGameNativeNrRunning())
+            {
+                ImGuiToast toast { ImGuiToastType::Warning, 2500 };
+                toast.setTitle("DLSS Neural Rendering");
+                toast.setContent(DlssNr::GameNrActiveMessage);
+                ImGui::InsertNotification(toast);
+            }
+            else
+            {
+                config->DlssNrEnabled = !config->DlssNrEnabled.value_or_default();
+                LOG_DEBUG("Neural Rendering toggle key pressed, setting DlssNrEnabled to {}",
+                          config->DlssNrEnabled.value_or_default());
 
-            ImGuiToast toast { ImGuiToastType::Info, 2000 };
-            toast.setTitle("DLSS Neural Rendering");
-            toast.setContent(config->DlssNrEnabled.value_or_default() ? "On" : "Off");
-            ImGui::InsertNotification(toast);
+                ImGuiToast toast { ImGuiToastType::Info, 2000 };
+                toast.setTitle("DLSS Neural Rendering");
+                toast.setContent(config->DlssNrEnabled.value_or_default() ? "On" : "Off");
+                ImGui::InsertNotification(toast);
+            }
         }
 
         if (inputFpsCycle && config->ShowFps.value_or_default())

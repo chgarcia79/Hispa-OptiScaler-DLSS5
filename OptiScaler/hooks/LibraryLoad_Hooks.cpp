@@ -27,6 +27,7 @@
 #include <hooks/Vulkan_Hooks.h>
 #include <hooks/Gdi32_Hooks.h>
 #include <hooks/Streamline_Hooks.h>
+#include <hooks/StreamlineLogPrefs.h>
 
 #include <fsr4/FSR4ModelSelection.h>
 #include <fsr4/FSR4Upgrade.h>
@@ -955,6 +956,20 @@ HMODULE LibraryLoadHooks::LoadNvngxDlss(std::wstring originalPath)
 //
 //     return nullptr;
 // }
+
+void LibraryLoadHooks::OnOriginalLoad(std::wstring_view name, HMODULE module)
+{
+    if (!StreamlineLogPrefs::ShouldNotifyInterposerLoad(!StreamlineHooks::isInterposerHooked(),
+                                                        Config::Instance()->CaptureStreamlineLog.value_or_default(),
+                                                        name, module != nullptr))
+        return;
+
+    if (module == State::Instance().optiSlInterposer)
+        return;
+
+    LOG_DEBUG("Streamline log capture: sl.interposer.dll loaded by original loader");
+    StreamlineHooks::hookInterposerLogOnly(module);
+}
 
 void LibraryLoadHooks::CheckModulesInMemory()
 {

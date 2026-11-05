@@ -2,6 +2,7 @@
 #include "IFeature_Dx11wDx12.h"
 
 #include <dlssnr/DlssNr.h>
+#include <dlssnr/DlssNr_OwnNr.h>
 
 #include <Config.h>
 
@@ -473,7 +474,7 @@ bool IFeature_Dx11wDx12::Evaluate(ID3D11DeviceContext* InDeviceContext, NVSDK_NG
 
         }
 
-        if (dx12EvalResult && Config::Instance()->DlssNrEnabled.value_or_default())
+        if (dx12EvalResult && DlssNr::OwnNrEnabled())
         {
             DlssNr::EvaluateAfterUpscale(cmdList, InParameters, Dx12CommandQueue);
 

@@ -263,6 +263,27 @@
     <ClInclude Include="dlssnr\DlssNr_DriverGate.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_GameNr.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_GameNrLog.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_GameNrRuntime.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_OwnNr.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="hooks\FgGpuTimeSource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="hooks\StreamlineLogPrefs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="misc\GameRootSearch.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="include\imgui\imgui.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1569,6 +1590,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="shaders\magnifier\Magnifier_Vk.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="dlssnr\DlssNr_GameNrRuntime.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>

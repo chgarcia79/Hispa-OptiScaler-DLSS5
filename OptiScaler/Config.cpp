@@ -332,6 +332,8 @@ bool Config::Reload(std::filesystem::path iniPath)
 
             // --- DLSS 5 Neural Rendering (OptiScaler/dlssnr) ---
             DlssNrEnabled.set_from_config(readBool("DlssNr", "Enabled"));
+            DlssNrUnlockGameNR.set_from_config(readBool("DlssNr", "UnlockGameNR"));
+            DlssNrPreload.set_from_config(readBool("DlssNr", "Preload"));
             DlssNrToggleKey.set_from_config(readInt("DlssNr", "ToggleKey"));
             DlssNrTransferStrength.set_from_config(readFloat("DlssNr", "TransferStrength"));
             DlssNrColourStrength.set_from_config(readFloat("DlssNr", "ColourStrength"));
@@ -595,6 +597,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             LogSingleFile.set_from_config(readBool("Log", "SingleFile"));
             LogAsync.set_from_config(readBool("Log", "LogAsync"));
             LogAsyncThreads.set_from_config(readInt("Log", "LogAsyncThreads"));
+            CaptureStreamlineLog.set_from_config(readBool("Log", "CaptureStreamlineLog"));
 
             {
                 auto setting = readString("Log", "LogFileName", false);
@@ -1338,6 +1341,9 @@ bool Config::SaveIni()
 
     // --- DLSS 5 Neural Rendering (OptiScaler/dlssnr) ---
     ini.SetValue("DlssNr", "Enabled", GetBoolValue(Instance()->DlssNrEnabled.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "UnlockGameNR",
+                 GetBoolValue(Instance()->DlssNrUnlockGameNR.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Preload", GetBoolValue(Instance()->DlssNrPreload.value_for_config()).c_str());
     {
         auto toggle = Instance()->DlssNrToggleKey.value_for_config();
         ini.SetValue("DlssNr", "ToggleKey", GetIntValue(toggle, toggle > 0).c_str());
@@ -1766,6 +1772,8 @@ bool Config::SaveIni()
                      wstring_to_string(Instance()->LogFileName.value_for_config_or(L"auto")).c_str());
         ini.SetValue("Log", "LogAsync", GetBoolValue(Instance()->LogAsync.value_for_config()).c_str());
         ini.SetValue("Log", "LogAsyncThreads", GetIntValue(Instance()->LogAsyncThreads.value_for_config()).c_str());
+        ini.SetValue("Log", "CaptureStreamlineLog",
+                     GetBoolValue(Instance()->CaptureStreamlineLog.value_for_config()).c_str());
     }
 
     // NvApi

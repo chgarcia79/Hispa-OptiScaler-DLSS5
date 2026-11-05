@@ -9,6 +9,7 @@
 #include <dlssnr/DlssNr_DriverGate.h>
 #include <dlssnr/DlssNr_Proxy.h>
 #include <dlssnr/DlssNr_ExposureScan.h>
+#include <dlssnr/DlssNr_OwnNr.h>
 
 #include "DlssNr_Dx12.h"
 
@@ -2075,7 +2076,11 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             g_nr.reason = "the model would not initialise";
             const auto initResult = (unsigned int) (g_nr.lastInit != nullptr ? *g_nr.lastInit : 0);
             const auto createResult = (unsigned int) (g_nr.lastCreate != nullptr ? *g_nr.lastCreate : 0);
-
+            if (DlssNr::DriverGate::RefusesDirectRuntime(initResult, ::State::Instance().isRunningOnLinux) ||
+                DlssNr::DriverGate::RefusesDirectRuntime(createResult, ::State::Instance().isRunningOnLinux))
+            {
+                g_nr.reason = DlssNr::DriverGate::UnsupportedDriverReason;
+            }
             LOG_ERROR("DLSS-NR create failed: init 0x{:X} ({}), create 0x{:X} ({})", initResult,
                       NgxResultName(initResult), createResult, NgxResultName(createResult));
             device->Release();
@@ -2978,7 +2983,8 @@ void ApplyResidualAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Par
 
     const auto& cfg = *Config::Instance();
     const float strength = cfg.DlssNrTransferStrength.value_or_default();
-    if (!cfg.DlssNrApplyModel.value_or_default() || !std::isfinite(strength) || strength <= 0.0f)
+    if (!DlssNr::OwnNrEnabled() || !cfg.DlssNrApplyModel.value_or_default() || !std::isfinite(strength) ||
+        strength <= 0.0f)
     {
         g_nr.residualHistoryPrimed = false;
         return;
@@ -3041,7 +3047,7 @@ void ApplyResidualAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Par
 void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
                           ID3D12CommandQueue* timingQueue)
 {
-    if (!Config::Instance()->DlssNrEnabled.value_or_default())
+    if (!DlssNr::OwnNrEnabled())
     {
         ReportSkipOnce("it is switched off");
         return;
@@ -3229,7 +3235,7 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
     }
 
     const bool useDenoiseFirst = cfg.DlssNrDenoiseFirst.value_or_default();
-    if (!cfg.DlssNrEnabled.value_or_default() || (!cfg.DlssNrPreSR.value_or_default() && !useDenoiseFirst))
+    if (!DlssNr::OwnNrEnabled() || (!cfg.DlssNrPreSR.value_or_default() && !useDenoiseFirst))
         return;
 
     if (cmdList == nullptr || params == nullptr)
