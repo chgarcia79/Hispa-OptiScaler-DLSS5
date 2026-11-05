@@ -212,6 +212,8 @@ struct alignas(256) DlssNrConstants
     float HaloSuppression;
     float HaloBrightSuppression;
     float HaloRadius;
+    uint32_t ResidualEdgeGuiding;
+    float ResidualEdgeStrength;
 };
 
 static_assert(sizeof(DlssNrConstants) == 256, "DlssNrConstants must remain 256-byte aligned");

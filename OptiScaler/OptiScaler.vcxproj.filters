@@ -272,7 +272,19 @@
     <ClInclude Include="dlssnr\DlssNr_GameNrRuntime.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_MenuStabilitySection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="dlssnr\DlssNr_OwnNr.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\dlssnr\DlssNr_Contexts.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\dlssnr\DlssNr_Retire.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\dlssnr\DlssNr_SurfaceFormats.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="hooks\FgGpuTimeSource.h">

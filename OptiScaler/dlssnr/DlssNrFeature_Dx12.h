@@ -31,15 +31,31 @@ namespace DlssNr
 // State::currentCommandQueue only exists once a D3D12 swapchain has been created, which a Vulkan
 // game never does -- so without this the pass runs and never reports what it cost.
 void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
-                          ID3D12CommandQueue* timingQueue = nullptr);
+                          ID3D12CommandQueue* timingQueue = nullptr, uint32_t gameFeature = 0);
 
 // Pre-SR Multipass: evalúa el modelo neural a resolución interna previa al reescalado
 void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
-                           ID3D12CommandQueue* timingQueue = nullptr);
+                           ID3D12CommandQueue* timingQueue = nullptr, uint32_t gameFeature = 0);
 
 // ResidualAcrossRR: reinyecta en Post-SR el delta neuronal reproyectado capturado antes de Ray Reconstruction
-void ApplyResidualAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params);
+void ApplyResidualAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
+                               uint32_t gameFeature = 0);
 
+void ReleaseGameFeature(uint32_t gameFeature);
+void NotifyQueueSubmission(ID3D12CommandQueue* queue, UINT count, ID3D12CommandList* const* lists);
+
+struct StabilityTelemetry
+{
+    uint32_t mainWidth = 0;
+    uint32_t mainHeight = 0;
+    uint32_t activeFeatures = 0;
+    uint32_t activeSecondary = 0;
+    uint64_t skippedSecondaryEvaluates = 0;
+    uint64_t absorbedFormatFlips = 0;
+    bool stoodDownForRebuilds = false;
+};
+
+StabilityTelemetry GetStabilityTelemetry();
 
 
 // Frame generation titles tag their UI layer through Streamline; a copy of it makes the HUD mask

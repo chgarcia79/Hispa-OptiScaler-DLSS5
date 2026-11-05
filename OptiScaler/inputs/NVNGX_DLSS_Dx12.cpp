@@ -856,9 +856,12 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_ReleaseFeature(NVSDK_NGX_Handle* 
     DlssNr::ExposureScan::ReleaseTrackedResources();
 
     auto handleId = InHandle->Id;
+    if (!wasDriverGameNr)
+        DlssNr::ReleaseGameFeature(handleId);
 
     // Clean up framegen
     if (!wasDriverGameNr && State::Instance().currentFG != nullptr && State::Instance().activeFgInput == FGInput::Upscaler)
+    {
         State::Instance().fgChanged = true;
         State::Instance().currentFG->DestroyFGContext();
         State::Instance().clearCapturedHudlesses = true;
@@ -1268,7 +1271,7 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
     // Pre-SR Multipass: evaluación del modelo neural a resolución interna previa al reescalado
     if (InCmdList != nullptr && InParameters != nullptr && feature != NVSDK_NGX_Feature_FrameGeneration &&
         feature != (NVSDK_NGX_Feature) DlssNr::GameNr::FeatureId)
-        DlssNr::EvaluateBeforeUpscale(InCmdList, InParameters);
+        DlssNr::EvaluateBeforeUpscale(InCmdList, InParameters, nullptr, handleId);
 
     // Native DLSS passthrough
     if (handleId < DLSS_MOD_ID_OFFSET)
@@ -1290,9 +1293,9 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
                 feature != (NVSDK_NGX_Feature) DlssNr::GameNr::FeatureId)
             {
                 if (!cfg.DlssNrPreSR.value_or_default() && !cfg.DlssNrDenoiseFirst.value_or_default())
-                    DlssNr::EvaluateAfterUpscale(InCmdList, InParameters);
+                    DlssNr::EvaluateAfterUpscale(InCmdList, InParameters, nullptr, handleId);
                 else
-                    DlssNr::ApplyResidualAfterUpscale(InCmdList, InParameters);
+                    DlssNr::ApplyResidualAfterUpscale(InCmdList, InParameters, handleId);
             }
 
             return result;
@@ -1323,9 +1326,9 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
         feature != (NVSDK_NGX_Feature) DlssNr::GameNr::FeatureId)
     {
         if (!cfg.DlssNrPreSR.value_or_default() && !cfg.DlssNrDenoiseFirst.value_or_default())
-            DlssNr::EvaluateAfterUpscale(InCmdList, InParameters);
+            DlssNr::EvaluateAfterUpscale(InCmdList, InParameters, nullptr, handleId);
         else
-            DlssNr::ApplyResidualAfterUpscale(InCmdList, InParameters);
+            DlssNr::ApplyResidualAfterUpscale(InCmdList, InParameters, handleId);
     }
 
     return optiResult;

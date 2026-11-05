@@ -6138,6 +6138,12 @@ void MenuCommon::RenderLoggingSettings(RenderMenuContext& ctx)
             PrepareLogger();
         }
 
+        if (bool captureSl = config->CaptureStreamlineLog.value_or_default();
+            ImGui::Checkbox("Capturar log interno de Streamline en OptiScaler.log", &captureSl))
+        {
+            config->CaptureStreamlineLog = captureSl;
+        }
+        HelpMarker("Redirige de forma no intrusiva los mensajes diagnosticos de sl.interposer.dll hacia OptiScaler.log.");
         const char* logLevels[] = { "Trace", "Debug", "Information", "Warning", "Error" };
         const char* selectedLevel = logLevels[config->LogLevel.value_or_default()];
 

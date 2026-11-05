@@ -334,6 +334,11 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrEnabled.set_from_config(readBool("DlssNr", "Enabled"));
             DlssNrUnlockGameNR.set_from_config(readBool("DlssNr", "UnlockGameNR"));
             DlssNrPreload.set_from_config(readBool("DlssNr", "Preload"));
+            DlssNrKeepModelOnFormatFlip.set_from_config(readBool("DlssNr", "KeepModelOnFormatFlip"));
+            DlssNrGpuSafeRetire.set_from_config(readBool("DlssNr", "GpuSafeRetire"));
+            DlssNrIsolateMainFeature.set_from_config(readBool("DlssNr", "IsolateMainFeature"));
+            DlssNrResidualEdgeGuiding.set_from_config(readBool("DlssNr", "ResidualEdgeGuiding"));
+            DlssNrResidualEdgeStrength.set_from_config(readFloat("DlssNr", "ResidualEdgeStrength"));
             DlssNrToggleKey.set_from_config(readInt("DlssNr", "ToggleKey"));
             DlssNrTransferStrength.set_from_config(readFloat("DlssNr", "TransferStrength"));
             DlssNrColourStrength.set_from_config(readFloat("DlssNr", "ColourStrength"));
@@ -1344,6 +1349,16 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "UnlockGameNR",
                  GetBoolValue(Instance()->DlssNrUnlockGameNR.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Preload", GetBoolValue(Instance()->DlssNrPreload.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "KeepModelOnFormatFlip",
+                 GetBoolValue(Instance()->DlssNrKeepModelOnFormatFlip.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "GpuSafeRetire",
+                 GetBoolValue(Instance()->DlssNrGpuSafeRetire.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "IsolateMainFeature",
+                 GetBoolValue(Instance()->DlssNrIsolateMainFeature.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "ResidualEdgeGuiding",
+                 GetBoolValue(Instance()->DlssNrResidualEdgeGuiding.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "ResidualEdgeStrength",
+                 GetFloatValue(Instance()->DlssNrResidualEdgeStrength.value_for_config()).c_str());
     {
         auto toggle = Instance()->DlssNrToggleKey.value_for_config();
         ini.SetValue("DlssNr", "ToggleKey", GetIntValue(toggle, toggle > 0).c_str());

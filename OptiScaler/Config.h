@@ -260,6 +260,11 @@ class Config
     CustomOptional<bool> DlssNrEnabled { false };
     CustomOptional<bool> DlssNrUnlockGameNR { true };
     CustomOptional<bool> DlssNrPreload { false };
+    CustomOptional<bool> DlssNrKeepModelOnFormatFlip { true };
+    CustomOptional<bool> DlssNrGpuSafeRetire { true };
+    CustomOptional<bool> DlssNrIsolateMainFeature { true };
+    CustomOptional<bool> DlssNrResidualEdgeGuiding { true };
+    CustomOptional<float> DlssNrResidualEdgeStrength { 1.0f };
     // Toggles the pass in game. Unbound by default -- a key that does something unexpected is worse
     // than one that does nothing.
     CustomOptional<int> DlssNrToggleKey { UnboundKey };

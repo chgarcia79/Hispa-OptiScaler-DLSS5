@@ -614,8 +614,12 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="dlssnr\DlssNr_GameNr.h" />
     <ClInclude Include="dlssnr\DlssNr_GameNrLog.h" />
     <ClInclude Include="dlssnr\DlssNr_GameNrRuntime.h" />
+    <ClInclude Include="dlssnr\DlssNr_MenuStabilitySection.h" />
     <ClInclude Include="dlssnr\DlssNr_OwnNr.h" />
     <ClInclude Include="dlssnr\DlssNr_VkExtensions.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_Contexts.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_Retire.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_SurfaceFormats.h" />
     <ClInclude Include="hooks\FgGpuTimeSource.h" />
     <ClInclude Include="hooks\StreamlineLogPrefs.h" />
     <ClInclude Include="misc\GameRootSearch.h" />
