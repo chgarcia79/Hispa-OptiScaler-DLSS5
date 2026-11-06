@@ -161,6 +161,12 @@
     <ClInclude Include="hooks\Reflex_Hooks.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="nvapi\NvApiGpuPrioritization.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="menu\Menu_GpuPrioritization.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="nvapi\NvApiHooks.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1215,6 +1221,9 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="nvapi\fakenvapi.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="nvapi\NvApiGpuPrioritization.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="nvapi\NvApiHooks.cpp">

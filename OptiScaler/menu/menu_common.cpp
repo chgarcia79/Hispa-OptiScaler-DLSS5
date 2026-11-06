@@ -7,6 +7,7 @@
 
 #include <dlssnr/DlssNr.h>
 #include <dlssnr/DlssNr_OwnNr.h>
+#include "Menu_GpuPrioritization.h"
 
 #include "input/input_system.h"
 
@@ -1283,6 +1284,7 @@ void MenuCommon::HandleMenuShortcuts(RenderMenuContext& ctx)
                 ApplyThemeStyle();
 
                 refreshRate = Util::GetActiveRefreshRate(_handle);
+                NvApiGpuPrioritization::RefreshLiveState();
 
                 auto optiPath = std::filesystem::path(Config::Instance()->MainDllPath.value());
                 state.artursFgFileAvailable = enablerExists.Get(optiPath / L"dlss-enabler-headless.dll");
@@ -7084,6 +7086,7 @@ void MenuCommon::RenderMainMenuTable(RenderMenuContext& ctx)
         // Right column: image quality, initialization, advanced options, appearance, overlay and input settings.
         RenderActiveImageSettings(ctx);
         DlssNr::RenderMenu(ctx.config, ctx.menuResScale);
+        MenuGpuPrioritization::RenderSection(ctx.menuResScale);
         RenderMagnifierSettings(ctx);
         RenderQuirksSettings(ctx);
         RenderAdvancedSettings(ctx);

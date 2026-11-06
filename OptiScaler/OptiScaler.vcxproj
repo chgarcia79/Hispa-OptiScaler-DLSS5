@@ -547,6 +547,8 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="hooks\D3D11_Hooks.h" />
     <ClInclude Include="hooks\Vulkan_Hooks.h" />
     <ClInclude Include="nvapi\NvApiHooks.h" />
+    <ClInclude Include="nvapi\NvApiGpuPrioritization.h" />
+    <ClInclude Include="menu\Menu_GpuPrioritization.h" />
     <ClInclude Include="nvapi\NvApiTypes.h" />
     <ClInclude Include="nvapi\external\nvapi.h" />
     <ClInclude Include="upscalers\fsr2_212\FSR2Feature_212.h" />
@@ -775,6 +777,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClCompile Include="misc\FrameLimit.cpp" />
     <ClCompile Include="nvapi\fakenvapi.cpp" />
     <ClCompile Include="nvapi\NvApiHooks.cpp" />
+    <ClCompile Include="nvapi\NvApiGpuPrioritization.cpp" />
     <ClCompile Include="nvapi\NvApiTypes.cpp" />
     <ClCompile Include="hooks\Reflex_Hooks.cpp" />
     <ClCompile Include="resource_tracking\ResTrack_dx12.cpp" />
