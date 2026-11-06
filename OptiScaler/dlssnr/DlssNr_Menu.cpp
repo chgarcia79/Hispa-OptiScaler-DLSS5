@@ -1123,6 +1123,7 @@ void RenderMenu(Config* config, float menuResScale)
                 config->DlssNrResidualEdgeGuiding = true;
                 config->DlssNrResidualEdgeStrength = 1.00f;
             }
+        }
         HelpMarker("Selector rapido de perfiles visuales (0..7):\n"
                    "- Default: Valores neutros originales.\n"
                    "- Anti-Sombra Movil: Elimina hervidero de sombra en caras y paisajes.\n"
