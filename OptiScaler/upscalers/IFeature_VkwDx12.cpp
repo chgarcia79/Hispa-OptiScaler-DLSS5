@@ -4,6 +4,7 @@
 
 #include <Config.h>
 #include <dlssnr/DlssNr.h>
+#include <dlssnr/DlssNr_OwnNr.h>
 #include <SysUtils.h>
 
 #include <proxies/DXGI_Proxy.h>
@@ -2169,7 +2170,7 @@ bool IFeature_VkwDx12::Evaluate(VkCommandBuffer InCmdBuffer, NVSDK_NGX_Parameter
                      dx12EvalResult, Config::Instance()->DlssNrEnabled.value_or_default());
         }
 
-        if (dx12EvalResult && Config::Instance()->DlssNrEnabled.value_or_default())
+        if (dx12EvalResult && DlssNr::OwnNrEnabled())
             DlssNr::EvaluateAfterUpscale(cmdList, InParameters, Dx12CommandQueue);
 
     } while (false);

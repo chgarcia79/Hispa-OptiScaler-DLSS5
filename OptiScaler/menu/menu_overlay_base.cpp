@@ -5,6 +5,7 @@
 #include <Config.h>
 #include <Logger.h>
 #include <resource.h>
+#include <nvapi/NvApiGpuPrioritization.h>
 
 // #include "imgui/imgui.h"
 // #include "imgui/imgui_impl_win32.h"
@@ -28,6 +29,7 @@ void MenuOverlayBase::Init(HWND InHandle, bool isUWP)
 
     LOG_FUNC();
     MenuCommon::Init(InHandle, isUWP);
+    NvApiGpuPrioritization::RefreshLiveState();
 }
 
 bool MenuOverlayBase::RenderMenu()

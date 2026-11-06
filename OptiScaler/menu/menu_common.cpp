@@ -6,6 +6,8 @@
 #include <cfloat>
 
 #include <dlssnr/DlssNr.h>
+#include <dlssnr/DlssNr_OwnNr.h>
+#include "Menu_GpuPrioritization.h"
 
 #include "input/input_system.h"
 
@@ -1241,14 +1243,24 @@ void MenuCommon::HandleMenuShortcuts(RenderMenuContext& ctx)
         if (inputDlssNr)
         {
             inputDlssNr = false;
-            config->DlssNrEnabled = !config->DlssNrEnabled.value_or_default();
-            LOG_DEBUG("Neural Rendering toggle key pressed, setting DlssNrEnabled to {}",
-                      config->DlssNrEnabled.value_or_default());
+            if (DlssNr::IsGameNativeNrRunning())
+            {
+                ImGuiToast toast { ImGuiToastType::Warning, 2500 };
+                toast.setTitle("DLSS Neural Rendering");
+                toast.setContent(DlssNr::GameNrActiveMessage);
+                ImGui::InsertNotification(toast);
+            }
+            else
+            {
+                config->DlssNrEnabled = !config->DlssNrEnabled.value_or_default();
+                LOG_DEBUG("Neural Rendering toggle key pressed, setting DlssNrEnabled to {}",
+                          config->DlssNrEnabled.value_or_default());
 
-            ImGuiToast toast { ImGuiToastType::Info, 2000 };
-            toast.setTitle("DLSS Neural Rendering");
-            toast.setContent(config->DlssNrEnabled.value_or_default() ? "On" : "Off");
-            ImGui::InsertNotification(toast);
+                ImGuiToast toast { ImGuiToastType::Info, 2000 };
+                toast.setTitle("DLSS Neural Rendering");
+                toast.setContent(config->DlssNrEnabled.value_or_default() ? "On" : "Off");
+                ImGui::InsertNotification(toast);
+            }
         }
 
         if (inputFpsCycle && config->ShowFps.value_or_default())
@@ -1272,6 +1284,7 @@ void MenuCommon::HandleMenuShortcuts(RenderMenuContext& ctx)
                 ApplyThemeStyle();
 
                 refreshRate = Util::GetActiveRefreshRate(_handle);
+                NvApiGpuPrioritization::RefreshLiveState();
 
                 auto optiPath = std::filesystem::path(Config::Instance()->MainDllPath.value());
                 state.artursFgFileAvailable = enablerExists.Get(optiPath / L"dlss-enabler-headless.dll");
@@ -6127,6 +6140,12 @@ void MenuCommon::RenderLoggingSettings(RenderMenuContext& ctx)
             PrepareLogger();
         }
 
+        if (bool captureSl = config->CaptureStreamlineLog.value_or_default();
+            ImGui::Checkbox("Capturar log interno de Streamline en OptiScaler.log", &captureSl))
+        {
+            config->CaptureStreamlineLog = captureSl;
+        }
+        HelpMarker("Redirige de forma no intrusiva los mensajes diagnosticos de sl.interposer.dll hacia OptiScaler.log.");
         const char* logLevels[] = { "Trace", "Debug", "Information", "Warning", "Error" };
         const char* selectedLevel = logLevels[config->LogLevel.value_or_default()];
 
@@ -7067,6 +7086,7 @@ void MenuCommon::RenderMainMenuTable(RenderMenuContext& ctx)
         // Right column: image quality, initialization, advanced options, appearance, overlay and input settings.
         RenderActiveImageSettings(ctx);
         DlssNr::RenderMenu(ctx.config, ctx.menuResScale);
+        MenuGpuPrioritization::RenderSection(ctx.menuResScale);
         RenderMagnifierSettings(ctx);
         RenderQuirksSettings(ctx);
         RenderAdvancedSettings(ctx);

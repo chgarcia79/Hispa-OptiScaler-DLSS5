@@ -16,6 +16,7 @@
 
 #include <misc/IdentifyGpu.h>
 #include <hooks/Reflex_Hooks.h>
+#include <hooks/FgGpuTimeSource.h>
 #include <menu/menu_overlay_dx.h>
 
 #include <d3d12.h>
@@ -1145,7 +1146,13 @@ HRESULT FGHooks::FGPresent(IDXGISwapChain* This, UINT SyncInterval, UINT Flags,
         {
             std::optional<double> upscalerTimeOpt {};
 
-            if (state.swapchainInteropApi == SwapchainInteropApi::Dx11wDx12 && state.currentD3D11Device != nullptr)
+            const auto featureKind = FgGpuTimeSource::Classify(currentFeature->Api() == API::DX11,
+                                                               currentFeature->Api() == API::DX12,
+                                                               currentFeature->IsWithDx12());
+            const auto gpuTimeSource = FgGpuTimeSource::Resolve(featureKind, state.currentD3D11Device != nullptr,
+                                                                state.currentCommandQueue != nullptr);
+
+            if (gpuTimeSource == FgGpuTimeSource::Source::D3D11Context)
             {
                 ID3D11DeviceContext* context = nullptr;
                 state.currentD3D11Device->GetImmediateContext(&context);
@@ -1155,7 +1162,7 @@ HRESULT FGHooks::FGPresent(IDXGISwapChain* This, UINT SyncInterval, UINT Flags,
 
                 context->Release();
             }
-            else if (state.swapchainInteropApi == SwapchainInteropApi::None && state.currentCommandQueue != nullptr)
+            else if (gpuTimeSource == FgGpuTimeSource::Source::D3D12Queue)
             {
                 if (upscalerTimeOpt = currentFeature->ReadUpscalerTime(state.currentCommandQueue);
                     upscalerTimeOpt.has_value())

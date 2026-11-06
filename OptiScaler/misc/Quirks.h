@@ -327,6 +327,7 @@ static const QuirkEntry quirkTable[] = {
     // Hudfix incompatible
     QUIRK_ENTRY("metroexodus.exe", GameQuirk::DisableDxgiSpoofing, GameQuirk::ForceBorderlessWhenUsingXeFG,
                 GameQuirk::ForceAutoExposure, GameQuirk::DisableHudfix),
+    QUIRK_ENTRY("metro.exe", GameQuirk::ForceBorderlessWhenUsingXeFG),
 
     // Star Wars: Outlaws
     // SL spoof enough to unlock everything DLSS, Hudfix incompatible

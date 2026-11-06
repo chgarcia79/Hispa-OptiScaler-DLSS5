@@ -18,6 +18,7 @@ class LibraryLoadHooks
     // static HMODULE LoadLibxessDx11(std::wstring originalPath);
     // static HMODULE LoadLibxess(std::wstring originalPath);
     static HMODULE LoadNvngxDlss(std::wstring originalPath);
+    static void OnOriginalLoad(std::wstring_view name, HMODULE module);
 
     static bool IsApiSetName(const std::wstring_view& n);
     static bool EndsWithInsensitive(std::wstring_view text, std::wstring_view suffix);

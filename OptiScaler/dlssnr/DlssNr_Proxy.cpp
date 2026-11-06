@@ -238,6 +238,11 @@ unsigned int Run(ID3D12GraphicsCommandList* cmdList, ID3D12Device* device, ID3D1
         {
             g_proxy.failed = true;
             g_proxy.feature = nullptr;
+            if (DriverGate::RefusesDirectRuntime((unsigned int) created, ::State::Instance().isRunningOnLinux))
+            {
+                LOG_ERROR("DLSS-NR (driver): {}; not trying the direct runtime", DriverGate::UnsupportedDriverReason);
+                return (unsigned int) NVSDK_NGX_Result_FAIL_OutOfDate;
+            }
             LOG_ERROR("DLSS-NR (proxy): CreateFeature(18) failed 0x{:X} -- falling back is the "
                       "caller's decision",
                       (unsigned int) created);

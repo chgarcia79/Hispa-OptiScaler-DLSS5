@@ -31,6 +31,22 @@ cbuffer Params : register(b0)
     float gExposurePreMul; // preExposure * trim, so the live white point is gExposurePreMul / exposure
     uint  gAntiStarvation; // 1 = activar clamp logarítmico contra halos negros y starvation
     float gExposureBalance;// balance de exposición multiplicador (default 1.0)
+    float gSkinDetail;
+    float gSkinColour;
+    float gEnvironmentDetail;
+    float gEnvironmentColour;
+    float gResidualBlend;
+    uint  gResidualHistoryValid;
+    uint  gResidualMotionBaseX;
+    uint  gResidualMotionBaseY;
+    float gResidualConfidenceSensitivity;
+    uint  gHistoryRejection;
+    float gHistoryExposureRatio;
+    float gHaloSuppression;
+    float gHaloBrightSuppression;
+    float gHaloRadius;
+    uint  gResidualEdgeGuiding;
+    float gResidualEdgeStrength;
 };
 
 // Bringing an impossible colour back into a possible one.
@@ -474,6 +490,46 @@ float3 CubeScaleResidual(float3 P, float3 T)
     return P + saturate(alpha) * d;
 }
 
+static const float kNvGuideRangeSigma = 0.015;
+
+// Joint-bilateral range-guided 2x2 residual upsampling (adapted from janblade PR #283).
+// Weights each reduced-resolution tap by proximity of its proxy colour to the full-resolution frame proxy
+// so neural edits synthesized on one side of a silhouette edge never smear across to the opposite side.
+float3 GuidedResidualEdit(float3 fullProxy, float2 uv, float3 fallbackEdit)
+{
+    uint gridW, gridH, srcW, srcH;
+    gModel.GetDimensions(gridW, gridH);
+    gSource.GetDimensions(srcW, srcH);
+    if (gridW == 0 || gridH == 0 || gridW != srcW || gridH != srcH)
+        return fallbackEdit;
+
+    const float2 grid = float2(gridW, gridH);
+    const float2 p = uv * grid - 0.5;
+    const int2 i0 = (int2) floor(p);
+    const float2 f = p - (float2) i0;
+    const float3 guide = gPassthrough != 0 ? saturate(fullProxy) : LinearToSrgb(fullProxy);
+    const float invRange2 = 1.0 / (kNvGuideRangeSigma * kNvGuideRangeSigma);
+
+    float3 guidedEdit = float3(0.0, 0.0, 0.0);
+    float weightSum = 0.0;
+
+    [unroll] for (int k = 0; k < 4; ++k)
+    {
+        const int2 tap = int2(k & 1, k >> 1);
+        const int2 tc = clamp(i0 + tap, int2(0, 0), int2((int) gridW - 1, (int) gridH - 1));
+        const float4 a4 = gSource.Load(int3(tc, 0));
+        const float4 b4 = gModel.Load(int3(tc, 0));
+        const float3 tapProxy = gPassthrough != 0 ? a4.rgb : SrgbToLinear(a4.rgb);
+        const float3 tapModel = gPassthrough != 0 ? b4.rgb : SrgbToLinear(b4.rgb);
+        const float3 colourDelta = all(isfinite(a4.rgb)) ? saturate(a4.rgb) - guide : 1e4;
+        const float rangeWeight = exp(-0.5 * dot(colourDelta, colourDelta) * (1.0 / 3.0) * invRange2) + 1e-6;
+        const float weight = (tap.x != 0 ? f.x : 1.0 - f.x) * (tap.y != 0 ? f.y : 1.0 - f.y) * rangeWeight;
+        guidedEdit += weight * (tapModel - tapProxy);
+        weightSum += weight;
+    }
+
+    return weightSum > 0.0 ? (guidedEdit / weightSum) : fallbackEdit;
+}
 [numthreads(8, 8, 1)]
 void CSMain(uint3 id : SV_DispatchThreadID)
 {
@@ -865,6 +921,11 @@ void CSMain(uint3 id : SV_DispatchThreadID)
                                                          : NeutwoEncode(original));
         proxy = fullProxy;
         proxyLuma = dot(proxy, kLuma);
+
+        [branch] if (gResidualEdgeGuiding != 0 && gResidualEdgeStrength > 0.0)
+        {
+            edit = lerp(edit, GuidedResidualEdit(fullProxy, cmpUv, edit), saturate(gResidualEdgeStrength));
+        }
 
         // At the same rate there is no residual to carry: the model's own picture is already at the
         // frame's resolution, and P + (m - p) collapses to m exactly.

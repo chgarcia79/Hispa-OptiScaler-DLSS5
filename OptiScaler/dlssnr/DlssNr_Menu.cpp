@@ -4,6 +4,7 @@
 #include "DlssNr.h"
 #include "DlssNr_DriverGate.h"
 #include "DlssNr_ExposureScan.h"
+#include "DlssNr_MenuStabilitySection.h"
 
 
 #include <Config.h>
@@ -93,8 +94,11 @@ void RenderMenu(Config* config, float menuResScale)
         ImGui::Spacing();
 
         const bool driverBlocked = DlssNr::DriverGate::Blocked();
+        const bool gameNativeRunning = DlssNr::GameNr::IsGameNativeNrRunning();
+        RenderGameNativeNrBanner();
+
         bool enabled = config->DlssNrEnabled.value_or_default();
-        ImGui::BeginDisabled(driverBlocked && !enabled);
+        ImGui::BeginDisabled((driverBlocked && !enabled) || gameNativeRunning);
         if (ImGui::Checkbox("Activar Neural Rendering (DLSS 5)", &enabled))
             config->DlssNrEnabled = enabled;
         ImGui::EndDisabled();
@@ -187,6 +191,8 @@ void RenderMenu(Config* config, float menuResScale)
                                   "\n\nCompare it against the frame time at the bottom of this window to"
                                   "\nsee what it is costing you.");
         }
+
+        RenderDx12StabilityTelemetry(vulkan);
 
         ImGui::Spacing();
         ImGui::PushItemWidth(220.0f * menuResScale);
@@ -1010,7 +1016,7 @@ void RenderMenu(Config* config, float menuResScale)
         }
         }
 
-        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev8 / Pre-SR, Denoise-First 1:1, Detail Reuse & RenoDX Quality)");
+        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev9 / Pre-SR, Denoise-First 1:1, Detail Reuse & RenoDX Quality)");
 
         static const char* qualityProfileNames[] = {
             "Default (Estandar)",
@@ -1041,6 +1047,8 @@ void RenderMenu(Config* config, float menuResScale)
                 config->DlssNrMaxRatio = 2.0f;
                 config->DlssNrSkinStructure = -1.0f;
                 config->DlssNrAntiStarvation = false;
+                config->DlssNrResidualEdgeGuiding = true;
+                config->DlssNrResidualEdgeStrength = 1.00f;
             }
             else if (qProfile == 1)
             {
@@ -1053,6 +1061,8 @@ void RenderMenu(Config* config, float menuResScale)
                 config->DlssNrMaxRatio = 1.50f;
                 config->DlssNrHistoryRejection = true;
                 config->DlssNrResidualConfidenceSensitivity = 0.25f;
+                config->DlssNrResidualEdgeGuiding = true;
+                config->DlssNrResidualEdgeStrength = 1.00f;
             }
             else if (qProfile == 2)
             {
@@ -1063,6 +1073,8 @@ void RenderMenu(Config* config, float menuResScale)
                 config->DlssNrHaloSuppression = 0.25f;
                 config->DlssNrHaloBrightSuppression = 0.15f;
                 config->DlssNrMaxRatio = 1.60f;
+                config->DlssNrResidualEdgeGuiding = true;
+                config->DlssNrResidualEdgeStrength = 0.85f;
             }
             else if (qProfile == 3)
             {
@@ -1074,6 +1086,8 @@ void RenderMenu(Config* config, float menuResScale)
                 config->DlssNrResidualConfidenceSensitivity = 0.35f;
                 config->DlssNrHaloSuppression = 0.20f;
                 config->DlssNrHaloBrightSuppression = 0.30f;
+                config->DlssNrResidualEdgeGuiding = true;
+                config->DlssNrResidualEdgeStrength = 1.00f;
             }
             else if (qProfile == 4)
             {
@@ -1084,6 +1098,8 @@ void RenderMenu(Config* config, float menuResScale)
                 config->DlssNrHaloBrightSuppression = 0.20f;
                 config->DlssNrHaloRadius = 2.0f;
                 config->DlssNrMaxRatio = 1.80f;
+                config->DlssNrResidualEdgeGuiding = true;
+                config->DlssNrResidualEdgeStrength = 1.00f;
             }
             else if (qProfile == 5)
             {
@@ -1094,6 +1110,8 @@ void RenderMenu(Config* config, float menuResScale)
                 config->DlssNrAntiStarvation = true;
                 config->DlssNrHaloSuppression = 0.25f;
                 config->DlssNrHaloBrightSuppression = 0.20f;
+                config->DlssNrResidualEdgeGuiding = true;
+                config->DlssNrResidualEdgeStrength = 1.00f;
             }
             else if (qProfile == 6)
             {
@@ -1102,8 +1120,9 @@ void RenderMenu(Config* config, float menuResScale)
                 config->DlssNrDetailReuseInterval = 2u;
                 config->DlssNrDetailReuseBlend = 0.85f;
                 config->DlssNrDetailReuseMotionReject = 0.50f;
+                config->DlssNrResidualEdgeGuiding = true;
+                config->DlssNrResidualEdgeStrength = 1.00f;
             }
-        }
         HelpMarker("Selector rapido de perfiles visuales (0..7):\n"
                    "- Default: Valores neutros originales.\n"
                    "- Anti-Sombra Movil: Elimina hervidero de sombra en caras y paisajes.\n"
@@ -1261,6 +1280,10 @@ void RenderMenu(Config* config, float menuResScale)
                        "alrededor de rostros y objetos de alto contraste sin alterar la iluminacion general.");
             ImGui::TreePop();
         }
+
+        // Estabilidad DX12, guiado de bordes (ResidualEdgeGuiding) y convivencia nativa (UnlockGameNR,
+        // KeepModelOnFormatFlip, IsolateMainFeature, GpuSafeRetire).
+        RenderDev9StabilitySection(config, HelpMarker);
 
         ImGui::SeparatorText("Comparativa A/B");
 

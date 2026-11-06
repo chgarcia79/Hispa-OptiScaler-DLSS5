@@ -9,6 +9,7 @@
 #include <dlssnr/DlssNr_DriverGate.h>
 #include <dlssnr/DlssNr_Proxy.h>
 #include <dlssnr/DlssNr_ExposureScan.h>
+#include <dlssnr/DlssNr_OwnNr.h>
 
 #include "DlssNr_Dx12.h"
 
@@ -20,9 +21,14 @@
 #include <hooks/D3D12_Hooks.h>
 #include <gpu_time/GpuTime_Dx12.h>
 
+#include <atomic>
 #include <mutex>
 #include <algorithm>
 #include <cstring>
+#include <resource_tracking/ResTrack_dx12.h>
+#include "DlssNr_SurfaceFormats.h"
+#include "DlssNr_Retire.h"
+#include "DlssNr_Contexts.h"
 #include "DlssNr_ResidualPair.h"
 #include "DlssNr_DenoiseFirst_Dx12.h"
 #include "DlssNr_DetailReuse_Dx12.h"
@@ -30,6 +36,11 @@
 #include "precompile/dlssnr_residual_Shader.h"
 #include "../output_scaling/OS_Dx12.h"
 
+static_assert(DXGI_FORMAT_R16G16B16A16_TYPELESS == 9 && DXGI_FORMAT_R16G16B16A16_FLOAT == 10 &&
+              DXGI_FORMAT_R11G11B10_FLOAT == 26 && DXGI_FORMAT_R8G8B8A8_TYPELESS == 27 &&
+              DXGI_FORMAT_R8G8B8A8_UNORM == 28 && DXGI_FORMAT_R8G8B8A8_UNORM_SRGB == 29 &&
+              DXGI_FORMAT_B8G8R8A8_UNORM == 87 && DXGI_FORMAT_B8G8R8A8_TYPELESS == 90 &&
+              DXGI_FORMAT_B8G8R8A8_UNORM_SRGB == 91);
 namespace
 {
 // NGX result codes, by name.
@@ -238,7 +249,10 @@ struct NrState
     // reconstructing it by inverting the tone curve, which is what turned every light in the frame into
     // a string of coloured cells.
     ID3D12Resource* hdrCopy = nullptr;
-
+    ID3D12Resource* hdrCopySpare = nullptr;
+    DXGI_FORMAT lastGameFormat = DXGI_FORMAT_UNKNOWN;
+    bool floatFlipSeen = false;
+    DlssNr::RebuildGuard rebuildGuard {};
     // The frame shrunk for the model, when it is working below full resolution.
     ID3D12Resource* colorSmall = nullptr;
     ID3D12Resource* depthSmall = nullptr;
@@ -689,10 +703,24 @@ struct NrRetired
 {
     void* feature = nullptr;
     ID3D12Resource* resource = nullptr;
-    int framesLeft = 32;
 };
 
-std::vector<NrRetired> g_nrRetired;
+DlssNr::Retire::FenceQueue<NrRetired> g_nrRetired;
+
+void WatchNrCommandList(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList)
+{
+    if (device == nullptr || cmdList == nullptr)
+        return;
+
+    static bool s_queueHookChecked = false;
+    if (!s_queueHookChecked)
+    {
+        ResTrack_Dx12::EnsureQueueHook(device);
+        s_queueHookChecked = true;
+    }
+
+    g_nrRetired.RecordCommandList(device, cmdList);
+}
 
 void ParkNrFeature(void*& feature)
 {
@@ -702,7 +730,7 @@ void ParkNrFeature(void*& feature)
     NrRetired r;
     r.feature = feature;
     feature = nullptr;
-    g_nrRetired.push_back(r);
+    g_nrRetired.Park(r);
 }
 
 void ParkNrResource(ID3D12Resource*& res)
@@ -713,27 +741,56 @@ void ParkNrResource(ID3D12Resource*& res)
     NrRetired r;
     r.resource = res;
     res = nullptr;
-    g_nrRetired.push_back(r);
+    g_nrRetired.Park(r);
 }
 
-void TickNrRetired()
+void KeepExactFormat(ID3D12Resource*& current, ID3D12Resource*& spare, DXGI_FORMAT format)
 {
-    for (size_t i = 0; i < g_nrRetired.size();)
+    if (current == nullptr)
+        return;
+
+    const D3D12_RESOURCE_DESC have = current->GetDesc();
+    if (have.Format == format)
+        return;
+
+    ID3D12Resource* old = current;
+    current = nullptr;
+
+    if (spare != nullptr)
     {
-        if (--g_nrRetired[i].framesLeft > 0)
-        {
-            ++i;
-            continue;
-        }
-
-        if (g_nrRetired[i].feature != nullptr && g_nr.release != nullptr)
-            g_nr.release(g_nrRetired[i].feature);
-
-        if (g_nrRetired[i].resource != nullptr)
-            g_nrRetired[i].resource->Release();
-
-        g_nrRetired.erase(g_nrRetired.begin() + i);
+        const D3D12_RESOURCE_DESC other = spare->GetDesc();
+        if (other.Format == format && other.Width == have.Width && other.Height == have.Height)
+            current = spare;
+        else
+            ParkNrResource(spare);
     }
+
+    spare = old;
+}
+
+void FreeNrRetiredNow(const NrRetired& r)
+{
+    if (r.feature != nullptr && g_nr.release != nullptr)
+        g_nr.release(r.feature);
+
+    if (r.resource != nullptr)
+        r.resource->Release();
+}
+
+void TickNrRetired(unsigned long long epoch, bool gpuSafeEnabled)
+{
+    g_nrRetired.Tick(epoch, gpuSafeEnabled,
+                     [](const NrRetired& r, bool gpuConfirmed)
+                     {
+                         static bool s_warnedTimeout = false;
+                         if (!gpuConfirmed && !s_warnedTimeout)
+                         {
+                             s_warnedTimeout = true;
+                             LOG_WARN("DLSS-NR: retired {} freed via timeout safety bound (fence unconfirmed)",
+                                      r.feature != nullptr ? "feature" : "texture");
+                         }
+                         FreeNrRetiredNow(r);
+                     });
 }
 
 // The inject point decides which buffer is being measured -- the upscaler's linear output or the
@@ -770,9 +827,10 @@ void ReleaseSurfacesIfFormatChanged(DXGI_FORMAT needed)
         g_nr.passPendingSubmission[i] = false;
     }
 
-    for (ID3D12Resource** r : { &g_nr.output, &g_nr.passScratch, &g_nr.colorCopy, &g_nr.hdrCopy, &g_nr.colorSmall,
-                                &g_nr.outputNative, &g_nr.residualEdited, &g_nr.residualHistory[0],
-                                &g_nr.residualHistory[1], &g_nr.residualComposed })
+    for (ID3D12Resource** r :
+         { &g_nr.output, &g_nr.passScratch, &g_nr.colorCopy, &g_nr.hdrCopy, &g_nr.hdrCopySpare, &g_nr.colorSmall,
+           &g_nr.outputNative, &g_nr.residualEdited, &g_nr.residualHistory[0], &g_nr.residualHistory[1],
+           &g_nr.residualComposed })
         ParkNrResource(*r);
 
     g_nr.passScratchFailed = false;
@@ -1477,6 +1535,53 @@ void UnusedRecordStub()
 // holding two threads apart -- but the D3D11-on-D3D12 bridge enters from its own call site, and the
 // cost is a CPU-side lock on a path that already records command lists.
 std::mutex g_nrMutex;
+DlssNr::Contexts::Tracker g_contexts;
+std::atomic<uint64_t> g_absorbedFormatFlips { 0 };
+std::atomic<bool> g_rebuildStandDown { false };
+
+bool AcquireMainGameFeature(uint32_t gameFeature, NVSDK_NGX_Parameter* params, const Config& cfg)
+{
+    if (gameFeature == 0 || params == nullptr)
+        return true;
+
+    DlssNr::Contexts::Picture pic {};
+    ID3D12Resource* outRes = GetResource(params, NVSDK_NGX_Parameter_Output, "DLSSD.Output");
+    ID3D12Resource* colRes = GetResource(params, NVSDK_NGX_Parameter_Color, "DLSSD.Color");
+    if (ID3D12Resource* ref = outRes != nullptr ? outRes : colRes)
+    {
+        const auto d = ref->GetDesc();
+        pic.resource = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(ref));
+        pic.width = static_cast<uint32_t>(d.Width);
+        pic.height = d.Height;
+        pic.format = static_cast<int>(d.Format);
+    }
+    params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Width, &pic.renderWidth);
+    params->Get(NVSDK_NGX_Parameter_DLSS_Render_Subrect_Dimensions_Height, &pic.renderHeight);
+    params->Get(NVSDK_NGX_Parameter_OutWidth, &pic.outputWidth);
+    params->Get(NVSDK_NGX_Parameter_OutHeight, &pic.outputHeight);
+
+    std::lock_guard<std::mutex> nrLock(g_nrMutex);
+    const auto res = g_contexts.Acquire(gameFeature, cfg.DlssNrIsolateMainFeature.value_or_default(), pic);
+    if (res.firstSeen)
+    {
+        LOG_INFO("DLSS-NR (context): observed game NGX feature {} (render={}x{}, out={}x{}, fmt={})",
+                 gameFeature, pic.renderWidth ? pic.renderWidth : pic.width,
+                 pic.renderHeight ? pic.renderHeight : pic.height, pic.EffectiveWidth(), pic.EffectiveHeight(),
+                 pic.format);
+    }
+    if (res.firstSkipped)
+    {
+        LOG_INFO("DLSS-NR (context): secondary feature {} ({}x{}) skipped (IsolateMainFeature=true)", gameFeature,
+                 pic.EffectiveWidth(), pic.EffectiveHeight());
+    }
+    else if (res.promotedToMain)
+    {
+        LOG_INFO("DLSS-NR (context): promoted feature {} ({}x{}) as active main camera", gameFeature,
+                 pic.EffectiveWidth(), pic.EffectiveHeight());
+        g_nr.reset = true;
+    }
+    return res.run;
+}
 
 // Runs the pass inside the same state envelope every other OptiScaler compute pass runs in.
 //
@@ -1768,6 +1873,9 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         return;
     }
 
+    WatchNrCommandList(device, cmdList);
+    TickNrRetired(frame.SubmissionEpoch, cfg.DlssNrGpuSafeRetire.value_or_default());
+
     const D3D12_RESOURCE_DESC desc = target->GetDesc();
     const auto width = (unsigned int) desc.Width;
     const auto height = desc.Height;
@@ -1901,13 +2009,62 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     const bool proxyBackend = cfg.DlssNrUseProxy.value_or_default();
     const unsigned int requestedPasses = proxyBackend ? 1u : configuredPasses;
 
-    ReleaseSurfacesIfFormatChanged(desc.Format);
+    const bool keepOnFlip = cfg.DlssNrKeepModelOnFormatFlip.value_or_default();
+    if (!keepOnFlip)
+    {
+        g_nr.floatFlipSeen = false;
+    }
+    else if (DlssNr::IsFloatFlip((int) g_nr.lastGameFormat, (int) desc.Format))
+    {
+        if (!g_nr.floatFlipSeen)
+        {
+            g_nr.floatFlipSeen = true;
+            LOG_INFO("DLSS-NR: HDR float format flip {} <-> {} detected; keeping neural model surfaces in RGBA16F",
+                     (int) g_nr.lastGameFormat, (int) desc.Format);
+        }
+        g_absorbedFormatFlips.fetch_add(1, std::memory_order_relaxed);
+    }
+    g_nr.lastGameFormat = desc.Format;
+
+    const auto colourFormat =
+        (DXGI_FORMAT) DlssNr::CanonicalColourFormat((int) desc.Format, keepOnFlip && g_nr.floatFlipSeen);
 
     const bool resolutionChanged = g_nr.width != width || g_nr.height != height ||
                                    g_nr.workWidth != workWidth || g_nr.workHeight != workHeight;
     const bool placementChanged =
         g_nr.feature != nullptr &&
         (g_nr.beforeUpscale != frame.BeforeUpscale || g_nr.rayReconstruction != frame.RayReconstruction);
+
+    {
+        const DXGI_FORMAT haveFormat = g_nr.output != nullptr ? g_nr.output->GetDesc().Format : DXGI_FORMAT_UNKNOWN;
+        const bool wouldRebuild =
+            DlssNr::SurfacesStale((int) haveFormat, (int) colourFormat) ||
+            (g_nr.feature != nullptr && (resolutionChanged || placementChanged));
+        const DlssNr::ModelSetup setup { (int) colourFormat, width, height, workWidth, workHeight,
+                                         frame.BeforeUpscale, frame.RayReconstruction };
+        const bool wasStanding = g_nr.rebuildGuard.standing;
+        const bool allowRun = g_nr.rebuildGuard.Allow(setup, wouldRebuild);
+        g_rebuildStandDown.store(g_nr.rebuildGuard.standing, std::memory_order_relaxed);
+
+        if (g_nr.rebuildGuard.standing != wasStanding)
+        {
+            if (g_nr.rebuildGuard.standing)
+                LOG_WARN("DLSS-NR: game alternates incompatible setups (fmt={}, {}x{}, work={}x{}); standing down until settled",
+                         (int) colourFormat, width, height, workWidth, workHeight);
+            else
+                LOG_INFO("DLSS-NR: game setup settled; resuming Neural Rendering");
+        }
+
+        if (!allowRun)
+        {
+            g_nr.reset = true;
+            device->Release();
+            return;
+        }
+    }
+
+    ReleaseSurfacesIfFormatChanged(colourFormat);
+
     const bool tuningChanged = !TuningMatchesFeature(cfg);
     if (tuningChanged)
         g_nr.residualHistoryPrimed = false;
@@ -1934,6 +2091,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             ParkNrResource(g_nr.passScratch);
             ParkNrResource(g_nr.colorCopy);
             ParkNrResource(g_nr.hdrCopy);
+            ParkNrResource(g_nr.hdrCopySpare);
             ParkNrResource(g_nr.colorSmall);
             ParkNrResource(g_nr.depthSmall);
             ParkNrResource(g_nr.motionSmall);
@@ -1952,12 +2110,16 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
 
     if (g_nr.output == nullptr)
     {
-        g_nr.output = CreateScratch(device, desc.Format, workWidth, workHeight);
-        g_nr.colorCopy = CreateScratch(device, desc.Format, width, height);
-        g_nr.hdrCopy = CreateScratch(device, desc.Format, width, height);
+        g_nr.output = CreateScratch(device, colourFormat, workWidth, workHeight);
+        g_nr.colorCopy = CreateScratch(device, colourFormat, width, height);
         g_nr.workWidth = workWidth;
         g_nr.workHeight = workHeight;
     }
+
+    const DXGI_FORMAT hdrCopyFormat = (targetSupportsUav || residualAcrossRr) ? colourFormat : desc.Format;
+    KeepExactFormat(g_nr.hdrCopy, g_nr.hdrCopySpare, hdrCopyFormat);
+    if (g_nr.hdrCopy == nullptr)
+        g_nr.hdrCopy = CreateScratch(device, hdrCopyFormat, width, height);
 
     if (residualAcrossRr)
     {
@@ -1972,7 +2134,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             }
             return resource != nullptr;
         };
-        if (_residualPipelineState == nullptr || !ensureReadable(g_nr.residualEdited, desc.Format, width, height) ||
+        if (_residualPipelineState == nullptr || !ensureReadable(g_nr.residualEdited, colourFormat, width, height) ||
             !ensureReadable(g_nr.residualHistory[0], DXGI_FORMAT_R16G16B16A16_FLOAT, width, height) ||
             !ensureReadable(g_nr.residualHistory[1], DXGI_FORMAT_R16G16B16A16_FLOAT, width, height) ||
             !ensureReadable(g_nr.residualComposed, g_nr.residualOutputFormat, g_nr.residualOutputWidth,
@@ -1994,7 +2156,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     }
     else if (g_nr.passScratch == nullptr && !g_nr.passScratchFailed)
     {
-        g_nr.passScratch = CreateScratch(device, desc.Format, workWidth, workHeight);
+        g_nr.passScratch = CreateScratch(device, colourFormat, workWidth, workHeight);
         g_nr.passScratchFailed = g_nr.passScratch == nullptr;
 
         if (g_nr.passScratchFailed)
@@ -2002,11 +2164,10 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     }
 
     if (reduced && g_nr.colorSmall == nullptr)
-        g_nr.colorSmall = CreateScratch(device, desc.Format, workWidth, workHeight);
+        g_nr.colorSmall = CreateScratch(device, colourFormat, workWidth, workHeight);
 
     if (workScale > 1.0f && g_nr.outputNative == nullptr)
-        g_nr.outputNative = CreateScratch(device, desc.Format, width, height);
-
+        g_nr.outputNative = CreateScratch(device, colourFormat, width, height);
     if (g_nr.meter == nullptr)
     {
         g_nr.meter = CreateScratch(device, DXGI_FORMAT_R32_FLOAT, kDlssNrMeterGrid, kDlssNrMeterGrid);
@@ -2075,7 +2236,11 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             g_nr.reason = "the model would not initialise";
             const auto initResult = (unsigned int) (g_nr.lastInit != nullptr ? *g_nr.lastInit : 0);
             const auto createResult = (unsigned int) (g_nr.lastCreate != nullptr ? *g_nr.lastCreate : 0);
-
+            if (DlssNr::DriverGate::RefusesDirectRuntime(initResult, ::State::Instance().isRunningOnLinux) ||
+                DlssNr::DriverGate::RefusesDirectRuntime(createResult, ::State::Instance().isRunningOnLinux))
+            {
+                g_nr.reason = DlssNr::DriverGate::UnsupportedDriverReason;
+            }
             LOG_ERROR("DLSS-NR create failed: init 0x{:X} ({}), create 0x{:X} ({})", initResult,
                       NgxResultName(initResult), createResult, NgxResultName(createResult));
             device->Release();
@@ -2225,7 +2390,6 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     }
 
     ++g_frames;
-    TickNrRetired();
     CheckCaptureTrigger();
 
     if (g_captureWriteAtFrame != 0 && g_frames >= g_captureWriteAtFrame)
@@ -2716,7 +2880,9 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         resolveParams.CompareSplit = cfg.DlssNrCompareSplit.value_or_default();
         resolveParams.CompareZoom = std::max(1.0f, cfg.DlssNrCompareZoom.value_or_default());
         resolveParams.CompareSwap = cfg.DlssNrCompareSwap.value_or_default() ? 1u : 0u;
-
+        resolveParams.ResidualEdgeGuiding = cfg.DlssNrResidualEdgeGuiding.value_or_default() ? 1u : 0u;
+        resolveParams.ResidualEdgeStrength =
+            std::clamp(cfg.DlssNrResidualEdgeStrength.value_or_default(), 0.0f, 1.0f);
         struct ComposeReport
         {
             bool valid;
@@ -2946,6 +3112,12 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
 
     TransitionTarget(outputArrival);
 
+    if (auto* signalQueue = timingQueue != nullptr ? timingQueue
+                                                   : (ID3D12CommandQueue*) State::Instance().currentCommandQueue)
+    {
+        g_nrRetired.SignalEpoch(device, signalQueue, frame.SubmissionEpoch);
+    }
+
     device->Release();
 }
 
@@ -2958,12 +3130,16 @@ void RetryAfterFailure()
     g_nr.reset = true;
 }
 
-void ApplyResidualAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params)
+void ApplyResidualAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
+                               uint32_t gameFeature)
 {
-    std::lock_guard<std::mutex> nrLock(g_nrMutex);
-
     if (cmdList == nullptr || params == nullptr)
         return;
+
+    if (gameFeature != 0 && !AcquireMainGameFeature(gameFeature, params, *Config::Instance()))
+        return;
+
+    std::lock_guard<std::mutex> nrLock(g_nrMutex);
 
     auto* output = GetResource(params, NVSDK_NGX_Parameter_Output, "DLSSD.Output");
     const bool paired = g_nr.residualPair.Take(cmdList, params, output);
@@ -2978,7 +3154,8 @@ void ApplyResidualAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Par
 
     const auto& cfg = *Config::Instance();
     const float strength = cfg.DlssNrTransferStrength.value_or_default();
-    if (!cfg.DlssNrApplyModel.value_or_default() || !std::isfinite(strength) || strength <= 0.0f)
+    if (!DlssNr::OwnNrEnabled() || !cfg.DlssNrApplyModel.value_or_default() || !std::isfinite(strength) ||
+        strength <= 0.0f)
     {
         g_nr.residualHistoryPrimed = false;
         return;
@@ -3039,9 +3216,9 @@ void ApplyResidualAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Par
 }
 
 void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
-                          ID3D12CommandQueue* timingQueue)
+                          ID3D12CommandQueue* timingQueue, uint32_t gameFeature)
 {
-    if (!Config::Instance()->DlssNrEnabled.value_or_default())
+    if (!DlssNr::OwnNrEnabled())
     {
         ReportSkipOnce("it is switched off");
         return;
@@ -3052,6 +3229,9 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
         ReportSkipOnce("no command list or no parameter block");
         return;
     }
+
+    if (!AcquireMainGameFeature(gameFeature, params, *Config::Instance()))
+        return;
 
     {
         static ApiUpscalerInput saidApi = (ApiUpscalerInput) -1;
@@ -3217,9 +3397,12 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
 }
 
 void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
-                           ID3D12CommandQueue* timingQueue)
+                           ID3D12CommandQueue* timingQueue, uint32_t gameFeature)
 {
     const Config& cfg = *Config::Instance();
+    if (!DlssNr::OwnNrEnabled() || !AcquireMainGameFeature(gameFeature, params, cfg))
+        return;
+
     {
         std::lock_guard<std::mutex> nrLock(g_nrMutex);
         if (g_nr.residualStoreValid)
@@ -3229,7 +3412,7 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
     }
 
     const bool useDenoiseFirst = cfg.DlssNrDenoiseFirst.value_or_default();
-    if (!cfg.DlssNrEnabled.value_or_default() || (!cfg.DlssNrPreSR.value_or_default() && !useDenoiseFirst))
+    if (!cfg.DlssNrPreSR.value_or_default() && !useDenoiseFirst)
         return;
 
     if (cmdList == nullptr || params == nullptr)
@@ -3570,26 +3753,49 @@ void RequestCapture(unsigned int frames)
 
 bool CaptureInProgress() { return g_capture.isActive(); }
 
+void ReleaseGameFeature(uint32_t gameFeature)
+{
+    std::lock_guard<std::mutex> nrLock(g_nrMutex);
+    g_contexts.Release(gameFeature);
+}
+
+void NotifyQueueSubmission(ID3D12CommandQueue* queue, UINT count, ID3D12CommandList* const* lists)
+{
+    g_nrRetired.OnQueueSubmission(queue, count, lists);
+}
+
+StabilityTelemetry GetStabilityTelemetry()
+{
+    std::lock_guard<std::mutex> nrLock(g_nrMutex);
+    const auto snap = g_contexts.GetSnapshot();
+    StabilityTelemetry t {};
+    t.mainWidth = snap.mainWidth != 0 ? snap.mainWidth : g_nr.width;
+    t.mainHeight = snap.mainHeight != 0 ? snap.mainHeight : g_nr.height;
+    t.activeFeatures = snap.activeFeatures;
+    t.activeSecondary = snap.activeSecondary;
+    t.skippedSecondaryEvaluates = snap.skippedEvaluates;
+    t.absorbedFormatFlips = g_absorbedFormatFlips.load(std::memory_order_relaxed);
+    t.stoodDownForRebuilds = g_rebuildStandDown.load(std::memory_order_relaxed);
+    return t;
+}
+
 void Shutdown()
 {
     std::lock_guard<std::mutex> nrLock(g_nrMutex);
 
-    for (auto& r : g_nrRetired)
-    {
-        if (r.feature != nullptr && g_nr.release != nullptr)
-            g_nr.release(r.feature);
-
-        if (r.resource != nullptr)
-            r.resource->Release();
-    }
-
-    g_nrRetired.clear();
+    g_nrRetired.FreeAll(FreeNrRetiredNow);
+    g_contexts.Reset();
+    g_absorbedFormatFlips.store(0, std::memory_order_relaxed);
+    g_rebuildStandDown.store(false, std::memory_order_relaxed);
 
     if (g_nr.feature != nullptr && g_nr.release != nullptr)
         g_nr.release(g_nr.feature);
 
     g_nr.feature = nullptr;
     g_nr.featurePendingSubmission = false;
+    g_nr.lastGameFormat = DXGI_FORMAT_UNKNOWN;
+    g_nr.floatFlipSeen = false;
+    g_nr.rebuildGuard = {};
 
     for (unsigned int i = 0; i < 10; ++i)
     {
@@ -3603,8 +3809,8 @@ void Shutdown()
     }
 
     for (ID3D12Resource** res :
-         { &g_nr.output, &g_nr.passScratch, &g_nr.colorCopy, &g_nr.hdrCopy, &g_nr.colorSmall, &g_nr.depthSmall,
-           &g_nr.motionSmall, &g_nr.outputNative, &g_nr.residualEdited, &g_nr.residualHistory[0],
+         { &g_nr.output, &g_nr.passScratch, &g_nr.colorCopy, &g_nr.hdrCopy, &g_nr.hdrCopySpare, &g_nr.colorSmall,
+           &g_nr.depthSmall, &g_nr.motionSmall, &g_nr.outputNative, &g_nr.residualEdited, &g_nr.residualHistory[0],
            &g_nr.residualHistory[1], &g_nr.residualComposed })
     {
         if (*res != nullptr)
@@ -3613,7 +3819,6 @@ void Shutdown()
             *res = nullptr;
         }
     }
-
     g_nr.passScratchFailed = false;
     g_nr.residualPair.Cancel();
     g_nr.residualStoreValid = false;

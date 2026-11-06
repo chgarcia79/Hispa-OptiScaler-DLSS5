@@ -7,6 +7,9 @@
 #include "proxies/NVNGX_Proxy.h"
 #include "dlssnr/DlssNr.h"
 #include "dlssnr/DlssNr_ExposureScan.h"
+#include "dlssnr/DlssNr_GameNr.h"
+#include "dlssnr/DlssNr_GameNrRuntime.h"
+#include "dlssnr/DlssNr_OwnNr.h"
 #include <upscalers/dlss/DLSSFeature_Dx12.h>
 #include <shaders/output_scaling/OS_Dx12.h>
 
@@ -222,6 +225,9 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Init_Ext(unsigned long long InApp
 
     UpscalerInputsDx12::Init(InDevice);
 
+    if (NVNGXProxy::IsDx12Inited())
+        DlssNr::GameNr::PreloadRuntimeIfEnabled(InDevice);
+
     return NVSDK_NGX_Result_Success;
 }
 
@@ -384,6 +390,12 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Shutdown(void)
     // Disabled for now to check if it cause any issues
     // UnhookAll();
     DLSSFeatureDx12::Shutdown(D3D12Device);
+
+    if (!State::Instance().isShuttingDown)
+    {
+        DlssNr::GameNr::Shutdown();
+        DlssNr::Shutdown();
+    }
 
     // Added `&& !State::Instance().isShuttingDown` hack for crash on exit
     if (Config::Instance()->DLSSEnabled.value_or_default() && NVNGXProxy::IsDx12Inited() &&
@@ -792,12 +804,22 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_CreateFeature(ID3D12GraphicsComma
             {
                 LOG_INFO("Native CreateFeature success, HandleId: {}", (*OutHandle)->Id);
                 HandleToFeature[(*OutHandle)->Id] = InFeatureID;
+                if (InFeatureID == (NVSDK_NGX_Feature) DlssNr::GameNr::FeatureId)
+                    DlssNr::GameNr::RecordDriverCreate(*OutHandle, InParameters);
             }
             else
             {
                 LOG_INFO("Native CreateFeature failed: 0x{:X}", (uint32_t) res);
+                if (InFeatureID == (NVSDK_NGX_Feature) DlssNr::GameNr::FeatureId &&
+                    DlssNr::GameNr::ShouldCreateDirect(
+                        State::Instance().isRunningOnLinux, cfg.DlssNrUnlockGameNR.value_or_default(),
+                        DlssNr::GameNr::HasCandidates(), DlssNr::DriverGate::Blocked(), (unsigned int) res,
+                        *OutHandle != nullptr))
+                {
+                    *OutHandle = nullptr;
+                    return DlssNr::GameNr::CreateDirect(InCmdList, InParameters, OutHandle);
+                }
             }
-
             return res;
         }
 
@@ -821,6 +843,11 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_ReleaseFeature(NVSDK_NGX_Handle* 
     if (!InHandle)
         return NVSDK_NGX_Result_Success;
 
+    if (DlssNr::GameNr::Owns(InHandle))
+        return DlssNr::GameNr::Release(InHandle);
+
+    const bool wasDriverGameNr = DlssNr::GameNr::ForgetDriverHandle(InHandle);
+
     // Before any feature's resources are freed, drop the exposure scan's references to whatever it
     // captured. The scan AddRef's candidates and never released them; a Streamline/DLSS-D resource it
     // pinned would otherwise be used after its heap is freed here -- the Cyberpunk device-removal.
@@ -829,9 +856,11 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_ReleaseFeature(NVSDK_NGX_Handle* 
     DlssNr::ExposureScan::ReleaseTrackedResources();
 
     auto handleId = InHandle->Id;
+    if (!wasDriverGameNr)
+        DlssNr::ReleaseGameFeature(handleId);
 
     // Clean up framegen
-    if (State::Instance().currentFG != nullptr && State::Instance().activeFgInput == FGInput::Upscaler)
+    if (!wasDriverGameNr && State::Instance().currentFG != nullptr && State::Instance().activeFgInput == FGInput::Upscaler)
     {
         State::Instance().fgChanged = true;
         State::Instance().currentFG->DestroyFGContext();
@@ -898,6 +927,44 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_ReleaseFeature(NVSDK_NGX_Handle* 
     return NVSDK_NGX_Result_Success;
 }
 
+static NVSDK_NGX_Result GameNrFeatureRequirements(IDXGIAdapter* Adapter,
+                                                  const NVSDK_NGX_FeatureDiscoveryInfo* FeatureDiscoveryInfo,
+                                                  NVSDK_NGX_FeatureRequirement* OutSupported)
+{
+    static NVSDK_NGX_FeatureRequirement scratch {};
+    if (OutSupported == nullptr)
+        OutSupported = &scratch;
+
+    auto result = NVSDK_NGX_Result_FAIL_FeatureNotSupported;
+    OutSupported->FeatureSupported = NVSDK_NGX_FeatureSupportResult_AdapterUnsupported;
+
+    if (Config::Instance()->DLSSEnabled.value_or_default() && IdentifyGpu::getPrimaryGpu().dlssCapable)
+    {
+        if (NVNGXProxy::NVNGXModule() == nullptr)
+            NVNGXProxy::InitNVNGX();
+
+        if (NVNGXProxy::D3D12_GetFeatureRequirements() != nullptr)
+            result = NVNGXProxy::D3D12_GetFeatureRequirements()(Adapter, FeatureDiscoveryInfo, OutSupported);
+    }
+
+    const auto decision = DlssNr::GameNr::Decide(
+        State::Instance().isRunningOnLinux, Config::Instance()->DlssNrUnlockGameNR.value_or_default(),
+        DlssNr::GameNr::HasCandidates(), DlssNr::DriverGate::Blocked(), (unsigned int) result,
+        (unsigned int) OutSupported->FeatureSupported);
+
+    LOG_INFO("DLSS-NR (game): GetFeatureRequirements(18) driver result 0x{:08X}, support bits 0x{:X} -> {}",
+             (unsigned int) result, (unsigned int) OutSupported->FeatureSupported,
+             DlssNr::GameNr::DecisionName(decision));
+
+    if (decision != DlssNr::GameNr::Decision::Unlock)
+        return result;
+
+    OutSupported->FeatureSupported = NVSDK_NGX_FeatureSupportResult_Supported;
+    OutSupported->MinHWArchitecture = 0;
+    strcpy_s(OutSupported->MinOSVersion, "10.0.10240.16384");
+    return NVSDK_NGX_Result_Success;
+}
+
 /**
  * @brief Used by the client application to check for feature support.
  * @param Adapter Device the feature is for.
@@ -928,6 +995,12 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_GetFeatureRequirements(
         // Some old windows 10 os version
         strcpy_s(OutSupported->MinOSVersion, "10.0.10240.16384");
         return NVSDK_NGX_Result_Success;
+    }
+
+    if (FeatureDiscoveryInfo != nullptr &&
+        FeatureDiscoveryInfo->FeatureID == (NVSDK_NGX_Feature) DlssNr::GameNr::FeatureId)
+    {
+        return GameNrFeatureRequirements(Adapter, FeatureDiscoveryInfo, OutSupported);
     }
 
     if (Config::Instance()->DLSSEnabled.value_or_default() && IdentifyGpu::getPrimaryGpu().dlssCapable &&
@@ -1111,6 +1184,9 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
         return NVSDK_NGX_Result_Fail;
     }
 
+    if (DlssNr::GameNr::Owns(InFeatureHandle))
+        return DlssNr::GameNr::Evaluate(InCmdList, InFeatureHandle, InParameters);
+
     const uint32_t handleId = InFeatureHandle->Id;
     LOG_DEBUG("EvaluateFeature - Handle: {}, CmdList: {:p}", handleId, (void*) InCmdList);
 
@@ -1193,8 +1269,9 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
     }
 
     // Pre-SR Multipass: evaluación del modelo neural a resolución interna previa al reescalado
-    if (InCmdList != nullptr && InParameters != nullptr && feature != NVSDK_NGX_Feature_FrameGeneration)
-        DlssNr::EvaluateBeforeUpscale(InCmdList, InParameters);
+    if (InCmdList != nullptr && InParameters != nullptr && feature != NVSDK_NGX_Feature_FrameGeneration &&
+        feature != (NVSDK_NGX_Feature) DlssNr::GameNr::FeatureId)
+        DlssNr::EvaluateBeforeUpscale(InCmdList, InParameters, nullptr, handleId);
 
     // Native DLSS passthrough
     if (handleId < DLSS_MOD_ID_OFFSET)
@@ -1212,12 +1289,13 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
             // rendered frame. The feature check is the point: frame generation is handed depth and
             // motion vectors too, and its handle can reach here because the branch above does not
             // return, so filtering on the parameter block alone would run the model twice a frame.
-            if (result == NVSDK_NGX_Result_Success && feature != NVSDK_NGX_Feature_FrameGeneration)
+            if (result == NVSDK_NGX_Result_Success && feature != NVSDK_NGX_Feature_FrameGeneration &&
+                feature != (NVSDK_NGX_Feature) DlssNr::GameNr::FeatureId)
             {
                 if (!cfg.DlssNrPreSR.value_or_default() && !cfg.DlssNrDenoiseFirst.value_or_default())
-                    DlssNr::EvaluateAfterUpscale(InCmdList, InParameters);
+                    DlssNr::EvaluateAfterUpscale(InCmdList, InParameters, nullptr, handleId);
                 else
-                    DlssNr::ApplyResidualAfterUpscale(InCmdList, InParameters);
+                    DlssNr::ApplyResidualAfterUpscale(InCmdList, InParameters, handleId);
             }
 
             return result;
@@ -1244,12 +1322,13 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_EvaluateFeature(ID3D12GraphicsCom
     const NVSDK_NGX_Result optiResult = TryEvaluateOptiFeature(InCmdList, InFeatureHandle, InParameters, InCallback);
 
     // Same pass, for OptiScaler's own upscalers rather than native DLSS.
-    if (optiResult == NVSDK_NGX_Result_Success && feature != NVSDK_NGX_Feature_FrameGeneration)
+    if (optiResult == NVSDK_NGX_Result_Success && feature != NVSDK_NGX_Feature_FrameGeneration &&
+        feature != (NVSDK_NGX_Feature) DlssNr::GameNr::FeatureId)
     {
         if (!cfg.DlssNrPreSR.value_or_default() && !cfg.DlssNrDenoiseFirst.value_or_default())
-            DlssNr::EvaluateAfterUpscale(InCmdList, InParameters);
+            DlssNr::EvaluateAfterUpscale(InCmdList, InParameters, nullptr, handleId);
         else
-            DlssNr::ApplyResidualAfterUpscale(InCmdList, InParameters);
+            DlssNr::ApplyResidualAfterUpscale(InCmdList, InParameters, handleId);
     }
 
     return optiResult;

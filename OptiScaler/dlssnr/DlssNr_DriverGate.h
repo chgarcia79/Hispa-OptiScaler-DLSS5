@@ -43,6 +43,19 @@ inline std::string BlockedMessage(uint32_t driverVersion)
            "). Update your driver to enable it.";
 }
 
+// Status reason when NGX itself reports FAIL_OutOfDate on Windows (unknown versions, or the proxy's own refusal).
+inline constexpr const char* UnsupportedDriverReason =
+    "the NVIDIA driver does not support Neural Rendering; update to 610.88 or newer (616.64+ recommended)";
+
+// NGX's "driver too old for this feature": on Windows the direct runtime must never be forced past it.
+inline constexpr unsigned int NgxResultOutOfDate = 0xBAD0000C;
+
+// Wine/Proton is exempt: the Linux driver's NGX has no NR feature and always answers FAIL_OutOfDate.
+constexpr bool RefusesDirectRuntime(unsigned int result, bool onWine)
+{
+    return result == NgxResultOutOfDate && !onWine;
+}
+
 // Set once at startup from the GPU worker; read by the menu and the NR proxy.
 inline std::atomic<uint32_t> detectedVersion { 0 };
 inline std::atomic<bool> blocked { false };

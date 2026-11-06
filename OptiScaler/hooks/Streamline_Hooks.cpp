@@ -1,6 +1,7 @@
 #include <pch.h>
 
 #include "Streamline_Hooks.h"
+#include "StreamlineLogPrefs.h"
 
 #include <Util.h>
 #include <Config.h>
@@ -76,26 +77,29 @@ void StreamlineHooks::streamlineLogCallback(sl::LogType type, const char* msg)
     if (msg == nullptr)
         return;
 
-    char* trimmed_msg = trimStreamlineLog(msg);
-    if (trimmed_msg != nullptr)
+    if (Config::Instance()->CaptureStreamlineLog.value_or_default())
     {
-        switch (type)
+        char* trimmed_msg = trimStreamlineLog(msg);
+        if (trimmed_msg != nullptr)
         {
-        case sl::LogType::eWarn:
-            LOG_WARN("{}", trimmed_msg);
-            break;
-        case sl::LogType::eInfo:
-            LOG_INFO("{}", trimmed_msg);
-            break;
-        case sl::LogType::eError:
-            LOG_ERROR("{}", trimmed_msg);
-            break;
-        case sl::LogType::eCount:
-            LOG_ERROR("{}", trimmed_msg);
-            break;
-        }
+            switch (type)
+            {
+            case sl::LogType::eWarn:
+                LOG_WARN("{}", trimmed_msg);
+                break;
+            case sl::LogType::eInfo:
+                LOG_INFO("{}", trimmed_msg);
+                break;
+            case sl::LogType::eError:
+                LOG_ERROR("{}", trimmed_msg);
+                break;
+            case sl::LogType::eCount:
+                LOG_ERROR("{}", trimmed_msg);
+                break;
+            }
 
-        free(trimmed_msg);
+            free(trimmed_msg);
+        }
     }
 
     if (o_logCallback != nullptr)
@@ -108,10 +112,8 @@ sl::Result StreamlineHooks::hkslInit(const sl::Preferences& pref, uint64_t sdkVe
 
     sl::Preferences localPref = pref;
 
-    if (localPref.logMessageCallback != &streamlineLogCallback)
-        o_logCallback = localPref.logMessageCallback;
-    localPref.logLevel = sl::LogLevel::eCount;
-    localPref.logMessageCallback = &streamlineLogCallback;
+    if (Config::Instance()->CaptureStreamlineLog.value_or_default())
+        StreamlineLogPrefs::ApplyLogCapture(localPref, &streamlineLogCallback, sl::LogLevel::eCount, o_logCallback);
 
     // renderAPI is optional so need to be careful, should only matter for Vulkan
     renderApi = localPref.renderAPI;
@@ -579,27 +581,30 @@ void StreamlineHooks::streamlineLogCallback_sl1(sl1::LogType type, const char* m
     if (msg == nullptr)
         return;
 
-    char* trimmed_msg = trimStreamlineLog(msg);
-
-    if (trimmed_msg != nullptr)
+    if (Config::Instance()->CaptureStreamlineLog.value_or_default())
     {
-        switch (type)
-        {
-        case sl1::LogType::eLogTypeWarn:
-            LOG_WARN("{}", trimmed_msg);
-            break;
-        case sl1::LogType::eLogTypeInfo:
-            LOG_INFO("{}", trimmed_msg);
-            break;
-        case sl1::LogType::eLogTypeError:
-            LOG_ERROR("{}", trimmed_msg);
-            break;
-        case sl1::LogType::eLogTypeCount:
-            LOG_ERROR("{}", trimmed_msg);
-            break;
-        }
+        char* trimmed_msg = trimStreamlineLog(msg);
 
-        free(trimmed_msg);
+        if (trimmed_msg != nullptr)
+        {
+            switch (type)
+            {
+            case sl1::LogType::eLogTypeWarn:
+                LOG_WARN("{}", trimmed_msg);
+                break;
+            case sl1::LogType::eLogTypeInfo:
+                LOG_INFO("{}", trimmed_msg);
+                break;
+            case sl1::LogType::eLogTypeError:
+                LOG_ERROR("{}", trimmed_msg);
+                break;
+            case sl1::LogType::eLogTypeCount:
+                LOG_ERROR("{}", trimmed_msg);
+                break;
+            }
+
+            free(trimmed_msg);
+        }
     }
 
     if (o_logCallback_sl1)
@@ -612,11 +617,41 @@ bool StreamlineHooks::hkslInit_sl1(const sl1::Preferences& pref, int application
 
     sl1::Preferences localPref = pref;
 
-    if (localPref.logMessageCallback != &streamlineLogCallback_sl1)
-        o_logCallback_sl1 = localPref.logMessageCallback;
-    localPref.logLevel = sl1::LogLevel::eLogLevelCount;
-    localPref.logMessageCallback = &streamlineLogCallback_sl1;
+    if (Config::Instance()->CaptureStreamlineLog.value_or_default())
+    {
+        StreamlineLogPrefs::ApplyLogCapture(localPref, &streamlineLogCallback_sl1, sl1::LogLevel::eLogLevelCount,
+                                            o_logCallback_sl1);
+    }
     return o_slInit_sl1(localPref, applicationId);
+}
+
+sl::Result StreamlineHooks::hkslInit_logOnly(const sl::Preferences& pref, uint64_t sdkVersion)
+{
+    LOG_FUNC();
+
+    sl::Preferences localPref = pref;
+    if (Config::Instance()->CaptureStreamlineLog.value_or_default())
+        StreamlineLogPrefs::ApplyLogCapture(localPref, &streamlineLogCallback, sl::LogLevel::eCount, o_logCallback);
+
+    const auto result = o_slInit_logOnly(localPref, sdkVersion);
+    LOG_INFO("Streamline log-only slInit result {}", static_cast<int>(result));
+    return result;
+}
+
+bool StreamlineHooks::hkslInit_sl1_logOnly(const sl1::Preferences& pref, int applicationId)
+{
+    LOG_FUNC();
+
+    sl1::Preferences localPref = pref;
+    if (Config::Instance()->CaptureStreamlineLog.value_or_default())
+    {
+        StreamlineLogPrefs::ApplyLogCapture(localPref, &streamlineLogCallback_sl1, sl1::LogLevel::eLogLevelCount,
+                                            o_logCallback_sl1);
+    }
+
+    const auto result = o_slInit_sl1_logOnly(localPref, applicationId);
+    LOG_INFO("Streamline SL1 log-only slInit result {}", result);
+    return result;
 }
 
 bool StreamlineHooks::hkslSetTag_sl1(const sl1::Resource* resource, sl1::BufferType tag, uint32_t id,
@@ -1804,6 +1839,101 @@ void StreamlineHooks::unhookInterposer()
         o_logCallback = nullptr;
         o_logCallback_sl1 = nullptr;
     }
+
+    unhookInterposerLogOnly();
+}
+
+void StreamlineHooks::unhookInterposerLogOnly()
+{
+    if (o_slInit_logOnly == nullptr && o_slInit_sl1_logOnly == nullptr)
+        return;
+
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+
+    if (o_slInit_logOnly)
+        DetourDetach(&(PVOID&) o_slInit_logOnly, hkslInit_logOnly);
+
+    if (o_slInit_sl1_logOnly)
+        DetourDetach(&(PVOID&) o_slInit_sl1_logOnly, hkslInit_sl1_logOnly);
+
+    auto detourResult = DetourTransactionCommit();
+    if (detourResult != NO_ERROR)
+    {
+        LOG_ERROR("Streamline log capture detach error: {:X}", detourResult);
+        return;
+    }
+
+    o_slInit_logOnly = nullptr;
+    o_slInit_sl1_logOnly = nullptr;
+}
+
+void StreamlineHooks::hookInterposerLogOnly(HMODULE slInterposer)
+{
+    if (!slInterposer || isInterposerHooked() || !Config::Instance()->CaptureStreamlineLog.value_or_default())
+        return;
+
+    static HMODULE last_logOnlyInterposer = nullptr;
+    if (last_logOnlyInterposer == slInterposer)
+        return;
+
+    last_logOnlyInterposer = slInterposer;
+
+    LOG_FUNC();
+
+    auto owner = State::GetOwner();
+    State::DisableChecks(owner, "sl.interposer");
+
+    unhookInterposerLogOnly();
+
+    wchar_t dllPath[32768] {};
+    const DWORD pathLength = GetModuleFileNameW(slInterposer, dllPath, ARRAYSIZE(dllPath));
+    version_t sl_version {};
+    if (pathLength == 0 || pathLength >= ARRAYSIZE(dllPath) || !Util::GetFileVersion(dllPath, &sl_version) ||
+        sl_version.major == 0)
+    {
+        LOG_WARN("Streamline log capture: unknown sl.interposer version");
+        State::EnableChecks(owner);
+        return;
+    }
+
+    auto slInitAddress = KernelBaseProxy::GetProcAddress_()(slInterposer, "slInit");
+    if (slInitAddress == nullptr)
+    {
+        LOG_WARN("Streamline log capture: sl.interposer {}.{}.{} has no slInit export", sl_version.major,
+                 sl_version.minor, sl_version.patch);
+        State::EnableChecks(owner);
+        return;
+    }
+
+    DetourTransactionBegin();
+    DetourUpdateThread(GetCurrentThread());
+
+    if (sl_version.major >= 2)
+    {
+        o_slInit_logOnly = reinterpret_cast<decltype(&slInit)>(slInitAddress);
+        DetourAttach(&(PVOID&) o_slInit_logOnly, hkslInit_logOnly);
+    }
+    else
+    {
+        o_slInit_sl1_logOnly = reinterpret_cast<decltype(&sl1::slInit)>(slInitAddress);
+        DetourAttach(&(PVOID&) o_slInit_sl1_logOnly, hkslInit_sl1_logOnly);
+    }
+
+    auto detourResult = DetourTransactionCommit();
+    if (detourResult != NO_ERROR)
+    {
+        LOG_ERROR("Streamline log capture attach error: {:X}", detourResult);
+        o_slInit_logOnly = nullptr;
+        o_slInit_sl1_logOnly = nullptr;
+    }
+    else
+    {
+        LOG_INFO("Streamline {}.{}.{} log capture attached, path: {}", sl_version.major, sl_version.minor,
+                 sl_version.patch, wstring_to_string(dllPath));
+    }
+
+    State::EnableChecks(owner);
 }
 
 // Call it just after sl.interposer's load or if sl.interposer is already loaded
@@ -1829,6 +1959,8 @@ void StreamlineHooks::hookInterposer(HMODULE slInterposer)
     // To prevent loops disabling checks for sl.interposer.dll
     auto owner = State::GetOwner();
     State::DisableChecks(owner, "sl.interposer");
+
+    unhookInterposerLogOnly();
 
     if (o_slSetTag || o_slInit || o_slInit_sl1 || o_slSetTag_sl1 || o_slSetConstants_interposer_sl1 ||
         o_slEvaluateFeature_sl1)

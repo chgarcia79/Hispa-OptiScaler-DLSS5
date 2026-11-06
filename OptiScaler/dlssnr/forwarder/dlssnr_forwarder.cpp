@@ -924,4 +924,59 @@ __declspec(dllexport) void dlssnr_call_release(void *feature) {
     }
 }
 
+// Direct pass-through entry points for a game's own native NR (NGX feature 18) and startup Preload.
+// All calls keep a volatile return value on the stack frame so MSVC never tail-calls out of nvngx.dll_dlssnr.dll.
+__declspec(dllexport) int dlssnr_direct_preload(const wchar_t *snippetPath, const wchar_t *dataPath,
+                                                ID3D12Device *device, const void *capabilityParams) {
+    if (!loadSnippet(snippetPath) || !device || !capabilityParams) {
+        return 0;
+    }
+    if (!g_snip.initialised && g_snip.init) {
+        volatile int res = g_snip.init(0x24480451ull, dataPath, device, 0x0000015, capabilityParams);
+        dlssnr_call_last_init = res;
+        g_snip.initialised = (res == 1);
+    }
+    return g_snip.initialised ? 1 : dlssnr_call_last_init;
+}
+
+__declspec(dllexport) int dlssnr_direct_create(const wchar_t *snippetPath, const wchar_t *dataPath,
+                                               ID3D12Device *device, ID3D12GraphicsCommandList *cmd,
+                                               const void *params, void **outHandle) {
+    if (!cmd || !params || !outHandle) {
+        return (int) 0xBAD00001u;
+    }
+    *outHandle = nullptr;
+    if (!loadSnippet(snippetPath)) {
+        return (int) 0xBAD00002u;
+    }
+    if (!g_snip.initialised && g_snip.init && device) {
+        volatile int initRes = g_snip.init(0x24480451ull, dataPath, device, 0x0000015, params);
+        dlssnr_call_last_init = initRes;
+        g_snip.initialised = (initRes == 1);
+    }
+    if (!g_snip.initialised || !g_snip.create) {
+        return (int) 0xBAD00002u;
+    }
+    volatile int res = g_snip.create(cmd, 18, params, outHandle);
+    dlssnr_call_last_create = res;
+    return res;
+}
+
+__declspec(dllexport) int dlssnr_direct_evaluate(ID3D12GraphicsCommandList *cmd, const void *feature,
+                                                 const void *params) {
+    if (!cmd || !feature || !params || !g_snip.evaluate) {
+        return (int) 0xBAD00004u;
+    }
+    volatile int res = g_snip.evaluate(cmd, feature, params, nullptr);
+    return res;
+}
+
+__declspec(dllexport) int dlssnr_direct_release(void *feature) {
+    if (!feature || !g_snip.release) {
+        return (int) 0xBAD00004u;
+    }
+    volatile int res = g_snip.release(feature);
+    return res;
+}
+
 } // extern "C"
