@@ -4,6 +4,7 @@
 
 #include <Logger.h>
 #include <shellapi.h>
+#pragma comment(lib, "Shell32.lib")
 #include <algorithm>
 #include <mutex>
 
