@@ -143,7 +143,6 @@ class StreamlineHooks
 
     static void unhookInterposer();
     static void hookInterposer(HMODULE slInterposer);
-    static void hookInterposer(HMODULE slInterposer);
     static void hookInterposerLogOnly(HMODULE slInterposer);
     static void unhookInterposerLogOnly();
     static void unhookDlss();
@@ -207,7 +206,6 @@ class StreamlineHooks
     inline static decltype(&sl1::slEvaluateFeature) o_slEvaluateFeature_sl1 = nullptr;
 
     inline static sl::PFun_LogMessageCallback* o_logCallback = nullptr;
-    inline static sl1::pfunLogMessageCallback* o_logCallback_sl1 = nullptr;
     inline static sl1::pfunLogMessageCallback* o_logCallback_sl1 = nullptr;
 
     inline static decltype(&slInit) o_slInit_logOnly = nullptr;

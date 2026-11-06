@@ -6145,7 +6145,7 @@ void MenuCommon::RenderLoggingSettings(RenderMenuContext& ctx)
         {
             config->CaptureStreamlineLog = captureSl;
         }
-        HelpMarker("Redirige de forma no intrusiva los mensajes diagnosticos de sl.interposer.dll hacia OptiScaler.log.");
+        ShowHelpMarker("Redirige de forma no intrusiva los mensajes diagnosticos de sl.interposer.dll hacia OptiScaler.log.");
         const char* logLevels[] = { "Trace", "Debug", "Information", "Warning", "Error" };
         const char* selectedLevel = logLevels[config->LogLevel.value_or_default()];
 
