@@ -299,10 +299,19 @@
     <ClInclude Include="shaders\dlssnr\DlssNr_SurfaceFormats.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="framegen\xefg\XeFGPacingPolicy.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="hooks\FgGpuTimeSource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="hooks\FpsLimitSync.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="hooks\StreamlineLogPrefs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="misc\FrameLimitPolicy.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="misc\GameRootSearch.h">

@@ -660,6 +660,8 @@ class Config
     CustomOptional<bool> FpsOverlayHorizontal { false };
     CustomOptional<float> FpsOverlayAlpha { 0.4f };
     CustomOptional<float, NoDefault> FpsScale; // No value means same as MenuScale
+    CustomOptional<bool> ShowReflexInputLatency { true };
+    CustomOptional<int> ReflexLatencyAvgSamples { 8 };
     CustomOptional<bool> UseHQFont { true };
     CustomOptional<bool> DisableSplash { false };
     CustomOptional<float> FontSize { 14.0f };
@@ -920,6 +922,7 @@ class Config
     CustomOptional<bool> FGXeFGDebugView { false };
     CustomOptional<bool> FGXeFGForceBorderless { false };
     CustomOptional<bool> XeFGDepthResample { true };
+    CustomOptional<bool> XeFGPaceWithFpsCap { true };
 
     // DLSSG
     CustomOptional<int> FGDLSSGInterpolationCount { 1 }; // For Opti's own SL instance
@@ -963,6 +966,8 @@ class Config
 
     // Framerate
     CustomOptional<float> FramerateLimit { 0.0f };
+    CustomOptional<bool> FpsLimitSingleReflexOwner { true };
+    CustomOptional<bool> FpsLimitUseFgMultiplier { true };
 
     // HDR
     CustomOptional<bool> ForceHDR { false };

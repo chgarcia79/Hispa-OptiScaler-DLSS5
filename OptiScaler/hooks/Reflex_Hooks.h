@@ -1,7 +1,12 @@
 #pragma once
 #include <d3d12.h>
 #include <nvapi/NvApiTypes.h>
+#include <array>
+#include <deque>
+#include <mutex>
+#include <optional>
 
+#include "FpsLimitSync.h"
 #include "Hook_Utils.h"
 #include "low_latency/ll_util.h"
 
@@ -26,7 +31,20 @@ class ReflexHooks
     inline static IUnknown* _lastSleepDev = nullptr;
     inline static uint8_t _FgNumFramesToGenerate = 0;
     inline static uint64_t _lastAsyncMarkerFrameId = 0;
+    inline static bool _hasAsyncMarker = false;
     inline static uint64_t _updatesWithoutMarker = 0;
+    inline static uint64_t _updatesWithoutAsyncMarker = 0;
+    inline static FpsLimitBackend _activeRoute = FpsLimitBackend::None;
+    inline static thread_local uint32_t _internalPclDepth = 0;
+
+    inline static std::mutex _latencyMutex {};
+    inline static std::deque<double> _latencySamples {};
+    inline static std::optional<double> _inputLatencyMs {};
+    inline static uint64_t _lastLatencyFrameId = 0;
+    inline static uint64_t _lastLatencyReportFrameId = 0;
+
+    static void clearInputLatency();
+    static void applySleepLimitToRoute(FpsLimitBackend route, uint32_t intervalUs);
 
     inline static uint64_t _lastMarkerFrame = 0;
 
@@ -71,7 +89,21 @@ class ReflexHooks
     VALIDATE_MEMBER_HOOK(hkNvAPI_Vulkan_GetLatency, decltype(&NvAPI_Vulkan_GetLatency))
 
   public:
+    class ScopedInternalPclMarker
+    {
+      public:
+        ScopedInternalPclMarker() { ++_internalPclDepth; }
+        ~ScopedInternalPclMarker()
+        {
+            if (_internalPclDepth > 0)
+                --_internalPclDepth;
+        }
+        ScopedInternalPclMarker(const ScopedInternalPclMarker&) = delete;
+        ScopedInternalPclMarker& operator=(const ScopedInternalPclMarker&) = delete;
+    };
+
     static std::optional<TimingEntry> timingData[TimingType::TimingTypeCOUNT];
+    static std::optional<double> inputLatencyMs();
 
     static void hookReflex(PFN_NvApi_QueryInterface& queryInterface);
     static uint8_t dlssgFrameCountToGenerate();

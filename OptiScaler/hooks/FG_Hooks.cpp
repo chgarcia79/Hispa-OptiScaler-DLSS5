@@ -13,6 +13,7 @@
 #include <resource_tracking/ResTrack_Dx12.h>
 
 #include <misc/FrameLimit.h>
+#include <misc/FrameLimitPolicy.h>
 
 #include <misc/IdentifyGpu.h>
 #include <hooks/Reflex_Hooks.h>
@@ -1316,7 +1317,10 @@ HRESULT FGHooks::FGPresent(IDXGISwapChain* This, UINT SyncInterval, UINT Flags,
                 tokenResult = StreamlineProxy::GetNewFrameToken()(localToken, &frameId);
 
                 if (tokenResult == sl::Result::eOk)
+                {
+                    ReflexHooks::ScopedInternalPclMarker internalPcl;
                     StreamlineProxy::PCLSetMarker()(sl::PCLMarker::ePresentStart, *localToken);
+                }
             }
         }
     }
@@ -1425,6 +1429,8 @@ HRESULT FGHooks::FGPresent(IDXGISwapChain* This, UINT SyncInterval, UINT Flags,
         (!ReflexHooks::gameIsSendingMarkers() || !config->FGDLSSGUseGamesReflexMarkers.value_or_default()) &&
         willPresent && state.activeFgOutput == FGOutput::DLSSG)
     {
+    {
+        ReflexHooks::ScopedInternalPclMarker internalPcl;
         if (StreamlineProxy::PCLSetMarker() != nullptr)
             StreamlineProxy::PCLSetMarker()(sl::PCLMarker::ePresentEnd, *localToken);
 
@@ -1435,10 +1441,12 @@ HRESULT FGHooks::FGPresent(IDXGISwapChain* This, UINT SyncInterval, UINT Flags,
     if (state.swapchainInteropApi == SwapchainInteropApi::None)
         Hudfix_Dx12::PresentEnd();
 
-    if (willPresent && !state.reflexLimitsFps && state.activeFgOutput != FGOutput::NoFG &&
-        !IdentifyGpu::getPrimaryGpu().usesDxvk && !XellHooks::canLimit())
+    if (FrameLimitPolicy::ShouldSleepInFGPresent(willPresent, IdentifyGpu::getPrimaryGpu().usesDxvk,
+                                                  XellHooks::canLimit()))
     {
-        FrameLimit::sleep(fg != nullptr ? fg->IsActive() && !fg->IsPaused() : false);
+        const bool fgActive = fg != nullptr && fg->IsActive() && !fg->IsPaused();
+        const uint32_t interpCount = fgActive ? fg->GetInterpolatedFrameCount() : 0u;
+        FrameLimit::sleep(fgActive, interpCount);
     }
 
     if ((config->SimulateWaitableObject.value_or_default() ||

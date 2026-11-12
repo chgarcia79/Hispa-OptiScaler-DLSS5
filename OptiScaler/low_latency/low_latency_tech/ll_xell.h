@@ -13,6 +13,11 @@ class XeLL : public LowLatencyTech
     uint64_t sleep_last_id {};
 
     xell_context_handle_t xell_context {};
+    xell_context_handle_t last_applied_context {};
+    uint32_t last_bLowLatencyMode = 0;
+    uint32_t last_minimumIntervalUs = 0;
+    uint32_t last_bLowLatencyBoost = 0;
+    uint64_t last_sync_revision = 0;
 
     decltype(&xellDestroyContext) o_xellDestroyContext = nullptr;
     decltype(&xellSetSleepMode) o_xellSetSleepMode = nullptr;

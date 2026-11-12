@@ -1,5 +1,8 @@
 ﻿#include "pch.h"
 #include "Xell_Hooks.h"
+#include <Config.h>
+#include <State.h>
+#include <hooks/FpsLimitSync.h>
 #include <detours/detours.h>
 #include <magic_enum.hpp>
 #include <proxies/XeLL_Proxy.h>
@@ -67,27 +70,76 @@ bool XellHooks::shouldBlock(xell_context_handle_t context)
 bool XellHooks::canLimit() { return gamesContextCanLimitFps; }
 
 // only DX12
-bool XellHooks::update()
+bool XellHooks::isGameLowLatencyActive()
 {
     if (!o_xellGetSleepMode || !o_xellSetSleepMode || blockExternal || gamesContext == nullptr)
         return false;
 
-    xell_sleep_params_t currentParams;
-    o_xellGetSleepMode(gamesContext, &currentParams);
-
-    if (!currentParams.bLowLatencyMode)
+    xell_sleep_params_t currentParams {};
+    if (o_xellGetSleepMode(gamesContext, &currentParams) != XELL_RESULT_SUCCESS)
         return false;
+
+    return currentParams.bLowLatencyMode != 0;
+}
+
+// only DX12
+bool XellHooks::update()
+{
+    if (!o_xellGetSleepMode || !o_xellSetSleepMode || blockExternal || gamesContext == nullptr)
+    {
+        gamesContextCanLimitFps = false;
+        targetIntervalUs = 0;
+        lastAppliedContext = nullptr;
+        FpsLimitSync::ReleaseBackend(FpsLimitBackend::GameXeLL);
+        return false;
+    }
+
+    xell_sleep_params_t currentParams {};
+    if (o_xellGetSleepMode(gamesContext, &currentParams) != XELL_RESULT_SUCCESS)
+    {
+        gamesContextCanLimitFps = false;
+        FpsLimitSync::ReleaseBackend(FpsLimitBackend::GameXeLL);
+        return false;
+    }
+
+    const bool shouldOwn =
+        FpsLimitSync::ShouldGameXellOwn(currentParams.bLowLatencyMode != 0, State::Instance().reflexLimitsFps);
+
+    if (!shouldOwn)
+    {
+        const bool wasOwning = gamesContextCanLimitFps || targetIntervalUs != 0;
+        gamesContextCanLimitFps = false;
+        targetIntervalUs = 0;
+        lastAppliedContext = nullptr;
+        FpsLimitSync::ReleaseBackend(FpsLimitBackend::GameXeLL);
+
+        if (wasOwning && currentParams.minimumIntervalUs != 0u)
+        {
+            currentParams.minimumIntervalUs = 0u;
+            o_xellSetSleepMode(gamesContext, &currentParams);
+        }
+        return false;
+    }
 
     gamesContextCanLimitFps = true;
+    FpsLimitSync::SetActiveBackend(FpsLimitBackend::GameXeLL);
 
-    static float lastFpslimit = 0.0f;
-    if (lastFpslimit == Config::Instance()->FramerateLimit.value_or_default())
+    const float baseFps = FpsLimitSync::ConfiguredFpsLimit();
+    const uint32_t desiredIntervalUs = FpsLimitSync::FpsToIntervalUs(baseFps);
+    const uint64_t syncRevision = FpsLimitSync::Revision();
+
+    const bool contextChanged = lastAppliedContext != gamesContext;
+    const bool intervalChanged = desiredIntervalUs != targetIntervalUs || currentParams.minimumIntervalUs != desiredIntervalUs;
+    const bool revisionChanged = syncRevision != lastSyncRevision;
+
+    if (!contextChanged && !intervalChanged && !revisionChanged)
         return false;
-    lastFpslimit = Config::Instance()->FramerateLimit.value_or_default();
-    if (lastFpslimit <= 0.0f)
-        currentParams.minimumIntervalUs = 0u;
-    else
-        currentParams.minimumIntervalUs = static_cast<uint32_t>(std::round(1'000'000 / lastFpslimit));
+
+    targetIntervalUs = desiredIntervalUs;
+    lastAppliedContext = gamesContext;
+    lastSyncRevision = syncRevision;
+    currentParams.minimumIntervalUs = desiredIntervalUs;
+    lastSleepParams = currentParams;
 
     return o_xellSetSleepMode(gamesContext, &currentParams) == XELL_RESULT_SUCCESS;
 }
@@ -95,7 +147,14 @@ bool XellHooks::update()
 xell_result_t XellHooks::hkxellDestroyContext(xell_context_handle_t context)
 {
     if (gamesContext == context)
+    {
         gamesContext = nullptr;
+        lastAppliedContext = nullptr;
+        gamesContextCanLimitFps = false;
+        targetIntervalUs = 0;
+        lastSyncRevision = 0;
+        FpsLimitSync::ReleaseBackend(FpsLimitBackend::GameXeLL);
+    }
 
     if (shouldBlock(context))
         return XELL_RESULT_SUCCESS;
@@ -106,6 +165,20 @@ xell_result_t XellHooks::hkxellSetSleepMode(xell_context_handle_t context, const
 {
     if (shouldBlock(context))
         return XELL_RESULT_SUCCESS;
+
+    if (param != nullptr && context == gamesContext)
+    {
+        lastSleepParams = *param;
+        if (param->bLowLatencyMode && gamesContextCanLimitFps && targetIntervalUs != 0 &&
+            param->minimumIntervalUs != targetIntervalUs)
+        {
+            xell_sleep_params_t patched = *param;
+            patched.minimumIntervalUs = targetIntervalUs;
+            lastSleepParams = patched;
+            return o_xellSetSleepMode(context, &patched);
+        }
+    }
+
     // spdlog::info("xellSetSleepMode");
     return o_xellSetSleepMode(context, param);
 }

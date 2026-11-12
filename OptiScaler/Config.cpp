@@ -240,6 +240,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             FGXeFGDebugView.set_from_config(readBool("XeFG", "DebugView"));
             FGXeFGForceBorderless.set_from_config(readBool("XeFG", "ForceBorderless"));
             XeFGDepthResample.set_from_config(readBool("XeFG", "DepthResample"));
+            XeFGPaceWithFpsCap.set_from_config(readBool("XeFG", "PaceWithFpsCap"));
         }
 
         {
@@ -269,6 +270,8 @@ bool Config::Reload(std::filesystem::path iniPath)
         // Framerate
         {
             FramerateLimit.set_from_config(readFloat("Framerate", "FramerateLimit"));
+            FpsLimitSingleReflexOwner.set_from_config(readBool("Framerate", "SingleReflexOwner"));
+            FpsLimitUseFgMultiplier.set_from_config(readBool("Framerate", "UseFgMultiplier"));
         }
 
         // FSR Common
@@ -697,6 +700,10 @@ bool Config::Reload(std::filesystem::path iniPath)
 
             if (auto setting = readFloat("Menu", "FpsScale"); setting.has_value())
                 FpsScale.set_from_config(std::clamp(setting.value(), 0.5f, 2.0f));
+
+            ShowReflexInputLatency.set_from_config(readBool("Menu", "ShowReflexInputLatency"));
+            if (auto setting = readInt("Menu", "ReflexLatencyAvgSamples"); setting.has_value())
+                ReflexLatencyAvgSamples.set_from_config(std::clamp(setting.value(), 1, 32));
 
             FontSize.set_from_config(readFloat("Menu", "FontSize"));
             TTFFontPath.set_from_config(readWString("Menu", "TTFFontPath"));
@@ -1223,6 +1230,8 @@ bool Config::SaveIni()
                      GetBoolValue(Instance()->FGXeFGForceBorderless.value_for_config()).c_str());
         ini.SetValue("XeFG", "DepthResample",
                      GetBoolValue(Instance()->XeFGDepthResample.value_for_config()).c_str());
+        ini.SetValue("XeFG", "PaceWithFpsCap",
+                     GetBoolValue(Instance()->XeFGPaceWithFpsCap.value_for_config()).c_str());
     }
 
     {
@@ -1306,6 +1315,10 @@ bool Config::SaveIni()
     {
         ini.SetValue("Framerate", "FramerateLimit",
                      GetFloatValue(Instance()->FramerateLimit.value_for_config()).c_str());
+        ini.SetValue("Framerate", "SingleReflexOwner",
+                     GetBoolValue(Instance()->FpsLimitSingleReflexOwner.value_for_config()).c_str());
+        ini.SetValue("Framerate", "UseFgMultiplier",
+                     GetBoolValue(Instance()->FpsLimitUseFgMultiplier.value_for_config()).c_str());
     }
 
     // Output Scaling
@@ -1667,6 +1680,10 @@ bool Config::SaveIni()
                      GetBoolValue(Instance()->FpsOverlayHorizontal.value_for_config()).c_str());
         ini.SetValue("Menu", "FpsOverlayAlpha", GetFloatValue(Instance()->FpsOverlayAlpha.value_for_config()).c_str());
         ini.SetValue("Menu", "FpsScale", GetFloatValue(Instance()->FpsScale.value_for_config()).c_str());
+        ini.SetValue("Menu", "ShowReflexInputLatency",
+                     GetBoolValue(Instance()->ShowReflexInputLatency.value_for_config()).c_str());
+        ini.SetValue("Menu", "ReflexLatencyAvgSamples",
+                     GetIntValue(Instance()->ReflexLatencyAvgSamples.value_for_config()).c_str());
         ini.SetValue("Menu", "FontSize", GetFloatValue(Instance()->FontSize.value_for_config()).c_str());
         ini.SetValue("Menu", "TTFFontPath",
                      wstring_to_string(Instance()->TTFFontPath.value_for_config_or(L"auto")).c_str());

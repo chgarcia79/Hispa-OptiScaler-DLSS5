@@ -23,6 +23,7 @@
 
 #include <nvapi/fakenvapi.h>
 #include <hooks/Reflex_Hooks.h>
+#include <hooks/FpsLimitSync.h>
 
 #include <version_check.h>
 
@@ -2070,6 +2071,11 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
 
                     ImGui::Text("FGId: %llu, RfxId: %llu", localFrameCount, state.reflexFrameId);
                     ImGui::Text("Reflex timings, whole frame: %.1fms", rangeInNs / 1000.0);
+                    if (config->ShowReflexInputLatency.value_or_default())
+                    {
+                        if (const auto inputLatency = ReflexHooks::inputLatencyMs())
+                            ImGui::Text("Input Latency: %.1fms", *inputLatency);
+                    }
 
                     const auto maxWidth =
                         config->FpsOverlayHorizontal.value_or_default() ? ImGui::GetWindowWidth() : plotSize.x;
@@ -5082,6 +5088,7 @@ void MenuCommon::RenderFramerateSettings(RenderMenuContext& ctx)
         if (ImGui::Button("Apply Limit"))
         {
             config->FramerateLimit = _limitFps;
+            FpsLimitSync::NotifyConfigChanged();
         }
 
         ImGui::SameLine(0.0f, 16.0f);
@@ -5090,6 +5097,7 @@ void MenuCommon::RenderFramerateSettings(RenderMenuContext& ctx)
         {
             _limitFps = 0.0f;
             config->FramerateLimit = _limitFps;
+            FpsLimitSync::NotifyConfigChanged();
         }
 
         ImGui::Spacing();
@@ -5119,6 +5127,7 @@ void MenuCommon::RenderFramerateSettings(RenderMenuContext& ctx)
             {
                 _limitFps = frameCap;
                 config->FramerateLimit = _limitFps;
+                FpsLimitSync::NotifyConfigChanged();
             }
         }
     }

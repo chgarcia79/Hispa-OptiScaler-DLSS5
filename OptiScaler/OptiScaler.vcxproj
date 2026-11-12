@@ -627,8 +627,11 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="shaders\dlssnr\DlssNr_Contexts.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_Retire.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_SurfaceFormats.h" />
+    <ClInclude Include="framegen\xefg\XeFGPacingPolicy.h" />
     <ClInclude Include="hooks\FgGpuTimeSource.h" />
+    <ClInclude Include="hooks\FpsLimitSync.h" />
     <ClInclude Include="hooks\StreamlineLogPrefs.h" />
+    <ClInclude Include="misc\FrameLimitPolicy.h" />
     <ClInclude Include="misc\GameRootSearch.h" />
     <ClInclude Include="State.h" />
     <ClInclude Include="upscalers\xess\XeSSFeature_Dx11on12.h" />
