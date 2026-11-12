@@ -158,6 +158,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             FGOnlyAcceptFirstHudless.set_from_config(readBool("FrameGen", "OnlyAcceptFirstHudless"));
             FGPreserveSwapChain.set_from_config(readBool("FrameGen", "PreserveSwapChain"));
             FGSkipResizeBuffers.set_from_config(readBool("FrameGen", "SkipResizeBuffers"));
+            FGSkipForeignSwapChain.set_from_config(readBool("FrameGen", "SkipForeignSwapChain"));
             FGModifyBufferState.set_from_config(readBool("FrameGen", "ModifyBufferState"));
             FGModifySCIndex.set_from_config(readBool("FrameGen", "ModifySCIndex"));
             FGHudCutoff.set_from_config(readFloat("FrameGen", "HudCutoff"));
@@ -239,6 +240,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             FGXeFGDebugView.set_from_config(readBool("XeFG", "DebugView"));
             FGXeFGForceBorderless.set_from_config(readBool("XeFG", "ForceBorderless"));
             XeFGDepthResample.set_from_config(readBool("XeFG", "DepthResample"));
+            XeFGPaceWithFpsCap.set_from_config(readBool("XeFG", "PaceWithFpsCap"));
         }
 
         {
@@ -268,6 +270,8 @@ bool Config::Reload(std::filesystem::path iniPath)
         // Framerate
         {
             FramerateLimit.set_from_config(readFloat("Framerate", "FramerateLimit"));
+            FpsLimitSingleReflexOwner.set_from_config(readBool("Framerate", "SingleReflexOwner"));
+            FpsLimitUseFgMultiplier.set_from_config(readBool("Framerate", "UseFgMultiplier"));
         }
 
         // FSR Common
@@ -428,10 +432,29 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrDetailReuseEnabled.set_from_config(readBool("DlssNr", "DetailReuseEnabled"));
             if (auto ri = readUInt("DlssNr", "DetailReuseInterval"); ri.has_value())
                 DlssNrDetailReuseInterval.set_from_config(std::clamp(ri.value(), 2u, 3u));
+            DlssNrAllowMipmapSubresource.set_from_config(readBool("DlssNr", "AllowMipmapSubresource"));
+            DlssNrOptionalDepth.set_from_config(readBool("DlssNr", "OptionalDepth"));
+            DlssNrGameFrameAge.set_from_config(readBool("DlssNr", "GameFrameAge"));
             if (auto rb = readFloat("DlssNr", "DetailReuseBlend"); rb.has_value())
                 DlssNrDetailReuseBlend.set_from_config(std::clamp(rb.value(), 0.0f, 1.0f));
             if (auto rm = readFloat("DlssNr", "DetailReuseMotionReject"); rm.has_value())
                 DlssNrDetailReuseMotionReject.set_from_config(std::clamp(rm.value(), 0.0f, 1.0f));
+            DlssNrNativeBlend.set_from_config(readBool("DlssNr", "NativeBlend"));
+            DlssNrDepthFadeEnabled.set_from_config(readBool("DlssNr", "DepthFadeEnabled"));
+            if (auto rz = readUInt("DlssNr", "DepthFadeReverseZMode"); rz.has_value())
+                DlssNrDepthFadeReverseZMode.set_from_config(std::clamp(rz.value(), 0u, 2u));
+            if (auto ns = readFloat("DlssNr", "DepthFadeNearStrength"); ns.has_value() && ns.value() >= -1e9f && ns.value() <= 1e9f)
+                DlssNrDepthFadeNearStrength.set_from_config(std::clamp(ns.value(), 0.0f, 1.0f));
+            if (auto fs = readFloat("DlssNr", "DepthFadeFarStrength"); fs.has_value() && fs.value() >= -1e9f && fs.value() <= 1e9f)
+                DlssNrDepthFadeFarStrength.set_from_config(std::clamp(fs.value(), 0.0f, 1.0f));
+            if (auto ss = readFloat("DlssNr", "DepthFadeSkyStrength"); ss.has_value() && ss.value() >= -1e9f && ss.value() <= 1e9f)
+                DlssNrDepthFadeSkyStrength.set_from_config(std::clamp(ss.value(), 0.0f, 1.0f));
+            if (auto nd = readFloat("DlssNr", "DepthFadeNearDepth"); nd.has_value() && nd.value() >= -1e9f && nd.value() <= 1e9f)
+                DlssNrDepthFadeNearDepth.set_from_config(std::clamp(nd.value(), 0.0001f, 0.9999f));
+            if (auto fd = readFloat("DlssNr", "DepthFadeFarDepth"); fd.has_value() && fd.value() >= -1e9f && fd.value() <= 1e9f)
+                DlssNrDepthFadeFarDepth.set_from_config(std::clamp(fd.value(), 0.0001f, 1.0f));
+            if (auto st = readUInt("DlssNr", "SteadyTimerMs"); st.has_value())
+                DlssNrSteadyTimerMs.set_from_config(std::clamp(st.value(), 0u, 2000u));
             UseGenericAppIdWithDlss.set_from_config(readBool("DLSS", "UseGenericAppIdWithDlss"));
 
             RenderPresetOverride.set_from_config(readBool("DLSS", "RenderPresetOverride"));
@@ -677,6 +700,10 @@ bool Config::Reload(std::filesystem::path iniPath)
 
             if (auto setting = readFloat("Menu", "FpsScale"); setting.has_value())
                 FpsScale.set_from_config(std::clamp(setting.value(), 0.5f, 2.0f));
+
+            ShowReflexInputLatency.set_from_config(readBool("Menu", "ShowReflexInputLatency"));
+            if (auto setting = readInt("Menu", "ReflexLatencyAvgSamples"); setting.has_value())
+                ReflexLatencyAvgSamples.set_from_config(std::clamp(setting.value(), 1, 32));
 
             FontSize.set_from_config(readFloat("Menu", "FontSize"));
             TTFFontPath.set_from_config(readWString("Menu", "TTFFontPath"));
@@ -1154,6 +1181,8 @@ bool Config::SaveIni()
                      GetBoolValue(Instance()->FGPreserveSwapChain.value_for_config()).c_str());
         ini.SetValue("FrameGen", "SkipResizeBuffers",
                      GetBoolValue(Instance()->FGSkipResizeBuffers.value_for_config()).c_str());
+        ini.SetValue("FrameGen", "SkipForeignSwapChain",
+                     GetBoolValue(Instance()->FGSkipForeignSwapChain.value_for_config()).c_str());
         ini.SetValue("FrameGen", "ModifyBufferState",
                      GetBoolValue(Instance()->FGModifyBufferState.value_for_config()).c_str());
         ini.SetValue("FrameGen", "ModifySCIndex", GetBoolValue(Instance()->FGModifySCIndex.value_for_config()).c_str());
@@ -1201,6 +1230,8 @@ bool Config::SaveIni()
                      GetBoolValue(Instance()->FGXeFGForceBorderless.value_for_config()).c_str());
         ini.SetValue("XeFG", "DepthResample",
                      GetBoolValue(Instance()->XeFGDepthResample.value_for_config()).c_str());
+        ini.SetValue("XeFG", "PaceWithFpsCap",
+                     GetBoolValue(Instance()->XeFGPaceWithFpsCap.value_for_config()).c_str());
     }
 
     {
@@ -1284,6 +1315,10 @@ bool Config::SaveIni()
     {
         ini.SetValue("Framerate", "FramerateLimit",
                      GetFloatValue(Instance()->FramerateLimit.value_for_config()).c_str());
+        ini.SetValue("Framerate", "SingleReflexOwner",
+                     GetBoolValue(Instance()->FpsLimitSingleReflexOwner.value_for_config()).c_str());
+        ini.SetValue("Framerate", "UseFgMultiplier",
+                     GetBoolValue(Instance()->FpsLimitUseFgMultiplier.value_for_config()).c_str());
     }
 
     // Output Scaling
@@ -1456,8 +1491,20 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "DenoiseFirstStrength", GetFloatValue(Instance()->DlssNrDenoiseFirstStrength.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DetailReuseEnabled", GetBoolValue(Instance()->DlssNrDetailReuseEnabled.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DetailReuseInterval", GetIntValue(Instance()->DlssNrDetailReuseInterval.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "AllowMipmapSubresource", GetBoolValue(Instance()->DlssNrAllowMipmapSubresource.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "OptionalDepth", GetBoolValue(Instance()->DlssNrOptionalDepth.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "GameFrameAge", GetBoolValue(Instance()->DlssNrGameFrameAge.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DetailReuseBlend", GetFloatValue(Instance()->DlssNrDetailReuseBlend.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DetailReuseMotionReject", GetFloatValue(Instance()->DlssNrDetailReuseMotionReject.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "NativeBlend", GetBoolValue(Instance()->DlssNrNativeBlend.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeEnabled", GetBoolValue(Instance()->DlssNrDepthFadeEnabled.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeReverseZMode", GetIntValue(Instance()->DlssNrDepthFadeReverseZMode.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeNearStrength", GetFloatValue(Instance()->DlssNrDepthFadeNearStrength.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeFarStrength", GetFloatValue(Instance()->DlssNrDepthFadeFarStrength.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeSkyStrength", GetFloatValue(Instance()->DlssNrDepthFadeSkyStrength.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeNearDepth", GetFloatValue(Instance()->DlssNrDepthFadeNearDepth.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeFarDepth", GetFloatValue(Instance()->DlssNrDepthFadeFarDepth.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "SteadyTimerMs", GetIntValue(Instance()->DlssNrSteadyTimerMs.value_for_config()).c_str());
         ini.SetValue("DLSS", "RenderPresetOverride",
                      GetBoolValue(Instance()->RenderPresetOverride.value_for_config()).c_str());
         ini.SetValue("DLSS", "RenderPresetForAll",
@@ -1633,6 +1680,10 @@ bool Config::SaveIni()
                      GetBoolValue(Instance()->FpsOverlayHorizontal.value_for_config()).c_str());
         ini.SetValue("Menu", "FpsOverlayAlpha", GetFloatValue(Instance()->FpsOverlayAlpha.value_for_config()).c_str());
         ini.SetValue("Menu", "FpsScale", GetFloatValue(Instance()->FpsScale.value_for_config()).c_str());
+        ini.SetValue("Menu", "ShowReflexInputLatency",
+                     GetBoolValue(Instance()->ShowReflexInputLatency.value_for_config()).c_str());
+        ini.SetValue("Menu", "ReflexLatencyAvgSamples",
+                     GetIntValue(Instance()->ReflexLatencyAvgSamples.value_for_config()).c_str());
         ini.SetValue("Menu", "FontSize", GetFloatValue(Instance()->FontSize.value_for_config()).c_str());
         ini.SetValue("Menu", "TTFFontPath",
                      wstring_to_string(Instance()->TTFFontPath.value_for_config_or(L"auto")).c_str());

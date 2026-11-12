@@ -11,7 +11,9 @@
 #include <upscaler_time/UpscalerTime_Vk.h>
 
 #include <misc/FrameLimit.h>
+#include <misc/FrameLimitPolicy.h>
 #include "Reflex_Hooks.h"
+#include "Xell_Hooks.h"
 
 #include <spoofing/Vulkan_Spoofing.h>
 
@@ -448,7 +450,8 @@ static VkResult hkvkQueuePresentKHR(VkQueue queue, const VkPresentInfoKHR* pPres
     auto result = o_QueuePresentKHR(queue, &localPresentInfo);
 
     // Unsure about Vulkan Reflex fps limit and if that could be causing an issue here
-    if (!State::Instance().reflexLimitsFps)
+    if (!FrameLimitPolicy::ShouldSkipSoftwareInSwapchain(false, XellHooks::canLimit(),
+                                                          ReflexHooks::dlssgFrameCountToGenerate()))
         FrameLimit::sleep(false);
 
     LOG_FUNC_RESULT(result);

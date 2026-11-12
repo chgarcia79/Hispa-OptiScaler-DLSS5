@@ -57,7 +57,7 @@ inline void RenderDx12StabilityTelemetry(bool vulkan)
 
 inline void RenderDev9StabilitySection(Config* config, void (*helpMarker)(const char*))
 {
-    if (!ImGui::TreeNodeEx("Estabilidad, Bordes y Convivencia Nativa (v1.0.4-dev9)", ImGuiTreeNodeFlags_DefaultOpen))
+    if (!ImGui::TreeNodeEx("Estabilidad, Bordes y Convivencia Nativa (v1.0.4-dev10)", ImGuiTreeNodeFlags_DefaultOpen))
         return;
 
     bool edgeGuiding = config->DlssNrResidualEdgeGuiding.value_or_default();
@@ -113,6 +113,44 @@ inline void RenderDev9StabilitySection(Config* config, void (*helpMarker)(const 
         config->DlssNrGpuSafeRetire = gpuSafeRetire;
     helpMarker("Retiene los recursos y features NR retirados hasta que ID3D12Fence confirme que la GPU\n"
                "ha completado todas las listas de comandos en vuelo (imprescindible con Frame Generation).");
+
+    const StabilityTelemetry tel = GetStabilityTelemetry();
+
+    bool allowMipSub = config->DlssNrAllowMipmapSubresource.value_or_default();
+    if (ImGui::Checkbox("Extraer Mip 0 en Texturas Multi-Mipmap (Fix Resonance / Motores Custom)", &allowMipSub))
+        config->DlssNrAllowMipmapSubresource = allowMipSub;
+    helpMarker("Permite usar CopyTextureRegion sobre el subrecurso mip 0 cuando el motor entrega Depth u Output\n"
+               "con multiples mipmaps, en lugar de abortar el pase neural.");
+    if (tel.depthMips > 1 || tel.outputMips > 1)
+    {
+        ImGui::SameLine();
+        ImGui::TextColored(ImVec4(0.45f, 0.90f, 0.55f, 1.0f), "(Multi-mip activo: D%u / O%u)",
+                           tel.depthMips, tel.outputMips);
+    }
+
+    bool optionalDepth = config->DlssNrOptionalDepth.value_or_default();
+    if (ImGui::Checkbox("Continuar sin Depth si falta o es incompatible (Optional Depth)", &optionalDepth))
+        config->DlssNrOptionalDepth = optionalDepth;
+    helpMarker("Si el juego entrega un buffer de profundidad incompatible o nulo, continua con fallback seguro\n"
+               "para evitar pantalla negra o caida de feature.");
+    ImGui::SameLine();
+    if (tel.usingDepthFallback)
+        ImGui::TextColored(ImVec4(1.0f, 0.78f, 0.30f, 1.0f), "(Fallback activo)");
+    else if (tel.depthAvailable)
+        ImGui::TextColored(ImVec4(0.45f, 0.90f, 0.55f, 1.0f), "(Depth valido)");
+    else
+        ImGui::TextDisabled("(Sin Depth)");
+
+    bool gameFrameAge = config->DlssNrGameFrameAge.value_or_default();
+    if (ImGui::Checkbox("Contar Edad Temporal en Frames del Juego (Anti-Parpadeo MFG 3x-6x)", &gameFrameAge))
+        config->DlssNrGameFrameAge = gameFrameAge;
+    helpMarker("Mide la caducidad entre evaluaciones usando la epoca de frames reales del motor en lugar de presents,\n"
+               "evitando falsos reinicios temporales bajo Multi-Frame Generation.");
+
+    int steadyMs = (int) std::clamp(config->DlssNrSteadyTimerMs.value_or_default(), 0u, 1000u);
+    if (ImGui::SliderInt("Suavizado Lectura GPU ms (0 = Crudo)", &steadyMs, 0, 1000, "%d ms"))
+        config->DlssNrSteadyTimerMs = (uint32_t) std::clamp(steadyMs, 0, 1000);
+    helpMarker("Ventana temporal de promediado para estabilizar la lectura en vivo de GPU ms (250 ms recomendado).");
 
     ImGui::TreePop();
 }

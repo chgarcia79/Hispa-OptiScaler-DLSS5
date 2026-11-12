@@ -11,6 +11,7 @@
 #include <format>
 #include "Logger.h"
 #include "SysUtils.h"
+#include "XeFGPacingPolicy.h"
 
 namespace XeFGPacing
 {
@@ -75,19 +76,23 @@ inline void PushPeriod(int64_t ns) {
 
 inline void NoteFrame(uint64_t index, uint64_t count, int64_t nowQpc) {
     if (index > 1) return;
+    const uint64_t countPlus1 = count + 1;
     if (g_lastBurstQpc != 0) {
         const int64_t totalDeltaNs = NsFromQpc(nowQpc - g_lastBurstQpc);
         if (totalDeltaNs >= 1000000LL && totalDeltaNs <= 500000000LL) {
             const int64_t blockNs = NsFromQpc(g_burstBlockQpc);
             const int64_t pureNs = (totalDeltaNs > blockNs + 2000000LL) ? (totalDeltaNs - blockNs) : 2000000LL;
             PushPeriod(pureNs);
-            g_renderTimeNs = g_periodNs;
         }
     }
     g_burstBlockQpc = 0;
     g_lastBurstQpc = nowQpc;
-    if (g_periodNs > 0 && g_freq.QuadPart > 0)
-        g_intervalQpc = QpcFromNs(g_periodNs / (static_cast<int64_t>(count) + 1));
+    const int64_t effectivePeriodNs = XeFGPacingPolicy::ResolveBurstPeriodNs(g_periodNs, countPlus1);
+    if (effectivePeriodNs > 0) {
+        g_renderTimeNs = effectivePeriodNs;
+        if (g_freq.QuadPart > 0)
+            g_intervalQpc = QpcFromNs(effectivePeriodNs / static_cast<int64_t>(countPlus1));
+    }
 }
 
 inline void WaitUntil(int64_t targetQpc) {
@@ -107,14 +112,15 @@ inline void PaceFrame(uint64_t index, uint64_t count) {
     QueryPerformanceCounter(&now);
     NoteFrame(index, count, now.QuadPart);
     if (multiplier <= 2) return;
+    const int64_t effectivePeriodNs = XeFGPacingPolicy::ResolveBurstPeriodNs(g_periodNs, static_cast<uint64_t>(multiplier));
     if (index <= 1) {
-        if (g_periodNs <= 0 || g_intervalQpc <= 0) return;
+        if (effectivePeriodNs <= 0 || g_intervalQpc <= 0) return;
         g_targetQpc = now.QuadPart + g_intervalQpc;
     } else {
         if (g_intervalQpc <= 0) return;
         g_targetQpc += g_intervalQpc;
     }
-    const int64_t latest = now.QuadPart + QpcFromNs(g_periodNs);
+    const int64_t latest = now.QuadPart + QpcFromNs(effectivePeriodNs);
     if (g_targetQpc > latest) g_targetQpc = latest;
     WaitUntil(g_targetQpc);
     QueryPerformanceCounter(&end);
@@ -166,7 +172,13 @@ inline void TryPace(void* ctx, void* arg5, void* arg6, uint64_t arg7, bool isLas
         if (index < 1 || index >= count) return;
     }
     if (g_schedNative != nullptr && SchedulerUsable(ctx)) {
-        if (!isLast) ScheduleFrame(ctx, burst, index);
+        if (!isLast) {
+            ScheduleFrame(ctx, burst, index);
+        } else if (count == 1) {
+            LARGE_INTEGER now {};
+            QueryPerformanceCounter(&now);
+            NoteFrame(index, count, now.QuadPart);
+        }
         return;
     }
     if (isLast && ProviderPacesLastFrame(ctx, burst, count)) return;
@@ -203,7 +215,7 @@ inline void* TsDetour(void* a1, int64_t* out, void* lookup, void* timing, uint32
     if (out == nullptr || timing == nullptr || index == 0 || index > 5 || countPlus1 < 3) return result;
     const int64_t median = *reinterpret_cast<const int64_t*>(reinterpret_cast<const uint8_t*>(timing) + 8);
     const int64_t refNs = (g_renderTimeNs > 0) ? g_renderTimeNs : median;
-    const int64_t stepNs = std::clamp(refNs / static_cast<int64_t>(countPlus1), 1000000LL, 20000000LL);
+    const int64_t stepNs = XeFGPacingPolicy::ComputeTargetStepNs(refNs, countPlus1);
     if (stepNs <= 0) return result;
     LARGE_INTEGER nowQpc {};
     QueryPerformanceCounter(&nowQpc);

@@ -9,5 +9,5 @@ class FrameLimit
     static int combined_sleep(int64_t ns);
 
   public:
-    static void sleep(bool fgActive);
+    static void sleep(bool fgActive, uint32_t fgInterpolatedCount = 0);
 };

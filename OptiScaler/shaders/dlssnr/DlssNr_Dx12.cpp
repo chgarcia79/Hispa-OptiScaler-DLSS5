@@ -32,6 +32,9 @@
 #include "DlssNr_ResidualPair.h"
 #include "DlssNr_DenoiseFirst_Dx12.h"
 #include "DlssNr_DetailReuse_Dx12.h"
+#include "DlssNr_MipSubresource.h"
+#include "DlssNr_DepthFade.h"
+#include <dlssnr/DlssNr_NativeBlend.h>
 #include "precompile/DlssNr_Shader.h"
 #include "precompile/dlssnr_residual_Shader.h"
 #include "../output_scaling/OS_Dx12.h"
@@ -363,6 +366,7 @@ struct NrState
     // The constant-depth probe's surface. Separate from depthClone on purpose: it is defined by
     // never having been written, and sharing a surface with a mode that writes would destroy that.
     ID3D12Resource* depthConstant = nullptr;
+    ID3D12Resource* depthUpload = nullptr;
 
     unsigned int width = 0;
     unsigned int height = 0;
@@ -1196,54 +1200,24 @@ ID3D12Resource* CreateScratch(ID3D12Device* device, DXGI_FORMAT format, unsigned
 void Barrier(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* res, D3D12_RESOURCE_STATES from,
              D3D12_RESOURCE_STATES to)
 {
-    if (from == to)
-        return;
-
-    D3D12_RESOURCE_BARRIER b {};
-    b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    b.Transition.pResource = res;
-    b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    b.Transition.StateBefore = from;
-    b.Transition.StateAfter = to;
-    cmdList->ResourceBarrier(1, &b);
+    DlssNr::MipSubresource::BarrierSubresource0(cmdList, res, from, to);
 }
 
 // A typeless resource cannot be viewed, and NGX builds its own views with nothing to tell it which
 // format to use. Depth is very often declared typeless, so the typed member of the same family is
 // substituted; CopyResource accepts that as a destination for the typeless original.
-DXGI_FORMAT TypedGuideFormat(DXGI_FORMAT f)
-{
-    switch (f)
-    {
-    case DXGI_FORMAT_R32_TYPELESS:
-        return DXGI_FORMAT_R32_FLOAT;
-    case DXGI_FORMAT_R16_TYPELESS:
-        return DXGI_FORMAT_R16_UNORM;
-    case DXGI_FORMAT_R24G8_TYPELESS:
-        return DXGI_FORMAT_R24_UNORM_X8_TYPELESS;
-    case DXGI_FORMAT_R32G8X24_TYPELESS:
-        return DXGI_FORMAT_R32_FLOAT_X8X24_TYPELESS;
-    case DXGI_FORMAT_R32G32_TYPELESS:
-        return DXGI_FORMAT_R32G32_FLOAT;
-    case DXGI_FORMAT_R16G16_TYPELESS:
-        return DXGI_FORMAT_R16G16_FLOAT;
-    case DXGI_FORMAT_R8G8B8A8_TYPELESS:
-        return DXGI_FORMAT_R8G8B8A8_UNORM;
-    case DXGI_FORMAT_R16G16B16A16_TYPELESS:
-        return DXGI_FORMAT_R16G16B16A16_FLOAT;
-    default:
-        return f;
-    }
-}
+DXGI_FORMAT TypedGuideFormat(DXGI_FORMAT f) { return DlssNr::MipSubresource::TypedCloneFormat(f); }
 
 bool IsTypeless(DXGI_FORMAT f) { return TypedGuideFormat(f) != f; }
 
-// Creates a typed twin of a guide buffer, matching everything but the format.
+// Creates a single-mip, single-slice typed clone of a guide buffer.
 ID3D12Resource* CreateGuideClone(ID3D12Device* device, ID3D12Resource* source)
 {
     D3D12_RESOURCE_DESC desc = source->GetDesc();
     desc.Format = TypedGuideFormat(desc.Format);
+    desc.DepthOrArraySize = 1;
     desc.MipLevels = 1;
+    desc.SampleDesc = { 1, 0 };
     desc.Flags = D3D12_RESOURCE_FLAG_NONE;
 
     D3D12_HEAP_PROPERTIES heap {};
@@ -1255,40 +1229,27 @@ ID3D12Resource* CreateGuideClone(ID3D12Device* device, ID3D12Resource* source)
     return res;
 }
 
-// Hands back something the model can actually read: the guide itself when it is typed, or a typed copy
-// of it when it is not. NGX requires its inputs in NON_PIXEL_SHADER_RESOURCE at evaluate time, which is
-// a documented contract rather than a guess about any one game's frame graph, so that is the state
-// transitioned away from and back to here.
-// Freezing is a diagnostic, and it reuses this function because the clone it already keeps is
-// exactly the thing a frozen guide is: a private copy the model reads instead of the live resource.
-// Freezing is then not a new mechanism but the absence of one -- stop refreshing the copy.
-//
-// A frozen guide is valid data that is wrong for this frame, which is a far better probe than a
-// constant would be. A constant is degenerate and a model may special-case it; stale depth is
-// ordinary depth that simply disagrees with the picture, and anything reading it has to notice.
-// Hands back something the model can actually read: the guide itself when it is typed, or a typed
-// copy of it when it is not. NGX requires its inputs in NON_PIXEL_SHADER_RESOURCE at evaluate time,
-// which is a documented contract rather than a guess about any one game's frame graph, so that is
-// the state transitioned away from and back to here.
 ID3D12Resource* ReadableGuide(ID3D12Device* device, ID3D12GraphicsCommandList* cmdList,
-                              ID3D12Resource* source, ID3D12Resource** clone)
+                              ID3D12Resource* source, ID3D12Resource** clone,
+                              bool allowMipmapSubresource = true)
 {
-    if (source == nullptr || (!IsTypeless(source->GetDesc().Format) && source->GetDesc().MipLevels == 1))
+    if (source == nullptr)
+        return nullptr;
+
+    const D3D12_RESOURCE_DESC srcDesc = source->GetDesc();
+    if (srcDesc.SampleDesc.Count > 1)
+        return nullptr;
+    if (!allowMipmapSubresource && DlssNr::MipSubresource::NeedsSubresource0Barrier(srcDesc))
+        return nullptr;
+    if (!DlssNr::MipSubresource::NeedsGuideClone(srcDesc))
         return source;
 
-    // A dynamic-resolution game reallocates its depth and motion vectors as the render size moves, so
-    // the clone made for the old size no longer matches -- and CopyResource demands identical
-    // dimensions. Copying a 1970x1108 source into a 984x554 clone is undefined and removes the device,
-    // which is the DRS crash. Rebuild the clone whenever the source's shape has changed under it.
     if (*clone != nullptr)
     {
         const D3D12_RESOURCE_DESC have = (*clone)->GetDesc();
-        const D3D12_RESOURCE_DESC want = source->GetDesc();
-
-        if (have.Width != want.Width || have.Height != want.Height ||
-            have.Format != TypedGuideFormat(want.Format))
+        if (have.Width != srcDesc.Width || have.Height != srcDesc.Height ||
+            have.Format != TypedGuideFormat(srcDesc.Format))
         {
-            // Retired, not released: the previous copy may still be in flight on the game's queue.
             ParkNrResource(*clone);
         }
     }
@@ -1296,33 +1257,16 @@ ID3D12Resource* ReadableGuide(ID3D12Device* device, ID3D12GraphicsCommandList* c
     if (*clone == nullptr)
     {
         *clone = CreateGuideClone(device, source);
-
         if (*clone == nullptr)
             return nullptr;
 
-        LOG_DEBUG("DLSS-NR cloned a typeless guide as format {}",
-                  (int) TypedGuideFormat(source->GetDesc().Format));
+        LOG_DEBUG("DLSS-NR cloned a guide surface as format {} (src mips={}, array={})",
+                  (int) TypedGuideFormat(srcDesc.Format), srcDesc.MipLevels, srcDesc.DepthOrArraySize);
     }
 
     Barrier(cmdList, source, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
             D3D12_RESOURCE_STATE_COPY_SOURCE);
-    if ((*clone)->GetDesc().MipLevels == source->GetDesc().MipLevels)
-    {
-        cmdList->CopyResource(*clone, source);
-    }
-    else
-    {
-        const D3D12_RESOURCE_DESC d = (*clone)->GetDesc();
-        if (d.Width > 0 && d.Height > 0)
-        {
-            D3D12_TEXTURE_COPY_LOCATION dstLoc { *clone, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX };
-            dstLoc.SubresourceIndex = 0;
-            D3D12_TEXTURE_COPY_LOCATION srcLoc { source, D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX };
-            srcLoc.SubresourceIndex = 0;
-            const D3D12_BOX box { 0, 0, 0, static_cast<UINT>(d.Width), static_cast<UINT>(d.Height), 1 };
-            cmdList->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, &box);
-        }
-    }
+    DlssNr::MipSubresource::CopyTopLevelSubresourceDx12(cmdList, *clone, source);
     Barrier(cmdList, source, D3D12_RESOURCE_STATE_COPY_SOURCE,
             D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
     Barrier(cmdList, *clone, D3D12_RESOURCE_STATE_COPY_DEST,
@@ -1538,6 +1482,12 @@ std::mutex g_nrMutex;
 DlssNr::Contexts::Tracker g_contexts;
 std::atomic<uint64_t> g_absorbedFormatFlips { 0 };
 std::atomic<bool> g_rebuildStandDown { false };
+std::atomic<uint64_t> g_gameEvaluationEpoch { 0 };
+std::atomic<bool> g_mipmapSubresourceActive { false };
+std::atomic<uint32_t> g_depthMips { 0 };
+std::atomic<uint32_t> g_outputMips { 0 };
+std::atomic<bool> g_depthAvailable { true };
+std::atomic<bool> g_usingDepthFallback { false };
 
 bool AcquireMainGameFeature(uint32_t gameFeature, NVSDK_NGX_Parameter* params, const Config& cfg)
 {
@@ -1703,7 +1653,7 @@ bool DlssNr_Dx12::DispatchPass(ID3D12GraphicsCommandList* InCmdList, const DlssN
                                   ID3D12Resource* InSource, ID3D12Resource* InModel,
                                   ID3D12Resource* InOriginal, ID3D12Resource* InMotion,
                                   ID3D12Resource* InPrevEdit, ID3D12Resource* OutTarget,
-                                  ID3D12Resource* OutKeep)
+                                  ID3D12Resource* OutKeep, ID3D12Resource* InDepth)
 {
     if (!_init || InCmdList == nullptr || _device == nullptr || InSource == nullptr || OutTarget == nullptr)
         return false;
@@ -1722,10 +1672,11 @@ bool DlssNr_Dx12::DispatchPass(ID3D12GraphicsCommandList* InCmdList, const DlssN
         InOriginal != nullptr ? InOriginal : InSource,
         InMotion != nullptr ? InMotion : InSource,
         InPrevEdit != nullptr ? InPrevEdit : InSource,
+        InDepth != nullptr ? InDepth : InSource,
     };
 
     for (uint32_t i = 0; i < kSrvCount; ++i)
-        CreateShaderResourceView(_device, srvs[i], currentHeap.GetSrvCPU(i));
+        DlssNr::MipSubresource::CreateTopMipSrv(_device, srvs[i], currentHeap.GetSrvCPU(i));
 
     ID3D12Resource* const uavs[kUavCount] = {
         OutTarget,
@@ -1733,7 +1684,7 @@ bool DlssNr_Dx12::DispatchPass(ID3D12GraphicsCommandList* InCmdList, const DlssN
     };
 
     for (uint32_t i = 0; i < kUavCount; ++i)
-        CreateUnorderedAccessView(_device, uavs[i], currentHeap.GetUavCPU(i), 0);
+        DlssNr::MipSubresource::CreateTopMipUav(_device, uavs[i], currentHeap.GetUavCPU(i));
 
     if (!CreateConstantsBuffer(_device, _constantBuffers[slot], InConstants, currentHeap.GetCbvCPU(0)))
     {
@@ -1794,15 +1745,16 @@ bool DlssNr_Dx12::DispatchResidualPass(ID3D12GraphicsCommandList* InCmdList, con
         InOriginal != nullptr ? InOriginal : InSource,
         InMotion != nullptr ? InMotion : InSource,
         InSource,
+        InSource,
     };
 
     for (uint32_t i = 0; i < kSrvCount; ++i)
-        CreateShaderResourceView(_device, srvs[i], currentHeap.GetSrvCPU(i));
+        DlssNr::MipSubresource::CreateTopMipSrv(_device, srvs[i], currentHeap.GetSrvCPU(i));
 
     ID3D12Resource* const uavs[kUavCount] = { OutTarget, OutTarget };
 
     for (uint32_t i = 0; i < kUavCount; ++i)
-        CreateUnorderedAccessView(_device, uavs[i], currentHeap.GetUavCPU(i), 0);
+        DlssNr::MipSubresource::CreateTopMipUav(_device, uavs[i], currentHeap.GetUavCPU(i));
 
     if (!CreateConstantsBuffer(_device, _constantBuffers[slot], InConstants, currentHeap.GetCbvCPU(0)))
     {
@@ -1838,7 +1790,10 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         return;
     }
 
-    if (g_nr.failed || cmdList == nullptr || colour == nullptr || depth == nullptr ||
+    const bool optionalDepth = cfg.DlssNrOptionalDepth.value_or_default();
+    const bool allowMips = cfg.DlssNrAllowMipmapSubresource.value_or_default();
+
+    if (g_nr.failed || cmdList == nullptr || colour == nullptr || (!optionalDepth && depth == nullptr) ||
         motion == nullptr || output == nullptr)
     {
         ReportSkipOnce(g_nr.failed ? "it already failed this session" : "a resource was missing");
@@ -1879,27 +1834,47 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     const D3D12_RESOURCE_DESC desc = target->GetDesc();
     const auto width = (unsigned int) desc.Width;
     const auto height = desc.Height;
+    if (desc.SampleDesc.Count > 1 || (!allowMips && DlssNr::MipSubresource::NeedsSubresource0Barrier(desc)))
+    {
+        ReportSkipOnce("the output texture uses MSAA or disallowed mip/array subresources");
+        device->Release();
+        return;
+    }
+
     const bool targetSupportsUav = (desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0;
     const bool residualAcrossRr = frame.ResidualAcrossRr && frame.BeforeUpscale;
-
-    const D3D12_RESOURCE_DESC guideDesc = depth->GetDesc();
-    unsigned int guideWidth = (unsigned int) guideDesc.Width;
-    unsigned int guideHeight = guideDesc.Height;
-
-    if (guideWidth == 0 || guideHeight == 0)
-    {
-        guideWidth = width;
-        guideHeight = height;
-    }
 
     const D3D12_RESOURCE_DESC motionDesc = motion->GetDesc();
     unsigned int motionWidth = (unsigned int) motionDesc.Width;
     unsigned int motionHeight = motionDesc.Height;
     if (motionWidth == 0 || motionHeight == 0)
     {
-        motionWidth = guideWidth;
-        motionHeight = guideHeight;
+        motionWidth = width;
+        motionHeight = height;
     }
+
+    D3D12_RESOURCE_DESC guideDesc {};
+    unsigned int guideWidth = motionWidth;
+    unsigned int guideHeight = motionHeight;
+    unsigned int depthMips = 0;
+    if (depth != nullptr)
+    {
+        guideDesc = depth->GetDesc();
+        depthMips = guideDesc.MipLevels;
+        if (guideDesc.Width > 0 && guideDesc.Height > 0)
+        {
+            guideWidth = (unsigned int) guideDesc.Width;
+            guideHeight = guideDesc.Height;
+        }
+    }
+
+    g_outputMips.store(desc.MipLevels, std::memory_order_relaxed);
+    g_depthMips.store(depthMips, std::memory_order_relaxed);
+    g_mipmapSubresourceActive.store(
+        allowMips && (DlssNr::MipSubresource::NeedsSubresource0Barrier(desc) ||
+                      (depth != nullptr && DlssNr::MipSubresource::NeedsSubresource0Barrier(guideDesc)) ||
+                      DlssNr::MipSubresource::NeedsSubresource0Barrier(motionDesc)),
+        std::memory_order_relaxed);
 
     if (frame.RenderSubrectWidth != 0 && frame.RenderSubrectHeight != 0)
     {
@@ -2095,6 +2070,8 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             ParkNrResource(g_nr.colorSmall);
             ParkNrResource(g_nr.depthSmall);
             ParkNrResource(g_nr.motionSmall);
+            ParkNrResource(g_nr.depthConstant);
+            ParkNrResource(g_nr.depthUpload);
             g_nr.loggedGuideMatch = false;
             ParkNrResource(g_nr.outputNative);
             ParkNrResource(g_nr.residualEdited);
@@ -2479,7 +2456,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
                     TransitionTarget(D3D12_RESOURCE_STATE_COPY_SOURCE);
                     Barrier(cmdList, g_nr.heldColor, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                             D3D12_RESOURCE_STATE_COPY_DEST);
-                    cmdList->CopyResource(g_nr.heldColor, target);
+                    DlssNr::MipSubresource::CopyTopLevelSubresourceDx12(cmdList, g_nr.heldColor, target);
                     Barrier(cmdList, g_nr.heldColor, D3D12_RESOURCE_STATE_COPY_DEST,
                             D3D12_RESOURCE_STATE_COPY_SOURCE);
                     TransitionTarget(priorTargetState);
@@ -2495,7 +2472,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             {
                 const D3D12_RESOURCE_STATES priorTargetState = targetState;
                 TransitionTarget(D3D12_RESOURCE_STATE_COPY_DEST);
-                cmdList->CopyResource(target, g_nr.heldColor);
+                DlssNr::MipSubresource::CopyTopLevelSubresourceDx12(cmdList, target, g_nr.heldColor);
                 TransitionTarget(priorTargetState);
             }
 
@@ -2590,8 +2567,34 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
 
     DlssNr::ExposureScan::Tick(device, cmdList);
 
-    ID3D12Resource* depthIn = ReadableGuide(device, cmdList, depth, &g_nr.depthClone);
-    ID3D12Resource* motionIn = ReadableGuide(device, cmdList, motion, &g_nr.motionClone);
+    ID3D12Resource* depthIn = ReadableGuide(device, cmdList, depth, &g_nr.depthClone, allowMips);
+    ID3D12Resource* motionIn = ReadableGuide(device, cmdList, motion, &g_nr.motionClone, allowMips);
+
+    bool usedDepthFallback = false;
+    if (depthIn == nullptr && optionalDepth)
+    {
+        if (g_nr.depthConstant != nullptr)
+        {
+            const auto dcDesc = g_nr.depthConstant->GetDesc();
+            if (dcDesc.Width != guideWidth || dcDesc.Height != guideHeight)
+                ParkNrResource(g_nr.depthConstant);
+        }
+
+        const D3D12_RESOURCE_DESC* invalidDesc = (depth != nullptr) ? &guideDesc : nullptr;
+        const char* reason = (depth == nullptr)
+                                 ? "game did not supply depth"
+                                 : (guideDesc.SampleDesc.Count > 1 ? "game depth is MSAA"
+                                                                   : "game depth mip/format unsupported");
+        DlssNr::MipSubresource::LogDepthFallbackOnce(reason, invalidDesc);
+        depthIn = DlssNr::MipSubresource::EnsureNeutralDepthTexture(device, cmdList, guideWidth, guideHeight,
+                                                                    &g_nr.depthConstant, &g_nr.depthUpload, 1.0f);
+        if (g_nr.depthUpload != nullptr)
+            ParkNrResource(g_nr.depthUpload);
+        usedDepthFallback = (depthIn != nullptr);
+    }
+
+    g_depthAvailable.store(depth != nullptr && depthIn != nullptr && !usedDepthFallback, std::memory_order_relaxed);
+    g_usingDepthFallback.store(usedDepthFallback, std::memory_order_relaxed);
 
     if (depthIn == nullptr || motionIn == nullptr)
     {
@@ -2883,6 +2886,12 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         resolveParams.ResidualEdgeGuiding = cfg.DlssNrResidualEdgeGuiding.value_or_default() ? 1u : 0u;
         resolveParams.ResidualEdgeStrength =
             std::clamp(cfg.DlssNrResidualEdgeStrength.value_or_default(), 0.0f, 1.0f);
+        const D3D12_RESOURCE_DESC fadeDepthDesc = depthIn->GetDesc();
+        const uint32_t fadeDepthW = std::min<uint32_t>(evalGuideWidth, static_cast<uint32_t>(fadeDepthDesc.Width));
+        const uint32_t fadeDepthH = std::min<uint32_t>(evalGuideHeight, static_cast<uint32_t>(fadeDepthDesc.Height));
+        DlssNr::DepthFade::PopulateResolveConstants(cfg, !usedDepthFallback && depth != nullptr,
+                                                    g_nr.guideDepthInverted, fadeDepthW, fadeDepthH, resolveParams);
+        DlssNr::NativeBlend::PopulateResolveConstants(cfg, resolveParams);
         struct ComposeReport
         {
             bool valid;
@@ -2968,7 +2977,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             resolveParams.TransferStrength = 1.0f;
 
         const bool resolved = DispatchPass(cmdList, resolveParams, resolveProxy, resolveAnswer, resolveOriginal,
-                                           motionIn, exposureTex, resolveTarget, nullptr);
+                                           motionIn, exposureTex, resolveTarget, nullptr, depthIn);
 
         if (residualAcrossRr)
         {
@@ -3017,7 +3026,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             Barrier(cmdList, g_nr.hdrCopy, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_SOURCE);
             const D3D12_RESOURCE_STATES priorTargetState = targetState;
             TransitionTarget(D3D12_RESOURCE_STATE_COPY_DEST);
-            cmdList->CopyResource(target, g_nr.hdrCopy);
+            DlssNr::MipSubresource::CopyTopLevelSubresourceDx12(cmdList, target, g_nr.hdrCopy);
             TransitionTarget(priorTargetState);
             Barrier(cmdList, g_nr.hdrCopy, D3D12_RESOURCE_STATE_COPY_SOURCE,
                     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -3166,11 +3175,12 @@ void ApplyResidualAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Par
         return;
 
     ScopedNrStateEnvelope stateEnvelope(cmdList);
+    const bool allowMips = cfg.DlssNrAllowMipmapSubresource.value_or_default();
     const auto desc = output->GetDesc();
     const auto carrier = g_nr.residualComposed->GetDesc();
     if (desc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || desc.SampleDesc.Count != 1 ||
         desc.Width != carrier.Width || desc.Height != carrier.Height || desc.Format != carrier.Format ||
-        desc.DepthOrArraySize != 1 || desc.MipLevels != 1)
+        (!allowMips && DlssNr::MipSubresource::NeedsSubresource0Barrier(desc)))
         return;
 
     auto arrival = cfg.OutputResourceBarrier.has_value() ? (D3D12_RESOURCE_STATES) cfg.OutputResourceBarrier.value()
@@ -3193,7 +3203,7 @@ void ApplyResidualAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Par
         Barrier(cmdList, g_nr.residualComposed, D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
                 D3D12_RESOURCE_STATE_COPY_SOURCE);
         Barrier(cmdList, output, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, D3D12_RESOURCE_STATE_COPY_DEST);
-        cmdList->CopyResource(output, g_nr.residualComposed);
+        DlssNr::MipSubresource::CopyTopLevelSubresourceDx12(cmdList, output, g_nr.residualComposed);
         Barrier(cmdList, output, D3D12_RESOURCE_STATE_COPY_DEST, arrival);
         Barrier(cmdList, g_nr.residualComposed, D3D12_RESOURCE_STATE_COPY_SOURCE,
                 D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE);
@@ -3244,11 +3254,12 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
         }
     }
 
+    const bool optionalDepth = Config::Instance()->DlssNrOptionalDepth.value_or_default();
     ID3D12Resource* target = GetResource(params, NVSDK_NGX_Parameter_Output, "DLSSD.Output");
     ID3D12Resource* depth = GetResource(params, NVSDK_NGX_Parameter_Depth, "DLSSD.Depth");
     ID3D12Resource* motion = GetResource(params, NVSDK_NGX_Parameter_MotionVectors, "DLSSD.MotionVectors");
 
-    if (target == nullptr || depth == nullptr || motion == nullptr)
+    if (target == nullptr || (!optionalDepth && depth == nullptr) || motion == nullptr)
     {
         ReportSkipOnce(target == nullptr    ? "the parameters carried no output texture"
                        : depth == nullptr   ? "the parameters carried no depth"
@@ -3270,7 +3281,9 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
     frame.RayReconstruction =
         State::Instance().dlssdActive || GetResource(params, "DLSSD.Color", "DLSSD.Output") != nullptr;
     frame.ResidualAcrossRr = false;
-    frame.SubmissionEpoch = State::Instance().frameCount;
+    frame.SubmissionEpoch = Config::Instance()->DlssNrGameFrameAge.value_or_default()
+                                ? g_gameEvaluationEpoch.fetch_add(1, std::memory_order_relaxed) + 1
+                                : State::Instance().frameCount;
 
     {
         unsigned int gameReset = 0;
@@ -3418,12 +3431,13 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
     if (cmdList == nullptr || params == nullptr)
         return;
 
+    const bool optionalDepth = cfg.DlssNrOptionalDepth.value_or_default();
     ID3D12Resource* color = GetResource(params, NVSDK_NGX_Parameter_Color, "DLSSD.Color");
     ID3D12Resource* output = GetResource(params, NVSDK_NGX_Parameter_Output, "DLSSD.Output");
     ID3D12Resource* depth = GetResource(params, NVSDK_NGX_Parameter_Depth, "DLSSD.Depth");
     ID3D12Resource* motion = GetResource(params, NVSDK_NGX_Parameter_MotionVectors, "DLSSD.MotionVectors");
 
-    if (color == nullptr || depth == nullptr || motion == nullptr)
+    if (color == nullptr || (!optionalDepth && depth == nullptr) || motion == nullptr)
         return;
 
     D3D12_RESOURCE_DESC colorDesc = color->GetDesc();
@@ -3480,7 +3494,9 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
     frame.BeforeUpscale = true;
     frame.RayReconstruction = rayReconstruction;
     frame.ResidualAcrossRr = residualAcrossRr;
-    frame.SubmissionEpoch = State::Instance().frameCount;
+    frame.SubmissionEpoch = cfg.DlssNrGameFrameAge.value_or_default()
+                                ? g_gameEvaluationEpoch.fetch_add(1, std::memory_order_relaxed) + 1
+                                : State::Instance().frameCount;
 
     if (output != nullptr)
     {
@@ -3490,8 +3506,9 @@ void EvaluateBeforeUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramet
 
         if (residualAcrossRr)
         {
+            const bool allowMips = cfg.DlssNrAllowMipmapSubresource.value_or_default();
             if (outDesc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D || outDesc.SampleDesc.Count != 1 ||
-                outDesc.DepthOrArraySize != 1 || outDesc.MipLevels != 1)
+                (!allowMips && DlssNr::MipSubresource::NeedsSubresource0Barrier(outDesc)))
                 return;
 
             std::lock_guard<std::mutex> nrLock(g_nrMutex);
@@ -3776,6 +3793,13 @@ StabilityTelemetry GetStabilityTelemetry()
     t.skippedSecondaryEvaluates = snap.skippedEvaluates;
     t.absorbedFormatFlips = g_absorbedFormatFlips.load(std::memory_order_relaxed);
     t.stoodDownForRebuilds = g_rebuildStandDown.load(std::memory_order_relaxed);
+    t.mipmapSubresourceActive = g_mipmapSubresourceActive.load(std::memory_order_relaxed);
+    t.depthMips = g_depthMips.load(std::memory_order_relaxed);
+    t.outputMips = g_outputMips.load(std::memory_order_relaxed);
+    t.depthAvailable = g_depthAvailable.load(std::memory_order_relaxed);
+    t.usingDepthFallback = g_usingDepthFallback.load(std::memory_order_relaxed);
+    t.gameDepthInverted = g_nr.guideDepthInverted;
+    t.gameEvaluationEpoch = g_gameEvaluationEpoch.load(std::memory_order_relaxed);
     return t;
 }
 
@@ -3787,6 +3811,11 @@ void Shutdown()
     g_contexts.Reset();
     g_absorbedFormatFlips.store(0, std::memory_order_relaxed);
     g_rebuildStandDown.store(false, std::memory_order_relaxed);
+    g_mipmapSubresourceActive.store(false, std::memory_order_relaxed);
+    g_depthMips.store(0, std::memory_order_relaxed);
+    g_outputMips.store(0, std::memory_order_relaxed);
+    g_depthAvailable.store(false, std::memory_order_relaxed);
+    g_usingDepthFallback.store(false, std::memory_order_relaxed);
 
     if (g_nr.feature != nullptr && g_nr.release != nullptr)
         g_nr.release(g_nr.feature);
@@ -3810,8 +3839,8 @@ void Shutdown()
 
     for (ID3D12Resource** res :
          { &g_nr.output, &g_nr.passScratch, &g_nr.colorCopy, &g_nr.hdrCopy, &g_nr.hdrCopySpare, &g_nr.colorSmall,
-           &g_nr.depthSmall, &g_nr.motionSmall, &g_nr.outputNative, &g_nr.residualEdited, &g_nr.residualHistory[0],
-           &g_nr.residualHistory[1], &g_nr.residualComposed })
+           &g_nr.depthSmall, &g_nr.motionSmall, &g_nr.depthConstant, &g_nr.depthUpload, &g_nr.outputNative,
+           &g_nr.residualEdited, &g_nr.residualHistory[0], &g_nr.residualHistory[1], &g_nr.residualComposed })
     {
         if (*res != nullptr)
         {

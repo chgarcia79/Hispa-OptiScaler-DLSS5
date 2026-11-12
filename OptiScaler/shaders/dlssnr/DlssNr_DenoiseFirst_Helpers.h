@@ -10,6 +10,7 @@
 #include <d3dx/d3dx12.h>
 #include <hooks/D3D12_Hooks.h>
 #include <proxies/NVNGX_Proxy.h>
+#include "DlssNr_MipSubresource.h"
 #include <vector>
 
 namespace DlssNrDx12Helpers
@@ -117,11 +118,7 @@ struct ScopedOneToOneNgxParams
 inline void Transition(ID3D12GraphicsCommandList* cmd, ID3D12Resource* res, D3D12_RESOURCE_STATES from,
                        D3D12_RESOURCE_STATES to)
 {
-    if (res != nullptr && from != to)
-    {
-        auto b = CD3DX12_RESOURCE_BARRIER::Transition(res, from, to);
-        cmd->ResourceBarrier(1, &b);
-    }
+    DlssNr::MipSubresource::BarrierSubresource0(cmd, res, from, to);
 }
 
 inline DXGI_FORMAT ResolveSrvFormat(DXGI_FORMAT fmt)
@@ -178,9 +175,7 @@ inline void CopySubRegion(ID3D12GraphicsCommandList* cmd, ID3D12Resource* dst, D
 {
     Transition(cmd, src, srcState, D3D12_RESOURCE_STATE_COPY_SOURCE);
     Transition(cmd, dst, dstState, D3D12_RESOURCE_STATE_COPY_DEST);
-    const CD3DX12_TEXTURE_COPY_LOCATION dstLoc(dst, 0), srcLoc(src, 0);
-    const CD3DX12_BOX box(0, 0, 0, w, h, 1);
-    cmd->CopyTextureRegion(&dstLoc, 0, 0, 0, &srcLoc, &box);
+    DlssNr::MipSubresource::CopyTopLevelSubresourceDx12(cmd, dst, src, w, h);
     Transition(cmd, dst, D3D12_RESOURCE_STATE_COPY_DEST, dstState);
     Transition(cmd, src, D3D12_RESOURCE_STATE_COPY_SOURCE, srcState);
 }

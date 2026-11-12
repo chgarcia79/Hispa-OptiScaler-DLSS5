@@ -74,5 +74,8 @@
   <ItemGroup>
     <ClCompile Include="dlssnr_forwarder.cpp" />
   </ItemGroup>
+  <ItemGroup>
+    <ResourceCompile Include="dlssnr_forwarder.rc" />
+  </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
 </Project>

@@ -47,6 +47,17 @@ cbuffer Params : register(b0)
     float gHaloRadius;
     uint  gResidualEdgeGuiding;
     float gResidualEdgeStrength;
+    uint  gNativeBlend;
+    uint  gDepthFadeEnabled;
+    uint  gHasValidDepth;
+    uint  gDepthReverseZ;
+    float gDepthNearStrength;
+    float gDepthFarStrength;
+    float gDepthSkyStrength;
+    float gDepthNear;
+    float gDepthFar;
+    uint  gDepthWidth;
+    uint  gDepthHeight;
 };
 
 // Bringing an impossible colour back into a possible one.
@@ -246,7 +257,9 @@ Texture2D<float4>   gMotion   : register(t3);  // resolve, accumulating: the gam
 // live path is compiled out under VK_MODE and gUseGameExposure is never set on that backend.
 #ifndef VK_MODE
 Texture2D<float4>   gExposure : register(t4);
+Texture2D<float4>   gDepth    : register(t5);
 #endif
+#include "dlssnr_depthfade.hlsli"
 #ifdef VK_MODE
 [[vk::binding(5, 0)]]
 #endif
@@ -354,6 +367,20 @@ float3 SoftKnee(float3 display)
         display /= peak;
 
     return display;
+}
+
+float3 SoftKneeDecode(float3 y)
+{
+    const float knee = 0.75;
+    float luma = dot(y, kLuma);
+    if (luma <= knee)
+        return y;
+
+    const float head = 1.0 - knee;
+    float rolled = min(luma, 0.999999);
+    float norm = saturate((rolled - knee) / head);
+    float xLuma = knee - head * log(max(1.0 - norm, 1e-6));
+    return y * (xLuma / max(luma, 1e-6));
 }
 
 // The reversible proxy, from RenoDX's Sep-2 DLSS 5 addon (clshortfuse) -- an unclipped, hue-preserving
@@ -854,6 +881,13 @@ void CSMain(uint3 id : SV_DispatchThreadID)
         return;
     }
 
+    if (gDebugView == 4)
+    {
+        float maskWeight = saturate(ComputeDepthFadeWeightRaw(cmpUv));
+        gTarget[id.xy] = float4(SrgbToLinear(float3(maskWeight, maskWeight, maskWeight)) * gDebugScale, originalSample.a);
+        return;
+    }
+
     // There is no accumulator here, and this is where one used to be.
     //
     // The edit was averaged over time -- blended with its own reprojected history to keep the part
@@ -937,131 +971,97 @@ void CSMain(uint3 id : SV_DispatchThreadID)
     // original's luminance says it should. Adding a difference is what let colour run away: nothing
     // bounded where the sum landed, so a warm subject could arrive green. Here both ends of every
     // blend are well-formed pictures, so everything between them is one too.
-    float modelLuma = dot(model, kLuma);
-    float3 upgraded;
+    const float depthWeight = ComputeDepthFadeWeight(cmpUv);
+    const float effectiveStrength = gTransferStrength * depthWeight;
 
-    if (modelLuma <= 1e-5)
+    float modelLuma = dot(model, kLuma);
+    float3 result = original;
+
+    if (gNativeBlend != 0 && gReversibleMode != 2 && gReversibleMode != 4)
     {
-        // The model can return an empty frame for an input it cannot read. Rescaling that collapses
-        // the picture to black, so the frame is handed back untouched instead.
-        upgraded = original;
+        if (modelLuma > 1e-5)
+        {
+            float3 modelDecoded = gPassthrough != 0 ? model
+                                  : (gReversibleMode >= 3 ? HybridDecode(model)
+                                     : (gReversibleMode >= 1 ? NeutwoDecode(model)
+                                                             : SoftKneeDecode(model)));
+            result = lerp(original, max(modelDecoded, 0.0), saturate(effectiveStrength));
+        }
     }
     else
     {
-        float ratio;
+        float3 upgraded;
 
-        if (originalLuma < proxyLuma)
+        if (modelLuma <= 1e-5)
         {
-            // Below what the proxy showed: the frame's own luminance is the target.
-            ratio = originalLuma / max(proxyLuma, 1e-6);
+            // The model can return an empty frame for an input it cannot read. Rescaling that collapses
+            // the picture to black, so the frame is handed back untouched instead.
+            upgraded = original;
         }
         else
         {
-            // Above it, the difference is headroom the proxy could not represent -- brightness the
-            // frame really has and the model never saw. It is handed back on top of the model's own
-            // answer rather than scaled away, which is what kept highlights from being muted.
-            ratio = (modelLuma + max(0.0, originalLuma - proxyLuma)) / modelLuma;
+            float ratio;
+
+            if (originalLuma < proxyLuma)
+            {
+                // Below what the proxy showed: the frame's own luminance is the target.
+                ratio = originalLuma / max(proxyLuma, 1e-6);
+            }
+            else
+            {
+                // Above it, the difference is headroom the proxy could not represent -- brightness the
+                // frame really has and the model never saw. It is handed back on top of the model's own
+                // answer rather than scaled away, which is what kept highlights from being muted.
+                ratio = (modelLuma + max(0.0, originalLuma - proxyLuma)) / modelLuma;
+            }
+
+            upgraded = lerp(original, HueOkLab(model * ratio, model), saturate(effectiveStrength));
         }
 
-        // Saturated deliberately. lerp past 1 extrapolates -- it walks beyond the target instead
-        // of towards it -- and the target is the only well-formed picture in the pair, so the
-        // guarantee stated above holds on [0,1] and nowhere else. Past it the channels spread apart
-        // faster than luminance does, and the guard below cannot pull them back: it scales the whole
-        // triple by one scalar, which corrects luminance while preserving the spread. A lit face at
-        // strength 2 clips to white, and it starts to show just past 1.
-        //
-        // Strength above 1 is carried below instead, as an amplification of the luminance ratio,
-        // which the guard does bound.
-        upgraded = lerp(original, HueOkLab(model * ratio, model), saturate(gTransferStrength));
+        float upgradedLuma = dot(upgraded, kLuma);
+        const float kRatioFloor = 1.0 / 512.0;
+        float lumaRatio = (upgradedLuma + kRatioFloor) / (originalLuma + kRatioFloor);
+
+        const float amplified = pow(max(lumaRatio, 1e-6), 1.0 + max(effectiveStrength - 1.0, 0.0));
+
+        const float guard = max(gMaxRatio, 1.0);
+        float boundedRatio = clamp(amplified, 1.0 / guard, guard);
+
+        // DLSSNR v0.2.0 Anti-Starvation: cuando la luminancia original es muy alta (sol, fuego, explosiones),
+        // evita que la inferencia neural se quede sin gradiente ("starvation") y genere halos oscuros alrededor.
+        if (gAntiStarvation != 0 && originalLuma > 0.85)
+        {
+            float excess = max(originalLuma - 0.85, 0.0);
+            float starvDamp = 1.0 / (1.0 + log2(1.0 + excess * 2.0));
+            boundedRatio = lerp(boundedRatio, max(boundedRatio, 1.0), starvDamp);
+        }
+
+        upgraded *= boundedRatio / max(lumaRatio, 1e-6);
+
+        result = lerp(original * boundedRatio, upgraded, min(gColourStrength, 1.0));
+
+        if (gColourStrength > 1.0)
+        {
+            float satBoost = gDepthFadeEnabled != 0 ? (1.0 + (gColourStrength - 1.0) * saturate(depthWeight))
+                                                    : gColourStrength;
+            result = ClampAp1(FromOkLab(float3(1.0, satBoost, satBoost) * ToOkLab(max(result, 0.0))));
+        }
+
+        // Replace mode: the model's answer IS the picture, decoded through Neutwo's exact inverse, with
+        // NONE of the composition above -- no ratio, no highlight guard, no palette blend. This is the
+        // RenoDX reversible-bridge behaviour and the second half of the A/B: composed vs pure model. On a
+        // passthrough frame the model already worked in the frame's own space, so it is taken directly.
+        if (gReversibleMode == 2)
+        {
+            float3 replaceResult = gPassthrough != 0 ? modelDirect : NeutwoDecode(modelDirect);
+            result = gDepthFadeEnabled != 0 ? lerp(original, replaceResult, saturate(depthWeight)) : replaceResult;
+        }
+        else if (gReversibleMode == 4)
+        {
+            float3 replaceResult = gPassthrough != 0 ? modelDirect : HybridDecode(modelDirect);
+            result = gDepthFadeEnabled != 0 ? lerp(original, replaceResult, saturate(depthWeight)) : replaceResult;
+        }
     }
-
-    // Detail strength decides how much of the model's picture is reached at all; colour strength
-    // decides whether its colour comes with it. At 0 the frame keeps the game's own hue exactly and
-    // only its light carries the model's verdict; at 1 the model's colour arrives as well.
-    float upgradedLuma = dot(upgraded, kLuma);
-
-    // A ratio against a dark pixel is unbounded, and clamping it is not the same as taming it.
-    //
-    // In linear light divided by paper white a shadowed pixel sits around a thousandth, so a tiny
-    // absolute edit from the model becomes an enormous ratio, hits the clamp, and doubles that
-    // pixel's brightness. The next frame it lands slightly differently and the pixel drops back.
-    // That is the boiling: patches of lighter colour crawling over otherwise still geometry, worst
-    // where the picture is darkest.
-    //
-    // Adding the same floor above and below leaves bright pixels alone -- where luminance is far
-    // larger than the floor the term vanishes -- while making the ratio fall smoothly to one as
-    // luminance approaches zero. No edit at all is the right answer for a pixel with no light in it.
-    const float kRatioFloor = 1.0 / 512.0;
-    float lumaRatio = (upgradedLuma + kRatioFloor) / (originalLuma + kRatioFloor);
-
-    // Where detail strength above 1 goes.
-    //
-    // Raising the ratio to a power rather than extending the blend keeps every property that
-    // matters: it cannot go negative, it leaves a pixel the model did not change alone -- one to any
-    // power is one -- and it moves brightening and darkening by the same factor in opposite
-    // directions, so it does not favour either. Most importantly the result is still a ratio, so the
-    // guard below binds it, which is exactly what the extrapolated blend escaped.
-    //
-    // The correction further down divides by the unamplified ratio, so the composed picture ends up
-    // at the original's luminance times the bounded ratio either way. Strength 1 leaves this the
-    // identity and the pass bit-identical to before.
-    const float amplified = pow(max(lumaRatio, 1e-6), 1.0 + max(gTransferStrength - 1.0, 0.0));
-
-    // The guard binds the composed picture, not only the luminance-only end of the blend below.
-    //
-    // It used to bind `original * lumaRatio` and nothing else -- the colour-strength-zero end. At
-    // colour strength 1, which is the default, that end is never reached, so the guard did nothing
-    // at all and whatever the model returned was handed back unbounded. Where the soft knee fires
-    // that stays hidden, because the headroom term above makes the frame's own brightness dominate
-    // the result. Where the knee does not fire -- any dark scene -- the ratio degenerates to one,
-    // the composition reduces to the model's own picture, and every frame the model re-decided
-    // arrived whole. That is the flicker reported in Nioh 3, and it worsened with paper white
-    // because the model's answer is multiplied by it on the way out.
-    //
-    // Two-sided, because the failure measured there was a collapse and not a runaway: red fell 57%
-    // while an upward-only bound sat watching it. The control's own help text said darkening was
-    // deliberately uncapped; that was decided before there was a case against it.
-    //
-    // One scalar, taken from luminance, applied to the whole triple. A per-channel bound is a hue
-    // distorter -- on a saturated pixel the smallest channel reaches the bound first, so an
-    // achromatic edit lands as a colour shift.
-    const float guard = max(gMaxRatio, 1.0);
-    float boundedRatio = clamp(amplified, 1.0 / guard, guard);
-
-    // DLSSNR v0.2.0 Anti-Starvation: cuando la luminancia original es muy alta (sol, fuego, explosiones),
-    // evita que la inferencia neural se quede sin gradiente ("starvation") y genere halos oscuros alrededor.
-    if (gAntiStarvation != 0 && originalLuma > 0.85)
-    {
-        float excess = max(originalLuma - 0.85, 0.0);
-        float starvDamp = 1.0 / (1.0 + log2(1.0 + excess * 2.0));
-        boundedRatio = lerp(boundedRatio, max(boundedRatio, 1.0), starvDamp);
-    }
-
-    // Exactly one while the ratio is already inside the guard, so a frame that never needed bounding
-    // is untouched rather than rounded, and strength zero stays bit-identical.
-    upgraded *= boundedRatio / max(lumaRatio, 1e-6);
-
-    // Both ends of the blend now sit inside the same guard, so neither needs a second clamp.
-    //
-    // Colour strength 0..1 blends toward the model's colour, as before. Above 1 it OVER-SATURATES: the
-    // blend caps at the model's colour (min), then the excess scales CHROMA in OkLab -- L and hue kept,
-    // only a and b grow -- and ClampAp1 below pulls anything past the gamut back by desaturating toward
-    // neutral, NOT by clipping channels. So an over-driven colour rolls off at the gamut boundary
-    // (maximally vivid but still a real colour with detail) instead of flattening into a blown peak.
-    // At strength 1 the boost is the identity, so <=1 is bit-identical to before.
-    float3 result = lerp(original * boundedRatio, upgraded, min(gColourStrength, 1.0));
-
-    if (gColourStrength > 1.0)
-        result = ClampAp1(FromOkLab(float3(1.0, gColourStrength, gColourStrength) * ToOkLab(max(result, 0.0))));
-
-    // Replace mode: the model's answer IS the picture, decoded through Neutwo's exact inverse, with
-    // NONE of the composition above -- no ratio, no highlight guard, no palette blend. This is the
-    // RenoDX reversible-bridge behaviour and the second half of the A/B: composed vs pure model. On a
-    // passthrough frame the model already worked in the frame's own space, so it is taken directly.
-    if (gReversibleMode == 2)
-        result = gPassthrough != 0 ? modelDirect : NeutwoDecode(modelDirect);
-    else if (gReversibleMode == 4)
-        result = gPassthrough != 0 ? modelDirect : HybridDecode(modelDirect);
 
     // Back out of the normalised space the composition worked in.
     result *= normScale;

@@ -3,6 +3,7 @@
 #include "DlssNr_ExposureScan.h"
 
 #include <Config.h>
+#include <shaders/dlssnr/DlssNr_MipSubresource.h>
 #include <Util.h>
 
 #include <algorithm>
@@ -152,17 +153,7 @@ float HalfToFloat(uint16_t h)
 void Barrier(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* res, D3D12_RESOURCE_STATES from,
              D3D12_RESOURCE_STATES to)
 {
-    if (res == nullptr || from == to)
-        return;
-
-    D3D12_RESOURCE_BARRIER barrier {};
-    barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-    barrier.Flags = D3D12_RESOURCE_BARRIER_FLAG_NONE;
-    barrier.Transition.pResource = res;
-    barrier.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
-    barrier.Transition.StateBefore = from;
-    barrier.Transition.StateAfter = to;
-    cmdList->ResourceBarrier(1, &barrier);
+    DlssNr::MipSubresource::BarrierSubresource0(cmdList, res, from, to);
 }
 
 bool EnsureReadback(ID3D12Device* device)

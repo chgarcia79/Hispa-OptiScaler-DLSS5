@@ -1,5 +1,6 @@
 #include "pch.h"
 #include "Reflex_Hooks.h"
+#include <hooks/Xell_Hooks.h>
 #include <Config.h>
 
 #include <nvapi/fakenvapi.h>
@@ -31,7 +32,7 @@ NvAPI_Status ReflexHooks::hkNvAPI_D3D_SetSleepMode(IUnknown* pDev, NV_SET_SLEEP_
     if (State::Instance().gameQuirks & GameQuirk::HitmanReflexHacks)
         _lastSetSleepThread = std::this_thread::get_id();
 
-    if (_minimumIntervalUs != 0)
+    if (State::Instance().reflexLimitsFps && _minimumIntervalUs != 0)
         pSetSleepModeParams->minimumIntervalUs = _minimumIntervalUs;
 
     if (State::Instance().activeFgOutput == FGOutput::XeFG)
@@ -99,45 +100,62 @@ NvAPI_Status ReflexHooks::hkNvAPI_D3D_SetLatencyMarker(IUnknown* pDev,
     LOG_FUNC();
 #endif
 
-    _updatesWithoutMarker = 0;
+    if (pSetLatencyMarkerParams == nullptr)
+        return State::Instance().activeFgOutput == FGOutput::XeFG
+                   ? nvapi_calls::NvAPI_D3D_SetLatencyMarker(pDev, pSetLatencyMarkerParams)
+                   : o_NvAPI_D3D_SetLatencyMarker(pDev, pSetLatencyMarkerParams);
 
-    // LOG_DEBUG("frameID: {}, markerType: {}", pSetLatencyMarkerParams->frameID,
-    //           magic_enum::enum_name(pSetLatencyMarkerParams->markerType));
+    const bool isInternalPcl = _internalPclDepth > 0;
+    const bool isOutOfBandMarker = pSetLatencyMarkerParams->markerType >= OUT_OF_BAND_RENDERSUBMIT_START;
 
-    // Some games just stop sending any async markers when DLSSG is disabled, so a reset is needed
-    if (_lastAsyncMarkerFrameId + 10 < pSetLatencyMarkerParams->frameID)
+    if (!isInternalPcl)
     {
-        _FgNumFramesToGenerate = 0;
-    }
-
-    // RTSS reflex markers have a frameid marker in the high bits
-    if (pSetLatencyMarkerParams->frameID >> 32)
-    {
-        if (!State::Instance().rtssReflexInjection && State::Instance().activeFgOutput == FGOutput::XeFG)
+        if (isOutOfBandMarker)
         {
-            ImGuiToast notification { ImGuiToastType::Warning, 10000 };
-            notification.setTitle("RTSS + XeFG detected");
-            notification.setContent(
-                "RTSS Reflex Injection is known to cause issues.\nEspecially when using XeFG.\nPlease disable it.");
-            ImGui::InsertNotification(notification);
+            _hasAsyncMarker = true;
+            _updatesWithoutAsyncMarker = 0;
+            _lastAsyncMarkerFrameId = pSetLatencyMarkerParams->frameID;
         }
+        else
+        {
+            _updatesWithoutMarker = 0;
 
-        State::Instance().rtssReflexInjection = true;
+            // LOG_DEBUG("frameID: {}, markerType: {}", pSetLatencyMarkerParams->frameID,
+            //           magic_enum::enum_name(pSetLatencyMarkerParams->markerType));
+
+            // RTSS reflex markers have a frameid marker in the high bits
+            if (pSetLatencyMarkerParams->frameID >> 32)
+            {
+                if (!State::Instance().rtssReflexInjection && State::Instance().activeFgOutput == FGOutput::XeFG)
+                {
+                    ImGuiToast notification { ImGuiToastType::Warning, 10000 };
+                    notification.setTitle("RTSS + XeFG detected");
+                    notification.setContent(
+                        "RTSS Reflex Injection is known to cause issues.\nEspecially when using XeFG.\nPlease disable it.");
+                    ImGui::InsertNotification(notification);
+                }
+
+                State::Instance().rtssReflexInjection = true;
+            }
+
+            // TODO: reflexFrameId gets constantly changed, up and down depending on the marker
+            State::Instance().reflexFrameId = pSetLatencyMarkerParams->frameID;
+
+            if (pSetLatencyMarkerParams->markerType < std::size(_lastFrameId))
+            {
+                _lastFrameId[pSetLatencyMarkerParams->markerType] = pSetLatencyMarkerParams->frameID;
+                _lastDev[pSetLatencyMarkerParams->markerType] = pDev;
+            }
+
+            if (pSetLatencyMarkerParams->markerType == SIMULATION_START)
+                _lastMarkerFrame = State::Instance().fgLastFrame;
+        }
     }
-
-    // TODO: reflexFrameId gets constantly changed, up and down depending on the marker
-    State::Instance().reflexFrameId = pSetLatencyMarkerParams->frameID;
-
-    // if (pSetLatencyMarkerParams->markerType == PRESENT_END)
-    _lastFrameId[pSetLatencyMarkerParams->markerType] = pSetLatencyMarkerParams->frameID;
-    _lastDev[pSetLatencyMarkerParams->markerType] = pDev;
 
     static bool skip[20] = {};
 
-    if (pSetLatencyMarkerParams->markerType == SIMULATION_START)
-        _lastMarkerFrame = State::Instance().fgLastFrame;
-
-    if (State::Instance().activeFgOutput == FGOutput::DLSSG && StreamlineProxy::IsD3D12Inited() &&
+    if (!isInternalPcl && !isOutOfBandMarker &&
+        State::Instance().activeFgOutput == FGOutput::DLSSG && StreamlineProxy::IsD3D12Inited() &&
         Config::Instance()->FGDLSSGUseGamesReflexMarkers.value_or_default() && State::Instance().currentFG &&
         State::Instance().currentFG->IsActive() && !State::Instance().currentFG->IsPaused())
     {
@@ -278,7 +296,12 @@ NvAPI_Status ReflexHooks::hkNvAPI_D3D12_SetAsyncFrameMarker(ID3D12CommandQueue* 
     LOG_FUNC();
 #endif
 
-    _lastAsyncMarkerFrameId = pSetAsyncFrameMarkerParams->frameID;
+    if (pSetAsyncFrameMarkerParams != nullptr && _internalPclDepth == 0)
+    {
+        _hasAsyncMarker = true;
+        _updatesWithoutAsyncMarker = 0;
+        _lastAsyncMarkerFrameId = pSetAsyncFrameMarkerParams->frameID;
+    }
 
     // if (pSetAsyncFrameMarkerParams->markerType == OUT_OF_BAND_PRESENT_START)
     //{
@@ -365,8 +388,11 @@ NvAPI_Status ReflexHooks::hkNvAPI_Vulkan_SetLatencyMarker(HANDLE vkDevice,
     LOG_FUNC();
 #endif
 
-    _updatesWithoutMarker = 0;
-    State::Instance().reflexFrameId = pSetLatencyMarkerParams->frameID;
+    if (pSetLatencyMarkerParams != nullptr && _internalPclDepth == 0)
+    {
+        _updatesWithoutMarker = 0;
+        State::Instance().reflexFrameId = pSetLatencyMarkerParams->frameID;
+    }
 
     return o_NvAPI_Vulkan_SetLatencyMarker(vkDevice, pSetLatencyMarkerParams);
 }
@@ -381,7 +407,7 @@ NvAPI_Status ReflexHooks::hkNvAPI_Vulkan_SetSleepMode(HANDLE vkDevice,
     memcpy(&_lastVkSleepParams, pSetSleepModeParams, sizeof(NV_VULKAN_SET_SLEEP_MODE_PARAMS));
     _lastVkSleepDev = vkDevice;
 
-    if (_minimumIntervalUs != 0)
+    if (State::Instance().reflexLimitsFps && _minimumIntervalUs != 0)
         pSetSleepModeParams->minimumIntervalUs = _minimumIntervalUs;
 
     return o_NvAPI_Vulkan_SetSleepMode(vkDevice, pSetSleepModeParams);
@@ -478,10 +504,83 @@ void* ReflexHooks::getHookedReflex(unsigned int InterfaceId)
         timingData[TimingType::type].reset();                                                                          \
     }
 
+void ReflexHooks::clearInputLatency()
+{
+    std::scoped_lock lock(_latencyMutex);
+    _latencySamples.clear();
+    _inputLatencyMs.reset();
+    _lastLatencyFrameId = 0;
+    _lastLatencyReportFrameId = 0;
+}
+
+std::optional<double> ReflexHooks::inputLatencyMs()
+{
+    std::scoped_lock lock(_latencyMutex);
+    return _inputLatencyMs;
+}
+
 bool ReflexHooks::updateTimingData()
 {
-    if (!_inited)
+    if (!_inited || _updatesWithoutMarker > 20)
+    {
+        clearInputLatency();
         return false;
+    }
+
+    auto updateLatencyWindow = [&](const auto& reports)
+    {
+        constexpr size_t reportCount = std::size(reports);
+        const uint64_t latestReportFrameId = reports[reportCount - 1].frameID;
+
+        std::scoped_lock lock(_latencyMutex);
+        if (latestReportFrameId == 0 || latestReportFrameId == _lastLatencyReportFrameId)
+        {
+            _latencySamples.clear();
+            _inputLatencyMs.reset();
+            _lastLatencyFrameId = 0;
+            _lastLatencyReportFrameId = 0;
+            return;
+        }
+
+        if (latestReportFrameId < _lastLatencyFrameId)
+        {
+            _latencySamples.clear();
+            _inputLatencyMs.reset();
+            _lastLatencyFrameId = 0;
+        }
+
+        _lastLatencyReportFrameId = latestReportFrameId;
+        for (const auto& rep : reports)
+        {
+            if (rep.frameID <= _lastLatencyFrameId)
+                continue;
+
+            const uint64_t startTime = (rep.inputSampleTime != 0) ? rep.inputSampleTime : rep.simStartTime;
+            const uint64_t endTime = rep.gpuRenderEndTime;
+            if (startTime != 0 && endTime > startTime && (endTime - startTime) < 2'000'000ULL)
+            {
+                _latencySamples.push_back(static_cast<double>(endTime - startTime) / 1000.0);
+                _lastLatencyFrameId = rep.frameID;
+            }
+        }
+
+        const size_t maxSamples =
+            static_cast<size_t>(std::clamp(Config::Instance()->ReflexLatencyAvgSamples.value_or_default(), 1, 32));
+        while (_latencySamples.size() > maxSamples)
+            _latencySamples.pop_front();
+
+        if (_latencySamples.empty())
+        {
+            _inputLatencyMs.reset();
+        }
+        else
+        {
+            double sum = 0.0;
+            for (double sample : _latencySamples)
+                sum += sample;
+            _inputLatencyMs = sum / static_cast<double>(_latencySamples.size());
+        }
+    };
 
     auto processFrameReport = [&](const auto& frameReport) -> bool
     {
@@ -531,8 +630,11 @@ bool ReflexHooks::updateTimingData()
         if (auto result = hkNvAPI_D3D_GetLatency(_lastSleepDev, results); result != NVAPI_OK)
         {
             LOG_WARN("NvAPI_D3D_GetLatency failed: {}", magic_enum::enum_name(result));
+            clearInputLatency();
             return false;
         }
+
+        updateLatencyWindow(results->frameReport);
 
         // 64th element has the latest data
         return processFrameReport(results->frameReport[63]);
@@ -547,13 +649,17 @@ bool ReflexHooks::updateTimingData()
         if (auto result = hkNvAPI_Vulkan_GetLatency(_lastVkSleepDev, results); result != NVAPI_OK)
         {
             LOG_WARN("NvAPI_Vulkan_GetLatency failed: {}", magic_enum::enum_name(result));
+            clearInputLatency();
             return false;
         }
+
+        updateLatencyWindow(results->frameReport);
 
         // 64th element has the latest data
         return processFrameReport(results->frameReport[63]);
     }
 
+    clearInputLatency();
     return false;
 }
 
@@ -563,71 +669,104 @@ void ReflexHooks::update(bool fgActive, bool isVulkan)
     // We can still use just the markers to limit the fps with Reflex disabled
     // But need to fallback in case a game stops sending them for some reason
     _updatesWithoutMarker++;
+    if (_hasAsyncMarker)
+    {
+        _updatesWithoutAsyncMarker++;
+        if (_updatesWithoutAsyncMarker > 20)
+        {
+            _hasAsyncMarker = false;
+            _updatesWithoutAsyncMarker = 0;
+            _FgNumFramesToGenerate = 0;
+            LOG_DEBUG("DLSS FG async markers stopped; reset FG multiplier");
+        }
+    }
 
     State::Instance().reflexShowWarning = false;
 
+    static float lastFps = 0.0f;
+    static bool lastReflexLimitsFps = false;
+    static uint64_t lastSyncRevision = 0;
+    static LowLatencyMode lastLowLatencyMode = fakenvapi::getCurrentMode();
+    static uint8_t lastFgNumFramesToGenerate = 0;
+
     if (_updatesWithoutMarker > 20 || !_inited)
     {
+        clearInputLatency();
         State::Instance().reflexLimitsFps = false;
+        if (_activeRoute != FpsLimitBackend::None || lastReflexLimitsFps)
+        {
+            applySleepLimitToRoute(_activeRoute, 0u);
+            FpsLimitSync::ReleaseBackend(_activeRoute);
+            _activeRoute = FpsLimitBackend::None;
+            _minimumIntervalUs = 0;
+            lastReflexLimitsFps = false;
+            lastFps = 0.0f;
+        }
         return;
     }
 
+    bool wantsReflexFps = false;
     if (isVulkan && _lastVkSleepDev)
     {
         // fgActive doesn't matter for vulkan
         // isUsingAsMainNvapi() because fakenvapi might override the reflex' setting and we don't know it
-        State::Instance().reflexLimitsFps = fakenvapi::isUsingAsMainNvapi() || _lastVkSleepParams.bLowLatencyMode;
+        wantsReflexFps = fakenvapi::isUsingAsMainNvapi() || _lastVkSleepParams.bLowLatencyMode;
     }
     else if (_lastSleepDev)
     {
         // Don't use when: Real Reflex markers + FSR FG + Reflex disabled, causes huge input latency
-        State::Instance().reflexLimitsFps =
-            fakenvapi::isUsingAsMainNvapi() || !fgActive || _lastSleepParams.bLowLatencyMode;
+        wantsReflexFps = fakenvapi::isUsingAsMainNvapi() || !fgActive || _lastSleepParams.bLowLatencyMode;
         State::Instance().reflexShowWarning = State::Instance().activeFgOutput == FGOutput::FSRFG &&
                                               !fakenvapi::isUsingAsMainNvapi() && fgActive &&
                                               _lastSleepParams.bLowLatencyMode;
     }
-    else
+
+    const FpsLimitBackend targetRoute =
+        wantsReflexFps ? FpsLimitSync::ResolveReflexRoute(isVulkan, State::Instance().activeFgOutput == FGOutput::XeFG,
+                                                          _lastSleepDev != nullptr, _lastVkSleepDev != nullptr)
+                       : FpsLimitBackend::None;
+
+    const bool shouldOwn =
+        wantsReflexFps && targetRoute != FpsLimitBackend::None &&
+        FpsLimitSync::ShouldReflexOwn(wantsReflexFps, gameIsSendingMarkers(), fgActive, XellHooks::isGameLowLatencyActive());
+
+    State::Instance().reflexLimitsFps = shouldOwn;
+
+    if (!shouldOwn)
     {
-        State::Instance().reflexLimitsFps = false;
+        if (_activeRoute != FpsLimitBackend::None || lastReflexLimitsFps)
+        {
+            applySleepLimitToRoute(_activeRoute, 0u);
+            FpsLimitSync::ReleaseBackend(_activeRoute);
+            _activeRoute = FpsLimitBackend::None;
+            _minimumIntervalUs = 0;
+            lastReflexLimitsFps = false;
+            lastFps = 0.0f;
+        }
+        return;
     }
 
-    // Disable reflex fps limiting when reflex is force disabled
-    // TODO: It changes without pressing apply, XeLL with XeFG can't actually be disabled so this is wrong
-    //
-    // Wait for fakenvapi to be merged into Opti for better integration
-    //
-    // if (State::Instance().reflexLimitsFps && (fakenvapi::isUsingAsMainNvapi() ||
-    // fakenvapi::isUsingOnNvidia())
-    // &&
-    //    Config::Instance()->FN_ForceReflex.value_or_default() == 1)
-    //{
-    //    State::Instance().reflexLimitsFps = false;
-    //}
-
-    static float lastFps = 0;
-    static bool lastReflexLimitsFps = State::Instance().reflexLimitsFps;
-    static LowLatencyMode lastLowLatencyMode = fakenvapi::getCurrentMode();
-
-    // Reset required when toggling Reflex
-    if (State::Instance().reflexLimitsFps != lastReflexLimitsFps)
+    bool forceApply = false;
+    if (_activeRoute != targetRoute)
     {
-        lastReflexLimitsFps = State::Instance().reflexLimitsFps;
-        lastFps = 0;
-        setFPSLimit(0);
+        if (_activeRoute != FpsLimitBackend::None)
+        {
+            applySleepLimitToRoute(_activeRoute, 0u);
+            FpsLimitSync::ReleaseBackend(_activeRoute);
+        }
+        _activeRoute = targetRoute;
+        forceApply = true;
     }
-    else if (fakenvapi::isUsingAsMainNvapi() && lastLowLatencyMode != fakenvapi::getCurrentMode())
+
+    if (fakenvapi::isUsingAsMainNvapi() && lastLowLatencyMode != fakenvapi::getCurrentMode())
     {
         lastLowLatencyMode = fakenvapi::getCurrentMode();
-        lastFps = 0;
-        setFPSLimit(0);
+        applySleepLimitToRoute(_activeRoute, 0u);
+        forceApply = true;
     }
 
-    if (!State::Instance().reflexLimitsFps)
-        return;
-
-    float currentFps = Config::Instance()->FramerateLimit.value_or_default();
-    static uint8_t lastFgNumFramesToGenerate = 0;
+    FpsLimitSync::SetActiveBackend(_activeRoute);
+    lastReflexLimitsFps = true;
 
     if (lastFgNumFramesToGenerate != _FgNumFramesToGenerate)
     {
@@ -649,7 +788,7 @@ void ReflexHooks::update(bool fgActive, bool isVulkan)
         }
 
         lastFgNumFramesToGenerate = _FgNumFramesToGenerate;
-        setFPSLimit(currentFps);
+        forceApply = true;
 
         if (_FgNumFramesToGenerate == 0)
             LOG_DEBUG("DLSS FG no longer detected");
@@ -657,22 +796,61 @@ void ReflexHooks::update(bool fgActive, bool isVulkan)
             LOG_DEBUG("DLSS FG detected, mode: {}x", _FgNumFramesToGenerate + 1);
     }
 
-    // TODO: replace fgActive with _FgNumFramesToGenerate
-    // _FgNumFramesToGenerate needs to be correctly updated
+    uint32_t fgMultiplier = 1u;
+    bool usingDriverOrXellScaling = false;
     if (fgActive && State::Instance().activeFgOutput == FGOutput::FSRFG)
     {
-        currentFps /= 2;
+        fgMultiplier = 2u;
+    }
+    else if (fgActive && State::Instance().activeFgOutput == FGOutput::XeFG)
+    {
+        usingDriverOrXellScaling = true;
     }
     else if (_FgNumFramesToGenerate > 0 && fakenvapi::isUsingAsMainNvapi() &&
              fakenvapi::getCurrentMode() != LowLatencyMode::XeLL)
     {
-        currentFps /= (_FgNumFramesToGenerate + 1);
+        fgMultiplier = 1u + static_cast<uint32_t>(_FgNumFramesToGenerate);
+    }
+    else
+    {
+        usingDriverOrXellScaling =
+            !fakenvapi::isUsingAsMainNvapi() || fakenvapi::getCurrentMode() == LowLatencyMode::XeLL;
     }
 
-    if (currentFps != lastFps)
+    const float baseFps = FpsLimitSync::ConfiguredFpsLimit();
+    const float currentFps = FpsLimitSync::ComputeEffectiveReflexFps(baseFps, fgMultiplier, usingDriverOrXellScaling);
+    const uint64_t syncRevision = FpsLimitSync::Revision();
+
+    if (forceApply || currentFps != lastFps || syncRevision != lastSyncRevision)
     {
         setFPSLimit(currentFps);
         lastFps = currentFps;
+        lastSyncRevision = syncRevision;
+    }
+}
+
+void ReflexHooks::applySleepLimitToRoute(FpsLimitBackend route, uint32_t intervalUs)
+{
+    if (route == FpsLimitBackend::ReflexXeFG || route == FpsLimitBackend::ReflexD3D)
+    {
+        if (_lastSleepDev == nullptr)
+            return;
+
+        NV_SET_SLEEP_MODE_PARAMS temp {};
+        memcpy(&temp, &_lastSleepParams, sizeof(NV_SET_SLEEP_MODE_PARAMS));
+        temp.minimumIntervalUs = intervalUs;
+
+        if (route == FpsLimitBackend::ReflexXeFG)
+            nvapi_calls::NvAPI_D3D_SetSleepMode(_lastSleepDev, &temp);
+        else if (o_NvAPI_D3D_SetSleepMode)
+            o_NvAPI_D3D_SetSleepMode(_lastSleepDev, &temp);
+    }
+    else if (route == FpsLimitBackend::ReflexVulkan && _lastVkSleepDev != nullptr && o_NvAPI_Vulkan_SetSleepMode)
+    {
+        NV_VULKAN_SET_SLEEP_MODE_PARAMS temp {};
+        memcpy(&temp, &_lastVkSleepParams, sizeof(NV_VULKAN_SET_SLEEP_MODE_PARAMS));
+        temp.minimumIntervalUs = intervalUs;
+        o_NvAPI_Vulkan_SetSleepMode(_lastVkSleepDev, &temp);
     }
 }
 
@@ -680,30 +858,30 @@ void ReflexHooks::update(bool fgActive, bool isVulkan)
 void ReflexHooks::setFPSLimit(float fps)
 {
     LOG_INFO("Set FPS Limit to: {}", fps);
-    if (fps == 0.0)
-        _minimumIntervalUs = 0;
-    else
-        _minimumIntervalUs = static_cast<uint32_t>(std::round(1'000'000 / fps));
+    _minimumIntervalUs = FpsLimitSync::FpsToIntervalUs(fps);
 
-    if (_lastSleepDev != nullptr)
+    if (!FpsLimitSync::SingleOwnerEnabled())
     {
-        NV_SET_SLEEP_MODE_PARAMS temp {};
-        memcpy(&temp, &_lastSleepParams, sizeof(NV_SET_SLEEP_MODE_PARAMS));
-        temp.minimumIntervalUs = _minimumIntervalUs;
-
-        if (State::Instance().activeFgOutput == FGOutput::XeFG)
-            nvapi_calls::NvAPI_D3D_SetSleepMode(_lastSleepDev, &temp);
-        else
-            o_NvAPI_D3D_SetSleepMode(_lastSleepDev, &temp);
+        if (_lastSleepDev != nullptr)
+        {
+            const auto d3dRoute = State::Instance().activeFgOutput == FGOutput::XeFG ? FpsLimitBackend::ReflexXeFG
+                                                                                     : FpsLimitBackend::ReflexD3D;
+            applySleepLimitToRoute(d3dRoute, _minimumIntervalUs);
+        }
+        if (_lastVkSleepDev != nullptr)
+            applySleepLimitToRoute(FpsLimitBackend::ReflexVulkan, _minimumIntervalUs);
+        return;
     }
 
-    if (_lastVkSleepDev != nullptr)
+    FpsLimitBackend route = _activeRoute;
+    if (route == FpsLimitBackend::None)
     {
-        NV_VULKAN_SET_SLEEP_MODE_PARAMS temp {};
-        memcpy(&temp, &_lastVkSleepParams, sizeof(NV_VULKAN_SET_SLEEP_MODE_PARAMS));
-        temp.minimumIntervalUs = _minimumIntervalUs;
-        o_NvAPI_Vulkan_SetSleepMode(_lastVkSleepDev, &temp);
+        route = FpsLimitSync::ResolveReflexRoute(_lastVkSleepDev != nullptr && _lastSleepDev == nullptr,
+                                                  State::Instance().activeFgOutput == FGOutput::XeFG,
+                                                  _lastSleepDev != nullptr, _lastVkSleepDev != nullptr);
     }
+
+    applySleepLimitToRoute(route, _minimumIntervalUs);
 }
 
 bool ReflexHooks::gameIsSendingMarkers()

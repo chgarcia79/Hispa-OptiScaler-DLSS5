@@ -265,6 +265,9 @@ class Config
     CustomOptional<bool> DlssNrIsolateMainFeature { true };
     CustomOptional<bool> DlssNrResidualEdgeGuiding { true };
     CustomOptional<float> DlssNrResidualEdgeStrength { 1.0f };
+    CustomOptional<bool> DlssNrAllowMipmapSubresource { true };
+    CustomOptional<bool> DlssNrOptionalDepth { true };
+    CustomOptional<bool> DlssNrGameFrameAge { true };
     // Toggles the pass in game. Unbound by default -- a key that does something unexpected is worse
     // than one that does nothing.
     CustomOptional<int> DlssNrToggleKey { UnboundKey };
@@ -541,6 +544,15 @@ class Config
     CustomOptional<uint32_t> DlssNrDetailReuseInterval { 2 };
     CustomOptional<float> DlssNrDetailReuseBlend { 0.85f };
     CustomOptional<float> DlssNrDetailReuseMotionReject { 0.50f };
+    CustomOptional<bool> DlssNrNativeBlend { false };
+    CustomOptional<bool> DlssNrDepthFadeEnabled { false };
+    CustomOptional<uint32_t> DlssNrDepthFadeReverseZMode { 0 };
+    CustomOptional<float> DlssNrDepthFadeNearStrength { 1.0f };
+    CustomOptional<float> DlssNrDepthFadeFarStrength { 0.25f };
+    CustomOptional<float> DlssNrDepthFadeSkyStrength { 0.0f };
+    CustomOptional<float> DlssNrDepthFadeNearDepth { 0.02f };
+    CustomOptional<float> DlssNrDepthFadeFarDepth { 0.35f };
+    CustomOptional<uint32_t> DlssNrSteadyTimerMs { 250 };
 
     // --- end DLSS 5 Neural Rendering -------------------------------------------------------------
 
@@ -648,6 +660,8 @@ class Config
     CustomOptional<bool> FpsOverlayHorizontal { false };
     CustomOptional<float> FpsOverlayAlpha { 0.4f };
     CustomOptional<float, NoDefault> FpsScale; // No value means same as MenuScale
+    CustomOptional<bool> ShowReflexInputLatency { true };
+    CustomOptional<int> ReflexLatencyAvgSamples { 8 };
     CustomOptional<bool> UseHQFont { true };
     CustomOptional<bool> DisableSplash { false };
     CustomOptional<float> FontSize { 14.0f };
@@ -693,7 +707,7 @@ class Config
         L"qtwebengineprocess.exe|platformprocess.exe|bugsplathd64.exe|bssndrpt64.exe|pspcsdkappmgr.exe|pspcsdkcore.exe|"
         L"pspcsdkstttts.exe|pspcsdktelemetry.exe|pspcsdkui.exe|pspcsdkupdatechecker.exe|pspcsdkvoicechat.exe|"
         L"pspcsdkwebview.exe|windhawk.exe|vscodium.exe|crash_reporter.exe|steamerrorreporter64.exe|crashreportclient."
-        L"exe|edcefcrashpadprocess.exe|edcefrenderprocess.exe"
+        L"exe|edcefcrashpadprocess.exe|edcefrenderprocess.exe|crashclientreporter.exe"
     };
 
     // Hotfixes
@@ -831,6 +845,7 @@ class Config
     CustomOptional<bool> FGOnlyAcceptFirstHudless { false };
     CustomOptional<bool> FGPreserveSwapChain { true };
     CustomOptional<bool> FGSkipResizeBuffers { false };
+    CustomOptional<bool> FGSkipForeignSwapChain { true };
     CustomOptional<bool> FGModifyBufferState { false };
     CustomOptional<bool> FGModifySCIndex { false };
     CustomOptional<float> FGHudCutoff { 0.0f };
@@ -907,6 +922,7 @@ class Config
     CustomOptional<bool> FGXeFGDebugView { false };
     CustomOptional<bool> FGXeFGForceBorderless { false };
     CustomOptional<bool> XeFGDepthResample { true };
+    CustomOptional<bool> XeFGPaceWithFpsCap { true };
 
     // DLSSG
     CustomOptional<int> FGDLSSGInterpolationCount { 1 }; // For Opti's own SL instance
@@ -950,6 +966,8 @@ class Config
 
     // Framerate
     CustomOptional<float> FramerateLimit { 0.0f };
+    CustomOptional<bool> FpsLimitSingleReflexOwner { true };
+    CustomOptional<bool> FpsLimitUseFgMultiplier { true };
 
     // HDR
     CustomOptional<bool> ForceHDR { false };

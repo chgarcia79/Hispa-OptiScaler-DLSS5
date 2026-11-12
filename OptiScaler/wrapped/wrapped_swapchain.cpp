@@ -7,11 +7,13 @@
 #include <nvapi/fakenvapi.h>
 #include <hooks/Reflex_Hooks.h>
 #include <hooks/D3D12_Hooks.h>
+#include <hooks/FG_Hooks.h>
 #include <hooks/FgGpuTimeSource.h>
 
 #include <menu/menu_overlay_dx.h>
 
 #include <misc/FrameLimit.h>
+#include <misc/FrameLimitPolicy.h>
 
 #include <d3d11.h>
 #include <d3d12.h>
@@ -150,7 +152,8 @@ void ReportD3D12LiveObjects(ID3D12Device* device)
 static HRESULT LocalPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags,
                             const DXGI_PRESENT_PARAMETERS* pPresentParameters, IUnknown* pDevice, HWND hWnd, bool isUWP)
 {
-    if (State::Instance().isShuttingDown)
+    if (State::Instance().isShuttingDown ||
+        (Config::Instance()->FGSkipForeignSwapChain.value_or_default() && FGHooks::IsForeignSwapChain(pSwapChain)))
     {
         if (pPresentParameters == nullptr)
             return pSwapChain->Present(SyncInterval, Flags);
@@ -598,8 +601,7 @@ ULONG STDMETHODCALLTYPE WrappedIDXGISwapChain4::Release()
             fg->Deactivate();
             fg->ReleaseSwapchain(_handle);
 
-            if (State::Instance().currentFGSwapchain != nullptr)
-                State::Instance().currentFGSwapchain = nullptr;
+            FGHooks::ClearFGSwapchain(_real);
         }
 
         auto refCount = _real->Release();
@@ -676,8 +678,8 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::Present(UINT SyncInterval, UIN
         result = LocalPresent(_real, SyncInterval, Flags, nullptr, _device, _handle, _uwp);
 
         // When Reflex can't be used to limit, sleep in present
-        if (!State::Instance().reflexLimitsFps && State::Instance().activeFgOutput == FGOutput::NoFG &&
-            !IdentifyGpu::getPrimaryGpu().usesDxvk && !XellHooks::canLimit())
+        if (!FrameLimitPolicy::ShouldSkipSoftwareInSwapchain(
+                IdentifyGpu::getPrimaryGpu().usesDxvk, XellHooks::canLimit(), ReflexHooks::dlssgFrameCountToGenerate()))
             FrameLimit::sleep(false);
     }
     else
@@ -1032,8 +1034,8 @@ HRESULT STDMETHODCALLTYPE WrappedIDXGISwapChain4::Present1(UINT SyncInterval, UI
         result = LocalPresent(_real1, SyncInterval, Flags, pPresentParameters, _device, _handle, _uwp);
 
         // When Reflex can't be used to limit, sleep in present
-        if (!State::Instance().reflexLimitsFps && State::Instance().activeFgOutput == FGOutput::NoFG &&
-            !IdentifyGpu::getPrimaryGpu().usesDxvk && !XellHooks::canLimit())
+        if (!FrameLimitPolicy::ShouldSkipSoftwareInSwapchain(
+                IdentifyGpu::getPrimaryGpu().usesDxvk, XellHooks::canLimit(), ReflexHooks::dlssgFrameCountToGenerate()))
             FrameLimit::sleep(false);
     }
     else

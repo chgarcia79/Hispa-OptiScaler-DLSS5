@@ -2,6 +2,8 @@
 #include "XeFG_Dx12.h"
 #include "XeMfgLoader.h"
 #include "XeFGPacing.h"
+#include "XeFGPacingPolicy.h"
+#include <hooks/FpsLimitSync.h>
 #include <hudfix/Hudfix_Dx12.h>
 #include <menu/menu_overlay_dx.h>
 #include <resource_tracking/ResTrack_dx12.h>
@@ -861,6 +863,7 @@ bool XeFG_Dx12::Dispatch()
             auto intResult = XeFGProxy::SetNumInterpolatedFrames()(_swapChainContext, targetCount);
 
             _framesToInterpolate = targetCount;
+            FpsLimitSync::NotifyConfigChanged();
 
             if (intResult != XEFG_SWAPCHAIN_RESULT_SUCCESS)
             {
@@ -999,7 +1002,8 @@ bool XeFG_Dx12::Dispatch()
     else
         constData.resetHistory = false;
 
-    double frameRenderTime = XeFGPacing::RenderTimeMs();
+    double frameRenderTime = XeFGPacingPolicy::ResolveRenderTimeMs(
+        XeFGPacing::RenderTimeMs(), _ftDelta[fIndex], _framesToInterpolate + 1);
     if (!(frameRenderTime > 0.0))
         frameRenderTime = _ftDelta[fIndex];
     if (!(frameRenderTime > 0.0))

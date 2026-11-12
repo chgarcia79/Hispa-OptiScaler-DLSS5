@@ -4,7 +4,9 @@
 #include "DlssNr.h"
 #include "DlssNr_DriverGate.h"
 #include "DlssNr_ExposureScan.h"
+#include "DlssNr_MenuDepthFadeSection.h"
 #include "DlssNr_MenuStabilitySection.h"
+#include "DlssNr_SteadyValue.h"
 
 
 #include <Config.h>
@@ -165,7 +167,9 @@ void RenderMenu(Config* config, float menuResScale)
             // nothing in it to hang this off.
             // Either backend's timer. They measure the same thing by different means, and only one
             // of them is running.
-            const auto ms = vulkan ? DlssNr::LastGpuTimeVk() : DlssNr::LastGpuTime();
+            static DlssNr::SteadyValue s_steadyGpuMs;
+            const auto rawMs = vulkan ? DlssNr::LastGpuTimeVk() : DlssNr::LastGpuTime();
+            const auto ms = s_steadyGpuMs.UpdateOptional(rawMs, config->DlssNrSteadyTimerMs.value_or_default());
 
             // With "Apply the model" off the pass STILL RUNS (so Hold-frame A/B can toggle its edit on
             // a frozen frame) -- it only outputs the clean frame. So the cost is real, and saying so
@@ -1016,7 +1020,7 @@ void RenderMenu(Config* config, float menuResScale)
         }
         }
 
-        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev9 / Pre-SR, Denoise-First 1:1, Detail Reuse & RenoDX Quality)");
+        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev10 / Pre-SR, Denoise-First 1:1, Detail Reuse & RenoDX Quality)");
 
         static const char* qualityProfileNames[] = {
             "Default (Estandar)",
@@ -1285,6 +1289,7 @@ void RenderMenu(Config* config, float menuResScale)
         // Estabilidad DX12, guiado de bordes (ResidualEdgeGuiding) y convivencia nativa (UnlockGameNR,
         // KeepModelOnFormatFlip, IsolateMainFeature, GpuSafeRetire).
         RenderDev9StabilitySection(config, HelpMarker);
+        RenderDev10DepthFadeSection(config, HelpMarker);
 
         ImGui::SeparatorText("Comparativa A/B");
 
@@ -1359,7 +1364,7 @@ void RenderMenu(Config* config, float menuResScale)
         }
 
         static const char* debugNames[] = { "Off", "Proxy (what the model sees)", "Model output (raw)",
-                                            "Difference (amplified)" };
+                                            "Difference (amplified)", "Depth Fade Mask" };
         int debugView = (int) config->DlssNrDebugView.value_or_default();
         if (ImGui::Combo("Debug view", &debugView, debugNames, IM_ARRAYSIZE(debugNames)))
             config->DlssNrDebugView = (uint32_t) debugView;
@@ -1367,7 +1372,9 @@ void RenderMenu(Config* config, float menuResScale)
         HelpMarker("Proxy is the picture handed to the model -- if that looks wrong, the white point"
                        "\nis wrong and nothing downstream can be judged."
                        "\n\nDifference shows what the model actually changed, amplified twenty times and"
-                       "\ncentred on grey. A flat grey frame there means it is doing nothing.");
+                       "\ncentred on grey. A flat grey frame there means it is doing nothing."
+                       "\n\nDepth Fade Mask displays the live greyscale depth attenuation weight (0..1)"
+                       "\ncomputed from Near/Far/Sky controls and Reverse-Z polarity.");
 
         ImGui::PopItemWidth();
     }

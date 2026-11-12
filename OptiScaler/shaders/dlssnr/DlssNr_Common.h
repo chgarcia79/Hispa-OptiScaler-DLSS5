@@ -41,6 +41,7 @@ enum DlssNrResidualMode : uint32_t
 // 4096 values is also small enough to read back and take a real percentile of on the CPU, rather
 // than approximating one on the GPU.
 constexpr uint32_t kDlssNrMeterGrid = 64;
+constexpr uint32_t kDlssNrDebugView_DepthFadeMask = 4;
 
 // What the composition shader reads.
 //
@@ -214,6 +215,17 @@ struct alignas(256) DlssNrConstants
     float HaloRadius;
     uint32_t ResidualEdgeGuiding;
     float ResidualEdgeStrength;
+    uint32_t NativeBlend;
+    uint32_t DepthFadeEnabled;
+    uint32_t HasValidDepth;
+    uint32_t DepthReverseZ;
+    float DepthNearStrength;
+    float DepthFarStrength;
+    float DepthSkyStrength;
+    float DepthNear;
+    float DepthFar;
+    uint32_t DepthWidth;
+    uint32_t DepthHeight;
 };
 
 static_assert(sizeof(DlssNrConstants) == 256, "DlssNrConstants must remain 256-byte aligned");

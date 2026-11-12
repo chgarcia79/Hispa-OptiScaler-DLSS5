@@ -7,6 +7,8 @@
 
 #include <dlssnr/DlssNr.h>
 #include <dlssnr/DlssNr_OwnNr.h>
+#include "MenuLayout.h"
+#include "Menu_Dev10LivePacingSection.h"
 #include "Menu_GpuPrioritization.h"
 
 #include "input/input_system.h"
@@ -23,6 +25,7 @@
 
 #include <nvapi/fakenvapi.h>
 #include <hooks/Reflex_Hooks.h>
+#include <hooks/FpsLimitSync.h>
 
 #include <version_check.h>
 
@@ -2070,6 +2073,11 @@ void MenuCommon::RenderPerformanceOverlay(RenderMenuContext& ctx)
 
                     ImGui::Text("FGId: %llu, RfxId: %llu", localFrameCount, state.reflexFrameId);
                     ImGui::Text("Reflex timings, whole frame: %.1fms", rangeInNs / 1000.0);
+                    if (config->ShowReflexInputLatency.value_or_default())
+                    {
+                        if (const auto inputLatency = ReflexHooks::inputLatencyMs())
+                            ImGui::Text("Input Latency: %.1fms", *inputLatency);
+                    }
 
                     const auto maxWidth =
                         config->FpsOverlayHorizontal.value_or_default() ? ImGui::GetWindowWidth() : plotSize.x;
@@ -3340,7 +3348,7 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
             state.activeFgOutput == FGOutput::DLSSG || state.activeFgInput == FGInput::DLSSG;
 
         ImGui::BeginDisabled(state.dlssgGameDMFGSupported && config->FGDLSSGOverrideForceDMFG.value_or_default());
-        if (state.dlssgMfgMax.has_value() && state.dlssgMfgMax.value() >= 1 && !dlssgInputOrOutput)
+        if (MenuLayout::ShowsDlssgRatioCombo(state.dlssgMfgMax, dlssgInputOrOutput))
         {
             auto maxInterpolationCount = state.dlssgMfgMax.value();
 
@@ -3392,7 +3400,7 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
 
         ImGui::EndDisabled();
 
-        if (state.dlssgGameDMFGSupported && !dlssgInputOrOutput)
+        if (MenuLayout::ShowsDlssgDmfgControls(state.dlssgGameDMFGSupported, dlssgInputOrOutput))
         {
             ImGui::SameLine(0.0f, 16.0f);
 
@@ -3937,11 +3945,13 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
 
             if (state.xefgHdrFormatUnsupported)
             {
+                MenuLayout::ScopedStatusWrap statusWrap(menuResScale);
                 ImGui::TextColored(toneMapColor(ImVec4(1.0f, 0.25f, 0.25f, 1.0f)),
                                    "Warning: RGBA16F swapchain detected. Intel XeSS-FG requires HDR10 (R10G10B10A2) or SDR 8-bit.");
             }
             if (state.api == API::Vulkan || state.swapchainApi == API::Vulkan)
             {
+                MenuLayout::ScopedStatusWrap statusWrap(menuResScale);
                 cantActivate = true;
                 ImGui::TextColored(toneMapColor(ImVec4(1.0f, 0.25f, 0.25f, 1.0f)),
                                    "Intel XeMFG requires DirectX 12 (current API: Vulkan - Inactive).");
@@ -4545,6 +4555,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
 
             if (!state.nukemsFgFileAvailable)
             {
+                MenuLayout::ScopedStatusWrap statusWrap(menuResScale);
                 ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.f, 0.f, 1.f)),
                                    "Please put dlssg_to_fsr3_amd_is_better.dll into OptiScaler folder");
             }
@@ -4556,12 +4567,16 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
 
             if (!state.artursFgFileAvailable)
             {
+                MenuLayout::ScopedStatusWrap statusWrap(menuResScale);
                 ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.f, 0.f, 1.f)),
                                    "Please put dlss-enabler-headless.dll into OptiScaler folder");
             }
 
-            ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.8f, 0.f, 1.f)),
-                               "Using a subset of features from DLSS Enabler");
+            {
+                MenuLayout::ScopedStatusWrap statusWrap(menuResScale);
+                ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.8f, 0.f, 1.f)),
+                                   "Using a subset of features from DLSS Enabler");
+            }
         }
         else if (activeNvngxFg == FGNvngxReplacement::FFX)
         {
@@ -4581,11 +4596,13 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
 
             if (!ReflexHooks::isReflexHooked())
             {
+                MenuLayout::ScopedStatusWrap statusWrap(menuResScale);
                 ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.f, 0.f, 1.f)), "Reflex not hooked");
                 ImGui::Text("If you are using an AMD/Intel GPU, then make sure you have Fakenvapi");
             }
             else if (ReflexHooks::dlssgFrameCountToGenerate() == 0 && !dmfgActive)
             {
+                MenuLayout::ScopedStatusWrap statusWrap(menuResScale);
                 ImGui::Text("Please select DLSS Frame Generation in the game options\n"
                             "You might need to select DLSS first");
             }
@@ -4624,6 +4641,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
             }
             else if (state.swapchainApi == Vulkan)
             {
+                MenuLayout::ScopedStatusWrap statusWrap(menuResScale);
                 ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.8f, 0.f, 1.f)),
                                    "DLSSG is purposefully disabled when this menu is visible");
                 ImGui::Spacing();
@@ -4848,6 +4866,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
             }
             else
             {
+                MenuLayout::ScopedStatusWrap statusWrap(menuResScale);
                 ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.f, 0.f, 1.f)), "OFF");
                 ImGui::Text("Please select FSR Frame Generation in the game options\n"
                             "You might need to select FSR first");
@@ -4878,6 +4897,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
 
         if (!ReflexHooks::isReflexHooked())
         {
+            MenuLayout::ScopedStatusWrap statusWrap(menuResScale);
             ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.f, 0.f, 1.f)), "Reflex not hooked");
             ImGui::Text("If you are using an AMD/Intel GPU, then make sure you have fakenvapi");
         }
@@ -4894,6 +4914,7 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
             }
             else
             {
+                MenuLayout::ScopedStatusWrap statusWrap(menuResScale);
                 ImGui::TextColored(toneMapColor(ImVec4(1.f, 0.f, 0.f, 1.f)), "OFF");
                 ImGui::Text("Please select DLSS Frame Generation in the game options\n"
                             "You might need to select DLSS first");
@@ -5082,6 +5103,7 @@ void MenuCommon::RenderFramerateSettings(RenderMenuContext& ctx)
         if (ImGui::Button("Apply Limit"))
         {
             config->FramerateLimit = _limitFps;
+            FpsLimitSync::NotifyConfigChanged();
         }
 
         ImGui::SameLine(0.0f, 16.0f);
@@ -5090,6 +5112,7 @@ void MenuCommon::RenderFramerateSettings(RenderMenuContext& ctx)
         {
             _limitFps = 0.0f;
             config->FramerateLimit = _limitFps;
+            FpsLimitSync::NotifyConfigChanged();
         }
 
         ImGui::Spacing();
@@ -5119,9 +5142,12 @@ void MenuCommon::RenderFramerateSettings(RenderMenuContext& ctx)
             {
                 _limitFps = frameCap;
                 config->FramerateLimit = _limitFps;
+                FpsLimitSync::NotifyConfigChanged();
             }
         }
     }
+
+    MenuDev10LivePacing::RenderSection(config, menuResScale);
 }
 
 void MenuCommon::RenderFakenvapiSettings(RenderMenuContext& ctx)
@@ -7292,19 +7318,23 @@ void MenuCommon::RenderMainMenuBottomBar(RenderMenuContext& ctx)
     textSize.x += style.FramePadding.x * 2.0f;
     textSize.x += style.ItemSpacing.x;
 
+    const float cursorLocalX = ImGui::GetCursorPosX();
     float avail = ImGui::GetContentRegionAvail().x;
-    ImGui::SetCursorPosX(ImGui::GetCursorPosX() + avail - textSize.x);
-
-    // Make button text underline
-    if (ImGui::Button("Open Wiki"))
     {
-        auto pIO = &ImGui::GetPlatformIO();
-        auto ctx = ImGui::GetCurrentContext();
-        pIO->Platform_OpenInShellFn(ctx, "https://github.com/optiscaler/OptiScaler/wiki");
+        MenuLayout::ScopedRightAlignExtent rightAlignExtent(cursorLocalX, textSize.x, style.ItemSpacing.x);
+        ImGui::SetCursorPosX(MenuLayout::RightAlignedX(cursorLocalX, avail, textSize.x, style.ItemSpacing.x));
+
+        // Make button text underline
+        if (ImGui::Button("Open Wiki"))
+        {
+            auto pIO = &ImGui::GetPlatformIO();
+            auto ctx = ImGui::GetCurrentContext();
+            pIO->Platform_OpenInShellFn(ctx, "https://github.com/optiscaler/OptiScaler/wiki");
+        }
+        ShowHelpMarker("Click to open the OptiScaler Wiki page\nin your default browser\n\n"
+                       "Compatibility list with known game issues\nand workarounds, FG options explained\n"
+                       "and other useful info");
     }
-    ShowHelpMarker("Click to open the OptiScaler Wiki page\nin your default browser\n\n"
-                   "Compatibility list with known game issues\nand workarounds, FG options explained\n"
-                   "and other useful info");
 
     ImGui::Spacing();
     ImGui::Separator();

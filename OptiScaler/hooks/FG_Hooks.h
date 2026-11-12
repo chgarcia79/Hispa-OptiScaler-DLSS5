@@ -1,5 +1,6 @@
 #pragma once
 #include "SysUtils.h"
+#include <atomic>
 #include <dxgi1_6.h>
 
 #include "Hook_Utils.h"
@@ -17,6 +18,9 @@ class FGHooks
 
     // Registers a real FG swapchain created through FGHooks::CreateSwapChain*().
     static void SetFGSwapchain(IDXGISwapChain* pSwapChain, HWND hWnd);
+    static void ClearFGSwapchain(IUnknown* pSwapChain = nullptr);
+    static bool IsForeignSwapChain(IDXGISwapChain* pSwapChain);
+    static uint64_t SkippedForeignPresentCount();
 
     // Registers a plain/external DX12 presenting swapchain used by DX11->DX12 interop fallback.
     // This must not mark State::currentFGSwapchain and must not install FG present hooks.
@@ -48,6 +52,9 @@ class FGHooks
     inline static PFN_Release o_FGRelease = nullptr;
     inline static PFN_GetFrameLatencyWaitableObject o_FGSCGetFrameLatencyWaitableObject = nullptr;
     inline static HWND _hwnd = nullptr;
+    inline static IDXGISwapChain* _primaryFGSwapchain = nullptr;
+    inline static IUnknown* _primaryFGUnknown = nullptr;
+    inline static std::atomic<uint64_t> _skippedForeignPresentCount { 0 };
     inline static IDXGISwapChain* _dx12InteropPresentSC = nullptr;
     inline static HWND _dx12InteropPresentHwnd = nullptr;
     inline static bool _skipResize = false;
@@ -57,6 +64,7 @@ class FGHooks
     inline static UINT _lastPresentFlags = 0;
     inline static double _lastFGFrameTime = -1.0;
 
+    static void RefreshPrimarySwapchain(IDXGISwapChain* pSwapChain);
     static void HookFGSwapchain(IDXGISwapChain* pSwapChain);
 
     static HRESULT hkSetFullscreenState(IDXGISwapChain* This, BOOL Fullscreen, IDXGIOutput* pTarget);

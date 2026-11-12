@@ -22,8 +22,12 @@ class XellHooks
 {
     inline static xell_context_handle_t ourContext = nullptr;
     inline static xell_context_handle_t gamesContext = nullptr;
+    inline static xell_context_handle_t lastAppliedContext = nullptr;
     inline static bool gamesContextCanLimitFps = false;
     inline static bool blockExternal = false;
+    inline static uint32_t targetIntervalUs = 0;
+    inline static uint64_t lastSyncRevision = 0;
+    inline static xell_sleep_params_t lastSleepParams {};
 
     inline static PFN_xellDestroyContext o_xellDestroyContext = nullptr;
     inline static PFN_xellSetSleepMode o_xellSetSleepMode = nullptr;
@@ -43,6 +47,7 @@ class XellHooks
     static xell_context_handle_t getOurContext() { return ourContext; };
 
     static bool canLimit();
+    static bool isGameLowLatencyActive();
     static bool update();
 
     static xell_result_t hkxellDestroyContext(xell_context_handle_t context);

@@ -164,7 +164,16 @@
     <ClInclude Include="nvapi\NvApiGpuPrioritization.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="menu\MenuLayout.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="menu\Menu_Dev10LivePacingSection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="menu\Menu_GpuPrioritization.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="menu\ScopedCollapsingHeader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="nvapi\NvApiHooks.h">
@@ -278,10 +287,19 @@
     <ClInclude Include="dlssnr\DlssNr_GameNrRuntime.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_MenuDepthFadeSection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="dlssnr\DlssNr_MenuStabilitySection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_NativeBlend.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="dlssnr\DlssNr_OwnNr.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_SteadyValue.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="shaders\dlssnr\DlssNr_Contexts.h">
@@ -293,10 +311,19 @@
     <ClInclude Include="shaders\dlssnr\DlssNr_SurfaceFormats.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="framegen\xefg\XeFGPacingPolicy.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="hooks\FgGpuTimeSource.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="hooks\FpsLimitSync.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="hooks\StreamlineLogPrefs.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="misc\FrameLimitPolicy.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="misc\GameRootSearch.h">
@@ -642,6 +669,15 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="shaders\dlssnr\precompile\dlssnr_denoise_first_Shader.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\dlssnr\DlssNr_MipSubresource.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\dlssnr\DlssNr_DepthFade.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\dlssnr\precompile\dlssnr_depthfade.hlsli">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="shaders\dlssnr\DlssNr_DetailReuse_Dx12.h">
