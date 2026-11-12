@@ -158,6 +158,7 @@ bool Config::Reload(std::filesystem::path iniPath)
             FGOnlyAcceptFirstHudless.set_from_config(readBool("FrameGen", "OnlyAcceptFirstHudless"));
             FGPreserveSwapChain.set_from_config(readBool("FrameGen", "PreserveSwapChain"));
             FGSkipResizeBuffers.set_from_config(readBool("FrameGen", "SkipResizeBuffers"));
+            FGSkipForeignSwapChain.set_from_config(readBool("FrameGen", "SkipForeignSwapChain"));
             FGModifyBufferState.set_from_config(readBool("FrameGen", "ModifyBufferState"));
             FGModifySCIndex.set_from_config(readBool("FrameGen", "ModifySCIndex"));
             FGHudCutoff.set_from_config(readFloat("FrameGen", "HudCutoff"));
@@ -428,6 +429,9 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrDetailReuseEnabled.set_from_config(readBool("DlssNr", "DetailReuseEnabled"));
             if (auto ri = readUInt("DlssNr", "DetailReuseInterval"); ri.has_value())
                 DlssNrDetailReuseInterval.set_from_config(std::clamp(ri.value(), 2u, 3u));
+            DlssNrAllowMipmapSubresource.set_from_config(readBool("DlssNr", "AllowMipmapSubresource"));
+            DlssNrOptionalDepth.set_from_config(readBool("DlssNr", "OptionalDepth"));
+            DlssNrGameFrameAge.set_from_config(readBool("DlssNr", "GameFrameAge"));
             if (auto rb = readFloat("DlssNr", "DetailReuseBlend"); rb.has_value())
                 DlssNrDetailReuseBlend.set_from_config(std::clamp(rb.value(), 0.0f, 1.0f));
             if (auto rm = readFloat("DlssNr", "DetailReuseMotionReject"); rm.has_value())
@@ -1154,6 +1158,8 @@ bool Config::SaveIni()
                      GetBoolValue(Instance()->FGPreserveSwapChain.value_for_config()).c_str());
         ini.SetValue("FrameGen", "SkipResizeBuffers",
                      GetBoolValue(Instance()->FGSkipResizeBuffers.value_for_config()).c_str());
+        ini.SetValue("FrameGen", "SkipForeignSwapChain",
+                     GetBoolValue(Instance()->FGSkipForeignSwapChain.value_for_config()).c_str());
         ini.SetValue("FrameGen", "ModifyBufferState",
                      GetBoolValue(Instance()->FGModifyBufferState.value_for_config()).c_str());
         ini.SetValue("FrameGen", "ModifySCIndex", GetBoolValue(Instance()->FGModifySCIndex.value_for_config()).c_str());
@@ -1456,6 +1462,9 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "DenoiseFirstStrength", GetFloatValue(Instance()->DlssNrDenoiseFirstStrength.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DetailReuseEnabled", GetBoolValue(Instance()->DlssNrDetailReuseEnabled.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DetailReuseInterval", GetIntValue(Instance()->DlssNrDetailReuseInterval.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "AllowMipmapSubresource", GetBoolValue(Instance()->DlssNrAllowMipmapSubresource.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "OptionalDepth", GetBoolValue(Instance()->DlssNrOptionalDepth.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "GameFrameAge", GetBoolValue(Instance()->DlssNrGameFrameAge.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DetailReuseBlend", GetFloatValue(Instance()->DlssNrDetailReuseBlend.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DetailReuseMotionReject", GetFloatValue(Instance()->DlssNrDetailReuseMotionReject.value_for_config()).c_str());
         ini.SetValue("DLSS", "RenderPresetOverride",

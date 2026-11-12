@@ -117,11 +117,17 @@ bool DlssNr_DenoiseFirst_Dx12::EvaluateAndCompose(ID3D12GraphicsCommandList* cmd
                                                   ID3D12Resource* motion, const DlssNrFrameInfo& frame,
                                                   ID3D12CommandQueue* timingQueue)
 {
+    const auto& cfgPre = *Config::Instance();
+    const bool allowMips = cfgPre.DlssNrAllowMipmapSubresource.value_or_default();
     if (!_init || _failed || !cmdList || !params || !compose || !color || !depth || !motion ||
-        cmdList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT)
+        cmdList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT || depth->GetDesc().SampleDesc.Count > 1 ||
+        motion->GetDesc().SampleDesc.Count > 1 ||
+        (!allowMips && (DlssNr::MipSubresource::NeedsSubresource0Barrier(color) ||
+                        DlssNr::MipSubresource::NeedsSubresource0Barrier(depth) ||
+                        DlssNr::MipSubresource::NeedsSubresource0Barrier(motion))))
         return false;
 
-    const uint64_t epoch = ++_localEpoch;
+    const uint64_t epoch = (cfgPre.DlssNrGameFrameAge.value_or_default() && frame.SubmissionEpoch > 0) ? frame.SubmissionEpoch : ++_localEpoch;
     _retired.Collect(epoch);
     uint32_t baseX = 0, baseY = 0, createFlags = 0;
     params->Get(NVSDK_NGX_Parameter_DLSS_Input_Color_Subrect_Base_X, &baseX);

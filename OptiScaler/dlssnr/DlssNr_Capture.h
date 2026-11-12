@@ -15,6 +15,7 @@
 
 #include <windows.h>
 #include <d3d12.h>
+#include <shaders/dlssnr/DlssNr_MipSubresource.h>
 
 #include <cstdio>
 #include <filesystem>
@@ -230,7 +231,7 @@ class FrameCapture
         D3D12_RESOURCE_BARRIER b = {};
         b.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
         b.Transition.pResource = src;
-        b.Transition.Subresource = D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES;
+        b.Transition.Subresource = DlssNr::MipSubresource::SubresourceIndexFor(src);
         b.Transition.StateBefore = state;
         b.Transition.StateAfter = D3D12_RESOURCE_STATE_COPY_SOURCE;
 

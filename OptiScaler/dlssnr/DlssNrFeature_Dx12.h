@@ -53,6 +53,13 @@ struct StabilityTelemetry
     uint64_t skippedSecondaryEvaluates = 0;
     uint64_t absorbedFormatFlips = 0;
     bool stoodDownForRebuilds = false;
+    bool mipmapSubresourceActive = false;
+    uint32_t depthMips = 0;
+    uint32_t outputMips = 0;
+    bool depthAvailable = true;
+    bool usingDepthFallback = false;
+    bool gameDepthInverted = false;
+    uint64_t gameEvaluationEpoch = 0;
 };
 
 StabilityTelemetry GetStabilityTelemetry();

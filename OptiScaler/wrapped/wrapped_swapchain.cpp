@@ -7,6 +7,7 @@
 #include <nvapi/fakenvapi.h>
 #include <hooks/Reflex_Hooks.h>
 #include <hooks/D3D12_Hooks.h>
+#include <hooks/FG_Hooks.h>
 #include <hooks/FgGpuTimeSource.h>
 
 #include <menu/menu_overlay_dx.h>
@@ -150,7 +151,8 @@ void ReportD3D12LiveObjects(ID3D12Device* device)
 static HRESULT LocalPresent(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags,
                             const DXGI_PRESENT_PARAMETERS* pPresentParameters, IUnknown* pDevice, HWND hWnd, bool isUWP)
 {
-    if (State::Instance().isShuttingDown)
+    if (State::Instance().isShuttingDown ||
+        (Config::Instance()->FGSkipForeignSwapChain.value_or_default() && FGHooks::IsForeignSwapChain(pSwapChain)))
     {
         if (pPresentParameters == nullptr)
             return pSwapChain->Present(SyncInterval, Flags);
@@ -598,8 +600,7 @@ ULONG STDMETHODCALLTYPE WrappedIDXGISwapChain4::Release()
             fg->Deactivate();
             fg->ReleaseSwapchain(_handle);
 
-            if (State::Instance().currentFGSwapchain != nullptr)
-                State::Instance().currentFGSwapchain = nullptr;
+            FGHooks::ClearFGSwapchain(_real);
         }
 
         auto refCount = _real->Release();

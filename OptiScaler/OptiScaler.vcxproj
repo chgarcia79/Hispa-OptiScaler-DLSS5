@@ -457,6 +457,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="shaders\dlssnr\DlssNr_ResidualPair.h" />
     <ClInclude Include="shaders\dlssnr\precompile\dlssnr_residual_Shader.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_DenoiseFirst_Helpers.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_MipSubresource.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_DenoiseFirst_Dx12.h" />
     <ClInclude Include="shaders\dlssnr\precompile\dlssnr_denoise_first_Shader.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_DetailReuse_Dx12.h" />

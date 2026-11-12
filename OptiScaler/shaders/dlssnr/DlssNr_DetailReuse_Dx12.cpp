@@ -131,12 +131,18 @@ bool DlssNr_DetailReuse_Dx12::TryReuseOrPrepareCapture(ID3D12GraphicsCommandList
     _pendingCapture = false;
     const auto& cfg = *Config::Instance();
     const uint32_t interval = std::clamp(cfg.DlssNrDetailReuseInterval.value_or_default(), 1u, 4u);
+    const bool allowMips = cfg.DlssNrAllowMipmapSubresource.value_or_default();
     if (!_init || !cfg.DlssNrDetailReuseEnabled.value_or_default() || interval < 2 || frame.ResidualAcrossRr ||
         cfg.DlssNrHoldFrame.value_or_default() || cfg.DlssNrCompare.value_or_default() != 0 || cfg.DlssNrDebugView.value_or_default() != 0 ||
-        !cmdList || !targetColor || !depth || !motion || activeWidth < 64 || activeHeight < 64 || cmdList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT)
+        !cmdList || !targetColor || !depth || !motion || activeWidth < 64 || activeHeight < 64 ||
+        cmdList->GetType() != D3D12_COMMAND_LIST_TYPE_DIRECT || depth->GetDesc().SampleDesc.Count > 1 ||
+        motion->GetDesc().SampleDesc.Count > 1 ||
+        (!allowMips && (DlssNr::MipSubresource::NeedsSubresource0Barrier(targetColor) ||
+                        DlssNr::MipSubresource::NeedsSubresource0Barrier(depth) ||
+                        DlssNr::MipSubresource::NeedsSubresource0Barrier(motion))))
         return (_cacheValid = false), (_cadenceStep = 0), false;
 
-    const uint64_t epoch = ++_localEpoch;
+    const uint64_t epoch = (cfg.DlssNrGameFrameAge.value_or_default() && frame.SubmissionEpoch > 0) ? frame.SubmissionEpoch : ++_localEpoch;
     _retired.Collect(epoch);
     const DXGI_FORMAT typedFmt = ResolveSrvFormat(targetColor->GetDesc().Format);
     if (typedFmt == DXGI_FORMAT_UNKNOWN)

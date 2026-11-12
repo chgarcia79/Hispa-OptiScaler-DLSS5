@@ -312,6 +312,26 @@ HRESULT FGHooks::CreateSwapChainForHwnd(IDXGIFactory* pFactory, IUnknown* pDevic
     return E_INVALIDARG;
 }
 
+void FGHooks::RefreshPrimarySwapchain(IDXGISwapChain* pSwapChain)
+{
+    if (pSwapChain == nullptr)
+        return;
+
+    _primaryFGSwapchain = pSwapChain;
+    IUnknown* primaryUnk = nullptr;
+    if (SUCCEEDED(pSwapChain->QueryInterface(IID_PPV_ARGS(&primaryUnk))) && primaryUnk != nullptr)
+    {
+        _primaryFGUnknown = primaryUnk;
+        primaryUnk->Release();
+    }
+    else
+    {
+        _primaryFGUnknown = pSwapChain;
+    }
+
+    State::Instance().currentFGSwapchain = pSwapChain;
+}
+
 void FGHooks::SetFGSwapchain(IDXGISwapChain* pSwapChain, HWND hWnd)
 {
     if (pSwapChain == nullptr)
@@ -325,10 +345,65 @@ void FGHooks::SetFGSwapchain(IDXGISwapChain* pSwapChain, HWND hWnd)
         _dx12InteropPresentHwnd = nullptr;
     }
 
-    State::Instance().currentFGSwapchain = pSwapChain;
+    RefreshPrimarySwapchain(pSwapChain);
     State::Instance().currentSwapchain = pSwapChain;
 
     HookFGSwapchain(pSwapChain);
+}
+
+void FGHooks::ClearFGSwapchain(IUnknown* pSwapChain)
+{
+    if (pSwapChain != nullptr && pSwapChain != _primaryFGSwapchain &&
+        pSwapChain != State::Instance().currentFGSwapchain)
+    {
+        IUnknown* unk = nullptr;
+        if (SUCCEEDED(pSwapChain->QueryInterface(IID_PPV_ARGS(&unk))) && unk != nullptr)
+        {
+            const bool same = (unk == _primaryFGUnknown);
+            unk->Release();
+            if (!same)
+                return;
+        }
+        else
+        {
+            return;
+        }
+    }
+
+    _primaryFGSwapchain = nullptr;
+    _primaryFGUnknown = nullptr;
+    State::Instance().currentFGSwapchain = nullptr;
+}
+
+bool FGHooks::IsForeignSwapChain(IDXGISwapChain* pSwapChain)
+{
+    if (pSwapChain == nullptr)
+        return false;
+
+    if (IsDx12InteropPresentSC(pSwapChain))
+        return true;
+
+    IDXGISwapChain* primary = _primaryFGSwapchain ? _primaryFGSwapchain : State::Instance().currentFGSwapchain;
+    if (primary == nullptr)
+        return false;
+
+    if (pSwapChain == primary || pSwapChain == State::Instance().currentFGSwapchain)
+        return false;
+
+    IUnknown* unk = nullptr;
+    if (SUCCEEDED(pSwapChain->QueryInterface(IID_PPV_ARGS(&unk))) && unk != nullptr)
+    {
+        const bool match = (unk == _primaryFGUnknown);
+        unk->Release();
+        return !match;
+    }
+
+    return true;
+}
+
+uint64_t FGHooks::SkippedForeignPresentCount()
+{
+    return _skippedForeignPresentCount.load(std::memory_order_relaxed);
 }
 
 void FGHooks::SetDx12InteropPresentSC(IDXGISwapChain* pSwapChain, HWND hWnd)
@@ -579,6 +654,12 @@ HRESULT FGHooks::hkGetFullscreenState(IDXGISwapChain* This, BOOL* pFullscreen, I
 HRESULT FGHooks::hkResizeBuffers(IDXGISwapChain* This, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT NewFormat,
                                  UINT SwapChainFlags)
 {
+    if (Config::Instance()->FGSkipForeignSwapChain.value_or_default() && IsForeignSwapChain(This))
+    {
+        LOG_DEBUG("FGHooks::hkResizeBuffers bypassing foreign swapchain 0x{:X}", (uintptr_t) This);
+        return o_FGSCResizeBuffers(This, BufferCount, Width, Height, NewFormat, SwapChainFlags);
+    }
+
     // Skip XeFG's internal call
     if (_skipResize)
     {
@@ -764,6 +845,7 @@ HRESULT FGHooks::hkResizeBuffers(IDXGISwapChain* This, UINT BufferCount, UINT Wi
 
     if (result == S_OK)
     {
+        RefreshPrimarySwapchain(This);
         if (fg != nullptr)
         {
             State::Instance().fgChanged = true;
@@ -793,6 +875,9 @@ HRESULT FGHooks::hkResizeBuffers(IDXGISwapChain* This, UINT BufferCount, UINT Wi
 
 HRESULT FGHooks::hkResizeTarget(IDXGISwapChain* This, const DXGI_MODE_DESC* pNewTargetParameters)
 {
+    if (Config::Instance()->FGSkipForeignSwapChain.value_or_default() && IsForeignSwapChain(This))
+        return o_FGSCResizeTarget(This, pNewTargetParameters);
+
     if (Config::Instance()->FGXeFGForceBorderless.value_or_default())
     {
         LOG_DEBUG("Skipping resize target.");
@@ -814,6 +899,13 @@ HRESULT FGHooks::hkResizeTarget(IDXGISwapChain* This, const DXGI_MODE_DESC* pNew
 HRESULT FGHooks::hkResizeBuffers1(IDXGISwapChain3* This, UINT BufferCount, UINT Width, UINT Height, DXGI_FORMAT Format,
                                   UINT SwapChainFlags, const UINT* pCreationNodeMask, IUnknown* const* ppPresentQueue)
 {
+    if (Config::Instance()->FGSkipForeignSwapChain.value_or_default() && IsForeignSwapChain(This))
+    {
+        LOG_DEBUG("FGHooks::hkResizeBuffers1 bypassing foreign swapchain 0x{:X}", (uintptr_t) This);
+        return o_FGSCResizeBuffers1(This, BufferCount, Width, Height, Format, SwapChainFlags, pCreationNodeMask,
+                                    ppPresentQueue);
+    }
+
     // Skip XeFG's internal call
     if (_skipResize1)
     {
@@ -1004,6 +1096,7 @@ HRESULT FGHooks::hkResizeBuffers1(IDXGISwapChain3* This, UINT BufferCount, UINT 
 
     if (result == S_OK)
     {
+        RefreshPrimarySwapchain(This);
         if (fg != nullptr)
         {
             State::Instance().fgChanged = true;
@@ -1102,18 +1195,27 @@ HRESULT FGHooks::hkFGPresent1(IDXGISwapChain1* This, UINT SyncInterval, UINT Fla
 HRESULT FGHooks::FGPresent(IDXGISwapChain* This, UINT SyncInterval, UINT Flags,
                            const DXGI_PRESENT_PARAMETERS* pPresentParameters)
 {
-    _lastPresentFlags = Flags;
-
     auto& state = State::Instance();
     auto config = Config::Instance();
 
-    if (state.isShuttingDown)
+    if (state.isShuttingDown ||
+        (config->FGSkipForeignSwapChain.value_or_default() && IsForeignSwapChain(This)))
     {
+        if (!state.isShuttingDown)
+        {
+            const auto skipped = _skippedForeignPresentCount.fetch_add(1, std::memory_order_relaxed) + 1;
+            if (skipped <= 5)
+                LOG_DEBUG("FGHooks::FGPresent bypassing foreign swapchain 0x{:X} (count={})", (uintptr_t) This,
+                          skipped);
+        }
+
         if (pPresentParameters == nullptr)
             return o_FGSCPresent(This, SyncInterval, Flags);
         else
             return o_FGSCPresent1((IDXGISwapChain1*) This, SyncInterval, Flags, pPresentParameters);
     }
+
+    _lastPresentFlags = Flags;
 
     auto willPresent = (Flags & DXGI_PRESENT_TEST) == 0;
 
@@ -1453,7 +1555,7 @@ ULONG FGHooks::hkFGRelease(IUnknown* This)
             }
 
             LOG_DEBUG("FG Swapchain released, clearing currentFGSwapchain");
-            State::Instance().currentFGSwapchain = nullptr;
+            ClearFGSwapchain();
 
             if (State::Instance().currentWrappedSwapchain != nullptr &&
                 State::Instance().currentSwapchainDesc.OutputWindow == _hwnd)
