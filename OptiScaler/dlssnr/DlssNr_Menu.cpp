@@ -4,6 +4,7 @@
 #include "DlssNr.h"
 #include "DlssNr_DriverGate.h"
 #include "DlssNr_ExposureScan.h"
+#include "DlssNr_MenuDepthFadeSection.h"
 #include "DlssNr_MenuStabilitySection.h"
 #include "DlssNr_SteadyValue.h"
 
@@ -1288,6 +1289,7 @@ void RenderMenu(Config* config, float menuResScale)
         // Estabilidad DX12, guiado de bordes (ResidualEdgeGuiding) y convivencia nativa (UnlockGameNR,
         // KeepModelOnFormatFlip, IsolateMainFeature, GpuSafeRetire).
         RenderDev9StabilitySection(config, HelpMarker);
+        RenderDev10DepthFadeSection(config, HelpMarker);
 
         ImGui::SeparatorText("Comparativa A/B");
 

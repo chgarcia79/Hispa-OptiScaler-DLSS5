@@ -164,7 +164,16 @@
     <ClInclude Include="nvapi\NvApiGpuPrioritization.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="menu\MenuLayout.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="menu\Menu_Dev10LivePacingSection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="menu\Menu_GpuPrioritization.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="menu\ScopedCollapsingHeader.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="nvapi\NvApiHooks.h">
@@ -276,6 +285,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="dlssnr\DlssNr_GameNrRuntime.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_MenuDepthFadeSection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="dlssnr\DlssNr_MenuStabilitySection.h">
