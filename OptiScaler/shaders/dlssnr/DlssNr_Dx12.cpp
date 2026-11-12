@@ -33,6 +33,8 @@
 #include "DlssNr_DenoiseFirst_Dx12.h"
 #include "DlssNr_DetailReuse_Dx12.h"
 #include "DlssNr_MipSubresource.h"
+#include "DlssNr_DepthFade.h"
+#include <dlssnr/DlssNr_NativeBlend.h>
 #include "precompile/DlssNr_Shader.h"
 #include "precompile/dlssnr_residual_Shader.h"
 #include "../output_scaling/OS_Dx12.h"
@@ -1651,7 +1653,7 @@ bool DlssNr_Dx12::DispatchPass(ID3D12GraphicsCommandList* InCmdList, const DlssN
                                   ID3D12Resource* InSource, ID3D12Resource* InModel,
                                   ID3D12Resource* InOriginal, ID3D12Resource* InMotion,
                                   ID3D12Resource* InPrevEdit, ID3D12Resource* OutTarget,
-                                  ID3D12Resource* OutKeep)
+                                  ID3D12Resource* OutKeep, ID3D12Resource* InDepth)
 {
     if (!_init || InCmdList == nullptr || _device == nullptr || InSource == nullptr || OutTarget == nullptr)
         return false;
@@ -1670,6 +1672,7 @@ bool DlssNr_Dx12::DispatchPass(ID3D12GraphicsCommandList* InCmdList, const DlssN
         InOriginal != nullptr ? InOriginal : InSource,
         InMotion != nullptr ? InMotion : InSource,
         InPrevEdit != nullptr ? InPrevEdit : InSource,
+        InDepth != nullptr ? InDepth : InSource,
     };
 
     for (uint32_t i = 0; i < kSrvCount; ++i)
@@ -1741,6 +1744,7 @@ bool DlssNr_Dx12::DispatchResidualPass(ID3D12GraphicsCommandList* InCmdList, con
         InModel != nullptr ? InModel : InSource,
         InOriginal != nullptr ? InOriginal : InSource,
         InMotion != nullptr ? InMotion : InSource,
+        InSource,
         InSource,
     };
 
@@ -2882,6 +2886,12 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         resolveParams.ResidualEdgeGuiding = cfg.DlssNrResidualEdgeGuiding.value_or_default() ? 1u : 0u;
         resolveParams.ResidualEdgeStrength =
             std::clamp(cfg.DlssNrResidualEdgeStrength.value_or_default(), 0.0f, 1.0f);
+        const D3D12_RESOURCE_DESC fadeDepthDesc = depthIn->GetDesc();
+        const uint32_t fadeDepthW = std::min<uint32_t>(evalGuideWidth, static_cast<uint32_t>(fadeDepthDesc.Width));
+        const uint32_t fadeDepthH = std::min<uint32_t>(evalGuideHeight, static_cast<uint32_t>(fadeDepthDesc.Height));
+        DlssNr::DepthFade::PopulateResolveConstants(cfg, !usedDepthFallback && depth != nullptr,
+                                                    g_nr.guideDepthInverted, fadeDepthW, fadeDepthH, resolveParams);
+        DlssNr::NativeBlend::PopulateResolveConstants(cfg, resolveParams);
         struct ComposeReport
         {
             bool valid;
@@ -2967,7 +2977,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             resolveParams.TransferStrength = 1.0f;
 
         const bool resolved = DispatchPass(cmdList, resolveParams, resolveProxy, resolveAnswer, resolveOriginal,
-                                           motionIn, exposureTex, resolveTarget, nullptr);
+                                           motionIn, exposureTex, resolveTarget, nullptr, depthIn);
 
         if (residualAcrossRr)
         {

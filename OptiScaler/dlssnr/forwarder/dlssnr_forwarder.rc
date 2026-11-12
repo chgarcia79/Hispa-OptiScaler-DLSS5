@@ -1,0 +1,46 @@
+// Version resource script for nvngx.dll_dlssnr.dll.
+#ifndef _DEBUG
+#define _DLSSNR_FWD_REL_GUARD
+#define _DEBUG
+#endif
+#include "../../resource.h"
+#ifdef _DLSSNR_FWD_REL_GUARD
+#undef _DEBUG
+#undef _DLSSNR_FWD_REL_GUARD
+#undef VER_BUILD_DATE
+#undef VER_BUILD_COMMIT
+#define VER_BUILD_DATE "Release"
+#define VER_BUILD_COMMIT "DLSS-NR"
+#endif
+
+#include <winres.h>
+LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_UK
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION VER_FILE_VERSION
+ PRODUCTVERSION VER_PRODUCT_VERSION
+ FILEFLAGSMASK 0x3fL
+ FILEFLAGS 0x0L
+ FILEOS 0x40004L
+ FILETYPE 0x2L
+ FILESUBTYPE 0x0L
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904b0"
+        BEGIN
+            VALUE "CompanyName", "HispaGameControl"
+            VALUE "FileDescription", "DLSS Neural Rendering Forwarder"
+            VALUE "FileVersion", VER_FILE_VERSION_STR
+            VALUE "InternalName", "nvngx.dll_dlssnr.dll"
+            VALUE "LegalCopyright", "Copyright (C) 2024"
+            VALUE "OriginalFilename", "nvngx.dll_dlssnr.dll"
+            VALUE "ProductName", VER_PRODUCT_NAME
+            VALUE "ProductVersion", VER_PRODUCT_VERSION_STR
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END

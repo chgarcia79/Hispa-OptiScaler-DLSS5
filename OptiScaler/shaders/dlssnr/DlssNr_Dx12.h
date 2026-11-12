@@ -62,7 +62,7 @@ class DlssNr_Dx12 : public Shader_Dx12, public DlssNr_Common
     // The shader reads five inputs and writes two, and not every mode uses all of them. Unused slots
     // still need a view bound -- an unbound descriptor is not an empty read, it is a read from
     // nothing -- so a stand-in is written into whichever are spare.
-    static constexpr uint32_t kSrvCount = 5;
+    static constexpr uint32_t kSrvCount = 6;
     static constexpr uint32_t kUavCount = 2;
 
     uint32_t _numThreadsX = 8;
@@ -97,7 +97,7 @@ class DlssNr_Dx12 : public Shader_Dx12, public DlssNr_Common
                   // nothing reads it now and every caller passes nullptr. Kept only so the binding
                   // table keeps its shape -- not evidence that temporal accumulation exists.
                   ID3D12Resource* InPrevEdit, ID3D12Resource* OutTarget,
-                  ID3D12Resource* OutKeep);
+                  ID3D12Resource* OutKeep, ID3D12Resource* InDepth = nullptr);
 
     bool DispatchResidualPass(ID3D12GraphicsCommandList* InCmdList, const DlssNrConstants& InConstants,
                               ID3D12Resource* InOriginal, ID3D12Resource* InEdited, ID3D12Resource* InHistory,

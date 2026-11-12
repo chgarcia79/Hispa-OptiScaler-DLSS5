@@ -436,6 +436,22 @@ bool Config::Reload(std::filesystem::path iniPath)
                 DlssNrDetailReuseBlend.set_from_config(std::clamp(rb.value(), 0.0f, 1.0f));
             if (auto rm = readFloat("DlssNr", "DetailReuseMotionReject"); rm.has_value())
                 DlssNrDetailReuseMotionReject.set_from_config(std::clamp(rm.value(), 0.0f, 1.0f));
+            DlssNrNativeBlend.set_from_config(readBool("DlssNr", "NativeBlend"));
+            DlssNrDepthFadeEnabled.set_from_config(readBool("DlssNr", "DepthFadeEnabled"));
+            if (auto rz = readUInt("DlssNr", "DepthFadeReverseZMode"); rz.has_value())
+                DlssNrDepthFadeReverseZMode.set_from_config(std::clamp(rz.value(), 0u, 2u));
+            if (auto ns = readFloat("DlssNr", "DepthFadeNearStrength"); ns.has_value() && ns.value() >= -1e9f && ns.value() <= 1e9f)
+                DlssNrDepthFadeNearStrength.set_from_config(std::clamp(ns.value(), 0.0f, 1.0f));
+            if (auto fs = readFloat("DlssNr", "DepthFadeFarStrength"); fs.has_value() && fs.value() >= -1e9f && fs.value() <= 1e9f)
+                DlssNrDepthFadeFarStrength.set_from_config(std::clamp(fs.value(), 0.0f, 1.0f));
+            if (auto ss = readFloat("DlssNr", "DepthFadeSkyStrength"); ss.has_value() && ss.value() >= -1e9f && ss.value() <= 1e9f)
+                DlssNrDepthFadeSkyStrength.set_from_config(std::clamp(ss.value(), 0.0f, 1.0f));
+            if (auto nd = readFloat("DlssNr", "DepthFadeNearDepth"); nd.has_value() && nd.value() >= -1e9f && nd.value() <= 1e9f)
+                DlssNrDepthFadeNearDepth.set_from_config(std::clamp(nd.value(), 0.0001f, 0.9999f));
+            if (auto fd = readFloat("DlssNr", "DepthFadeFarDepth"); fd.has_value() && fd.value() >= -1e9f && fd.value() <= 1e9f)
+                DlssNrDepthFadeFarDepth.set_from_config(std::clamp(fd.value(), 0.0001f, 1.0f));
+            if (auto st = readUInt("DlssNr", "SteadyTimerMs"); st.has_value())
+                DlssNrSteadyTimerMs.set_from_config(std::clamp(st.value(), 0u, 2000u));
             UseGenericAppIdWithDlss.set_from_config(readBool("DLSS", "UseGenericAppIdWithDlss"));
 
             RenderPresetOverride.set_from_config(readBool("DLSS", "RenderPresetOverride"));
@@ -1467,6 +1483,15 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "GameFrameAge", GetBoolValue(Instance()->DlssNrGameFrameAge.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DetailReuseBlend", GetFloatValue(Instance()->DlssNrDetailReuseBlend.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DetailReuseMotionReject", GetFloatValue(Instance()->DlssNrDetailReuseMotionReject.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "NativeBlend", GetBoolValue(Instance()->DlssNrNativeBlend.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeEnabled", GetBoolValue(Instance()->DlssNrDepthFadeEnabled.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeReverseZMode", GetIntValue(Instance()->DlssNrDepthFadeReverseZMode.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeNearStrength", GetFloatValue(Instance()->DlssNrDepthFadeNearStrength.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeFarStrength", GetFloatValue(Instance()->DlssNrDepthFadeFarStrength.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeSkyStrength", GetFloatValue(Instance()->DlssNrDepthFadeSkyStrength.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeNearDepth", GetFloatValue(Instance()->DlssNrDepthFadeNearDepth.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DepthFadeFarDepth", GetFloatValue(Instance()->DlssNrDepthFadeFarDepth.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "SteadyTimerMs", GetIntValue(Instance()->DlssNrSteadyTimerMs.value_for_config()).c_str());
         ini.SetValue("DLSS", "RenderPresetOverride",
                      GetBoolValue(Instance()->RenderPresetOverride.value_for_config()).c_str());
         ini.SetValue("DLSS", "RenderPresetForAll",

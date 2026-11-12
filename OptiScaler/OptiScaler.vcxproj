@@ -458,6 +458,8 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="shaders\dlssnr\precompile\dlssnr_residual_Shader.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_DenoiseFirst_Helpers.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_MipSubresource.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_DepthFade.h" />
+    <ClInclude Include="shaders\dlssnr\precompile\dlssnr_depthfade.hlsli" />
     <ClInclude Include="shaders\dlssnr\DlssNr_DenoiseFirst_Dx12.h" />
     <ClInclude Include="shaders\dlssnr\precompile\dlssnr_denoise_first_Shader.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_DetailReuse_Dx12.h" />
@@ -618,7 +620,9 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="dlssnr\DlssNr_GameNrLog.h" />
     <ClInclude Include="dlssnr\DlssNr_GameNrRuntime.h" />
     <ClInclude Include="dlssnr\DlssNr_MenuStabilitySection.h" />
+    <ClInclude Include="dlssnr\DlssNr_NativeBlend.h" />
     <ClInclude Include="dlssnr\DlssNr_OwnNr.h" />
+    <ClInclude Include="dlssnr\DlssNr_SteadyValue.h" />
     <ClInclude Include="dlssnr\DlssNr_VkExtensions.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_Contexts.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_Retire.h" />

@@ -544,6 +544,15 @@ class Config
     CustomOptional<uint32_t> DlssNrDetailReuseInterval { 2 };
     CustomOptional<float> DlssNrDetailReuseBlend { 0.85f };
     CustomOptional<float> DlssNrDetailReuseMotionReject { 0.50f };
+    CustomOptional<bool> DlssNrNativeBlend { false };
+    CustomOptional<bool> DlssNrDepthFadeEnabled { false };
+    CustomOptional<uint32_t> DlssNrDepthFadeReverseZMode { 0 };
+    CustomOptional<float> DlssNrDepthFadeNearStrength { 1.0f };
+    CustomOptional<float> DlssNrDepthFadeFarStrength { 0.25f };
+    CustomOptional<float> DlssNrDepthFadeSkyStrength { 0.0f };
+    CustomOptional<float> DlssNrDepthFadeNearDepth { 0.02f };
+    CustomOptional<float> DlssNrDepthFadeFarDepth { 0.35f };
+    CustomOptional<uint32_t> DlssNrSteadyTimerMs { 250 };
 
     // --- end DLSS 5 Neural Rendering -------------------------------------------------------------
 
