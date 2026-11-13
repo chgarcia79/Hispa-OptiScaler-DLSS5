@@ -57,7 +57,7 @@ inline void RenderDx12StabilityTelemetry(bool vulkan)
 
 inline void RenderDev9StabilitySection(Config* config, void (*helpMarker)(const char*))
 {
-    if (!ImGui::TreeNodeEx("Estabilidad, Bordes y Convivencia Nativa (v1.0.4-dev10)", ImGuiTreeNodeFlags_DefaultOpen))
+    if (!ImGui::TreeNodeEx("Estabilidad, Bordes y Convivencia Nativa (v1.0.4-dev11)", ImGuiTreeNodeFlags_DefaultOpen))
         return;
 
     bool edgeGuiding = config->DlssNrResidualEdgeGuiding.value_or_default();

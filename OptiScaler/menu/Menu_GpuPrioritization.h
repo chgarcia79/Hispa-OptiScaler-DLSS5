@@ -41,7 +41,7 @@ inline void RenderSection(float menuResScale)
         {
             s_syncedSeq = state.refreshSeq;
             s_mode = state.activeMode;
-            s_customFgPct = state.currentYieldPct == 0u ? 80 : (int) std::clamp(state.foregroundPct, 50u, 95u);
+            s_customFgPct = state.currentYieldPct == 0u ? 80 : (int) std::clamp(state.foregroundPct, 50u, 90u);
         }
 
         if (state.supported)
@@ -55,7 +55,7 @@ inline void RenderSection(float menuResScale)
             state = NvApiGpuPrioritization::RefreshLiveState();
             s_syncedSeq = state.refreshSeq;
             s_mode = state.activeMode;
-            s_customFgPct = state.currentYieldPct == 0u ? 80 : (int) std::clamp(state.foregroundPct, 50u, 95u);
+            s_customFgPct = state.currentYieldPct == 0u ? 80 : (int) std::clamp(state.foregroundPct, 50u, 90u);
         }
         HelpTip("Consulta en vivo NvAPI_SYS_CmcYieldPctControl (0xC742BB22, struct 0x0001001C).\n"
                 "Detecta automaticamente el modo configurado en NVIDIA App o en HispaGameControl.\n"
@@ -88,9 +88,9 @@ inline void RenderSection(float menuResScale)
 
         ImGui::BeginDisabled(s_mode == NvApiGpuPrioritization::Mode::Off);
         ImGui::PushItemWidth(220.0f * menuResScale);
-        if (ImGui::SliderInt("Prioridad Juego Primer Plano (%)", &s_customFgPct, 50, 95, "%d%%"))
+        if (ImGui::SliderInt("Prioridad Juego Primer Plano (%)", &s_customFgPct, 50, 90, "%d%%"))
         {
-            s_customFgPct = ((std::clamp(s_customFgPct, 50, 95) + 2) / 5) * 5;
+            s_customFgPct = ((std::clamp(s_customFgPct, 50, 90) + 2) / 5) * 5;
             if (s_customFgPct == 90)
                 s_mode = NvApiGpuPrioritization::Mode::ForegroundPriority;
             else if (s_customFgPct == 80)
@@ -117,7 +117,7 @@ inline void RenderSection(float menuResScale)
             state = NvApiGpuPrioritization::ApplyLiveYieldPct(targetYield);
             s_syncedSeq = state.refreshSeq;
             s_mode = state.activeMode;
-            s_customFgPct = state.currentYieldPct == 0u ? 80 : (int) std::clamp(state.foregroundPct, 50u, 95u);
+            s_customFgPct = state.currentYieldPct == 0u ? 80 : (int) std::clamp(state.foregroundPct, 50u, 90u);
         }
         if (pendingChange)
             ImGui::PopStyleColor();
