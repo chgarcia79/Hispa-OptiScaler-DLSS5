@@ -91,9 +91,10 @@ int ExecuteDriverCommand(uint32_t command, uint32_t inYield, uint32_t& outYield,
     return lastStatus;
 }
 
-bool RunElevatedHelper(uint32_t yieldPct, bool& cancelledByUser)
+bool RunElevatedHelper(uint32_t yieldPct, bool& cancelledByUser, int& helperExitCode)
 {
     cancelledByUser = false;
+    helperExitCode = 0;
     const wchar_t* helperExe = L"C:\\Soft\\Juegos\\HispaGameControl\\HispaGameControl.exe";
     if (GetFileAttributesW(helperExe) == INVALID_FILE_ATTRIBUTES)
         return false;
@@ -114,10 +115,19 @@ bool RunElevatedHelper(uint32_t yieldPct, bool& cancelledByUser)
     }
     if (sei.hProcess == nullptr)
         return false;
-    WaitForSingleObject(sei.hProcess, 5000);
+
+    const DWORD waitRes = WaitForSingleObject(sei.hProcess, 8000);
+    if (waitRes == WAIT_TIMEOUT)
+    {
+        helperExitCode = -1;
+        CloseHandle(sei.hProcess);
+        return false;
+    }
+
     DWORD exitCode = 1;
     GetExitCodeProcess(sei.hProcess, &exitCode);
     CloseHandle(sei.hProcess);
+    helperExitCode = static_cast<int>(exitCode);
     return exitCode == 0;
 }
 } // namespace
@@ -167,25 +177,46 @@ LiveState ApplyLiveYieldPct(uint32_t yieldPct)
     {
         LiveState cur = RefreshLiveState();
         cur.lastStatus = kStatusInvalidArgument;
-        cur.statusMessage = "Porcentaje invalido (0 o multiplo de 5 entre 5 y 50).";
+        cur.statusMessage = "Porcentaje invalido (0 o multiplo de 5 entre 10 y 50).";
         std::lock_guard<std::mutex> lock(g_mutex);
         return g_cached = cur;
     }
 
     uint32_t dummy = yieldPct, gpus = 0;
     bool hasDll = false, hasEndpoint = false, usedElevation = false, cancelled = false;
-    const int st = ExecuteDriverCommand(1u, yieldPct, dummy, gpus, hasDll, hasEndpoint);
-    if (st == NVAPI_INVALID_USER_PRIVILEGE_CODE)
-        usedElevation = RunElevatedHelper(yieldPct, cancelled);
+    int helperExitCode = 0;
+    int effectiveSt = ExecuteDriverCommand(1u, yieldPct, dummy, gpus, hasDll, hasEndpoint);
+    if (effectiveSt == NVAPI_INVALID_USER_PRIVILEGE_CODE)
+    {
+        if (RunElevatedHelper(yieldPct, cancelled, helperExitCode))
+        {
+            usedElevation = true;
+            effectiveSt = 0;
+        }
+        else if (!cancelled && helperExitCode != 0)
+        {
+            usedElevation = true;
+            effectiveSt = helperExitCode;
+        }
+    }
 
     LiveState verified = RefreshLiveState();
     verified.elevatedUsedLastApply = usedElevation;
     if (cancelled)
+    {
+        verified.lastStatus = NVAPI_INVALID_USER_PRIVILEGE_CODE;
         verified.statusMessage = "Elevacion cancelada por el usuario — se mantiene el valor actual del driver.";
-    else if (st == NVAPI_INVALID_USER_PRIVILEGE_CODE && !usedElevation)
+    }
+    else if (effectiveSt == NVAPI_INVALID_USER_PRIVILEGE_CODE && !usedElevation)
+    {
+        verified.lastStatus = effectiveSt;
         verified.statusMessage = "Requiere permisos de Administrador (NVAPI_INVALID_USER_PRIVILEGE -137).";
-    else if (st != 0 && st != NVAPI_INVALID_USER_PRIVILEGE_CODE)
-        verified.statusMessage = "No se pudo aplicar en driver (NVAPI " + std::to_string(st) + ").";
+    }
+    else if (effectiveSt != 0)
+    {
+        verified.lastStatus = effectiveSt;
+        verified.statusMessage = "No se pudo aplicar en driver (NVAPI " + std::to_string(effectiveSt) + ").";
+    }
 
     std::lock_guard<std::mutex> lock(g_mutex);
     return g_cached = verified;
