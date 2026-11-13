@@ -149,10 +149,10 @@ LiveState RefreshLiveState()
     {
         next.supported = true;
         next.currentYieldPct = readYield;
-        next.foregroundPct = (readYield == 0u) ? 100u : (100u - std::min<uint32_t>(readYield, 100u));
+        next.foregroundPct = (readYield == 0u) ? 80u : (100u - std::min<uint32_t>(readYield, 100u));
         next.activeMode = ClassifyYieldPct(readYield);
         next.statusMessage = (readYield == 0u)
-                                 ? "Activo en Driver: Off (Sin cuota CMC forzada)"
+                                 ? "CMC inactivo en driver (verificar HAGS activo en Windows)"
                                  : ("Activo en Driver: " + std::to_string(next.foregroundPct) + "% Juego / " + std::to_string(readYield) + "% Fondo");
     }
     else
@@ -177,7 +177,7 @@ LiveState ApplyLiveYieldPct(uint32_t yieldPct)
     {
         LiveState cur = RefreshLiveState();
         cur.lastStatus = kStatusInvalidArgument;
-        cur.statusMessage = "Porcentaje invalido (0 o multiplo de 5 entre 10 y 50).";
+        cur.statusMessage = "Porcentaje invalido (multiplo de 5 entre 10 y 50).";
         std::lock_guard<std::mutex> lock(g_mutex);
         return g_cached = cur;
     }

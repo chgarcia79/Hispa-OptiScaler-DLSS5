@@ -82,11 +82,8 @@ inline void RenderSection(float menuResScale)
         ImGui::SameLine();
         modeRadio("Background 50%", NvApiGpuPrioritization::Mode::BackgroundPriority, 50);
         ImGui::SameLine();
-        modeRadio("Custom", NvApiGpuPrioritization::Mode::Custom, 0);
-        ImGui::SameLine();
-        modeRadio("Off", NvApiGpuPrioritization::Mode::Off, 0);
+        modeRadio("Custom (50%-90%)", NvApiGpuPrioritization::Mode::Custom, 0);
 
-        ImGui::BeginDisabled(s_mode == NvApiGpuPrioritization::Mode::Off);
         ImGui::PushItemWidth(220.0f * menuResScale);
         if (ImGui::SliderInt("Prioridad Juego Primer Plano (%)", &s_customFgPct, 50, 90, "%d%%"))
         {
@@ -101,15 +98,12 @@ inline void RenderSection(float menuResScale)
                 s_mode = NvApiGpuPrioritization::Mode::Custom;
         }
         ImGui::PopItemWidth();
-        ImGui::EndDisabled();
 
         const uint32_t targetYield = NvApiGpuPrioritization::ModeToYieldPct(s_mode, (uint32_t) s_customFgPct);
         const bool pendingChange = (targetYield != state.currentYieldPct);
-        if (targetYield == 0u)
-            ImGui::TextDisabled("Seleccionado: Sin cuota forzada CMC (0%% reserva fondo)");
-        else
-            ImGui::TextDisabled("Seleccionado: %u%% Juego Primer Plano / %u%% Tareas Segundo Plano", 100u - targetYield, targetYield);
+        ImGui::TextDisabled("Seleccionado: %u%% Juego Primer Plano / %u%% Tareas Segundo Plano", 100u - targetYield, targetYield);
 
+        ImGui::BeginDisabled(!pendingChange);
         if (pendingChange)
             ImGui::PushStyleColor(ImGuiCol_Button, ImVec4(0.16f, 0.56f, 0.34f, 1.0f));
         if (ImGui::Button("Aplicar al Driver (Live)##GpuPrio"))
@@ -121,6 +115,7 @@ inline void RenderSection(float menuResScale)
         }
         if (pendingChange)
             ImGui::PopStyleColor();
+        ImGui::EndDisabled();
 
         ImGui::EndDisabled();
         ImGui::Spacing();

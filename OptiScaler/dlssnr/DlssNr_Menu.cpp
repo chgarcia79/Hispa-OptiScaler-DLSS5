@@ -1020,7 +1020,7 @@ void RenderMenu(Config* config, float menuResScale)
         }
         }
 
-        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev11 / Pre-SR, Denoise-First 1:1, Detail Reuse & RenoDX Quality)");
+        ImGui::SeparatorText("Tuning Neuronal (v1.0.4-dev12 / Pre-SR, Denoise-First 1:1, Detail Reuse & RenoDX Quality)");
 
         static const char* qualityProfileNames[] = {
             "Default (Estandar)",
