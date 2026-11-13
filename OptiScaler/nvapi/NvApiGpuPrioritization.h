@@ -13,8 +13,7 @@ enum class Mode : int
     Default = 0,            // yieldPct = 20 (80% Juego FG / 20% Fondo BG)
     ForegroundPriority = 1, // yieldPct = 10 (90% Juego FG / 10% Fondo BG)
     BackgroundPriority = 2, // yieldPct = 50 (50% Juego FG / 50% Fondo BG)
-    Custom = 3,             // yieldPct = 10..50 paso 5 (90%..50% Juego FG)
-    Off = 4                 // yieldPct = 0 (Sin cuota CMC forzada)
+    Custom = 3              // yieldPct = 10..50 paso 5 (90%..50% Juego FG)
 };
 
 struct LiveState
@@ -33,14 +32,13 @@ struct LiveState
 
 constexpr bool IsValidYieldPct(uint32_t yieldPct)
 {
-    return yieldPct == 0u || (yieldPct >= 10u && yieldPct <= 50u && (yieldPct % 5u) == 0u);
+    return yieldPct >= 10u && yieldPct <= 50u && (yieldPct % 5u) == 0u;
 }
 
 constexpr Mode ClassifyYieldPct(uint32_t yieldPct)
 {
-    if (yieldPct == 0u) return Mode::Off;
     if (yieldPct == 10u) return Mode::ForegroundPriority;
-    if (yieldPct == 20u) return Mode::Default;
+    if (yieldPct == 20u || yieldPct == 0u) return Mode::Default;
     if (yieldPct == 50u) return Mode::BackgroundPriority;
     return Mode::Custom;
 }
@@ -50,7 +48,6 @@ constexpr uint32_t ModeToYieldPct(Mode mode, uint32_t customForegroundPct)
     if (mode == Mode::ForegroundPriority) return 10u;
     if (mode == Mode::Default) return 20u;
     if (mode == Mode::BackgroundPriority) return 50u;
-    if (mode == Mode::Off) return 0u;
     const uint32_t clamped = customForegroundPct < 50u ? 50u : (customForegroundPct > 90u ? 90u : customForegroundPct);
     return 100u - (((clamped + 2u) / 5u) * 5u);
 }
