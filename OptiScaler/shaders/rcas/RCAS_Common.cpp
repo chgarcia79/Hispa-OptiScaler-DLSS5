@@ -60,3 +60,100 @@ void RCAS_Common::FillMotionConstants(InternalConstantsDA& OutConstants, const R
     else
         OutConstants.MotionTextureScale = (float) OutConstants.MotionWidth / (float) OutConstants.OutputWidth;
 }
+
+void RCAS_Common::SetTimedShader(SharpenShader InShader)
+{
+    const char* name = "RCAS";
+    switch (InShader)
+    {
+    case SharpenShader::DepthAware:
+        name = "Depth Aware (RCAS)";
+        break;
+    case SharpenShader::LocalContrastDepthAware:
+        name = "Depth Aware (DAS)";
+        break;
+    case SharpenShader::BabaNeural:
+        name = "Neural (BaBa)";
+        break;
+    case SharpenShader::OptiSharpen:
+        name = "OptiSharpen";
+        break;
+    default:
+        break;
+    }
+    _timedShaderName.store(name, std::memory_order_relaxed);
+}
+
+bool RCAS_Common::IsFloatFormat(DXGI_FORMAT InFormat)
+{
+    switch (InFormat)
+    {
+    case DXGI_FORMAT_R32G32B32A32_TYPELESS:
+    case DXGI_FORMAT_R32G32B32A32_FLOAT:
+    case DXGI_FORMAT_R32G32B32_TYPELESS:
+    case DXGI_FORMAT_R32G32B32_FLOAT:
+    case DXGI_FORMAT_R16G16B16A16_TYPELESS:
+    case DXGI_FORMAT_R16G16B16A16_FLOAT:
+    case DXGI_FORMAT_R11G11B10_FLOAT:
+    case DXGI_FORMAT_R9G9B9E5_SHAREDEXP:
+        return true;
+    default:
+        return false;
+    }
+}
+
+void RCAS_Common::FillMotionConstants(InternalConstantsBaba& OutConstants, const RcasConstants& InConstants,
+                                      SharpenShader InShader, bool InputIsFloat, uint32_t InputFormat,
+                                      std::string_view FormatName)
+{
+    OutConstants.Sharpness = InConstants.Sharpness * 2.0f;
+
+    if (InShader == SharpenShader::OptiSharpen)
+    {
+        OutConstants.Model = Config::Instance()->OptiSharpenModel.value_or_default();
+        OutConstants.ViewMode = Config::Instance()->OptiSharpenDebugView.value_or_default();
+    }
+    else
+    {
+        OutConstants.EdgeResponse = Config::Instance()->BabaNeuralEdgeResponse.value_or_default();
+        OutConstants.Model = Config::Instance()->BabaNeuralModel.value_or_default();
+        OutConstants.ViewMode = Config::Instance()->BabaNeuralDebugView.value_or_default();
+    }
+
+    OutConstants.ClampOutput = Config::Instance()->DAClampOutput.value_or(false) ? 1 : 0;
+
+    const bool isPqUnorm = !InputIsFloat && Config::Instance()->FsrNonLinearPQ.value_or_default();
+    const int linearMode = Config::Instance()->BabaNeuralLinearMode.value_or_default();
+    const bool linear =
+        linearMode == 1 ? true : (linearMode == 2 ? false : (InputIsFloat || (InConstants.IsHdr && !isPqUnorm)));
+    OutConstants.IsHdr = linear ? 1 : 0;
+
+    if (_babaLoggedFormat != (int64_t) InputFormat || _babaLoggedLinear != linear || _babaLoggedHdr != InConstants.IsHdr)
+    {
+        _babaLoggedFormat = InputFormat;
+        _babaLoggedLinear = linear;
+        _babaLoggedHdr = InConstants.IsHdr;
+        const std::string_view name = FormatName.empty() ? "unknown" : FormatName;
+        LOG_INFO("Neural sharpen input format: {} ({}), float: {}, HDR: {}, PQ: {}, mode: {}, linear: {}", name,
+                 InputFormat, InputIsFloat, InConstants.IsHdr, isPqUnorm, linearMode, linear);
+    }
+
+    OutConstants.MvScaleX = InConstants.MvScaleX;
+    OutConstants.MvScaleY = InConstants.MvScaleY;
+    OutConstants.DynamicSharpenEnabled =
+        (Config::Instance()->MotionSharpnessEnabled.value_or_default() && OutConstants.MotionWidth > 0 &&
+         OutConstants.MotionHeight > 0)
+            ? 1
+            : 0;
+    OutConstants.Debug = Config::Instance()->MotionSharpnessDebug.value_or_default() ? 1 : 0;
+    OutConstants.MotionSharpness = Config::Instance()->MotionSharpness.value_or_default();
+    OutConstants.Threshold = Config::Instance()->MotionThreshold.value_or_default();
+    OutConstants.ScaleLimit = Config::Instance()->MotionScaleLimit.value_or_default();
+
+    OutConstants.DisplaySizeMV =
+        (OutConstants.MotionWidth == OutConstants.OutputWidth && OutConstants.MotionHeight == OutConstants.OutputHeight)
+            ? 1
+            : 0;
+    OutConstants.MotionTextureScale =
+        OutConstants.DisplaySizeMV ? 1.0f : (float) OutConstants.MotionWidth / (float) OutConstants.OutputWidth;
+}

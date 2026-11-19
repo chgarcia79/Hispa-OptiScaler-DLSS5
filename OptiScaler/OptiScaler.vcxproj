@@ -374,11 +374,19 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="shaders\rcas\precompile\da_rcas_sharpen_Shader_Dx11.h" />
     <ClInclude Include="shaders\rcas\precompile\da_rcas_sharpen_Shader_Vk.h" />
     <ClInclude Include="shaders\rcas\precompile\RCAS_Shader.h" />
+    <ClInclude Include="shaders\rcas\precompile\baba_neural_sharpen_Shader.h" />
+    <ClInclude Include="shaders\rcas\precompile\baba_neural_sharpen_Shader_Dx11.h" />
+    <ClInclude Include="shaders\rcas\precompile\baba_neural_sharpen_Shader_Vk.h" />
+    <ClInclude Include="shaders\rcas\precompile\opti_sharpen_Shader.h" />
+    <ClInclude Include="shaders\rcas\precompile\opti_sharpen_Shader_Dx11.h" />
+    <ClInclude Include="shaders\rcas\precompile\opti_sharpen_Shader_Vk.h" />
     <ClInclude Include="shaders\rcas\precompile\RCAS_Shader_Dx11.h" />
     <ClInclude Include="shaders\rcas\precompile\RCAS_Shader_Vk.h" />
     <ClInclude Include="shaders\rcas\shaders\DA_DAS_Shader.h" />
     <ClInclude Include="shaders\rcas\shaders\DA_RCAS_Shader.h" />
     <ClInclude Include="shaders\rcas\shaders\RCAS_Shader.h" />
+    <ClInclude Include="shaders\rcas\shaders\BABA_NEURAL_Shader.h" />
+    <ClInclude Include="shaders\rcas\shaders\OPTI_SHARPEN_Shader.h" />
     <ClInclude Include="shaders\Shader_Common.h" />
     <ClInclude Include="misc\SkipSpoof.h" />
     <ClInclude Include="shaders\Shader_Dx11.h" />
@@ -555,6 +563,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="nvapi\NvApiGpuPrioritization.h" />
     <ClInclude Include="menu\MenuLayout.h" />
     <ClInclude Include="menu\Menu_Dev10LivePacingSection.h" />
+    <ClInclude Include="menu\Menu_NeuralSharpenSection.h" />
     <ClInclude Include="menu\Menu_GpuPrioritization.h" />
     <ClInclude Include="menu\ScopedCollapsingHeader.h" />
     <ClInclude Include="nvapi\NvApiTypes.h" />

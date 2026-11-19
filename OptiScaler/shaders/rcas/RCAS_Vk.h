@@ -18,6 +18,8 @@ class RCAS_Vk : public Shader_Vk, public RCAS_Common
 
     VkPipeline _pipelineDA = VK_NULL_HANDLE;
     VkPipeline _pipelineDASDA = VK_NULL_HANDLE;
+    VkPipeline _pipelineBaba = VK_NULL_HANDLE;
+    VkPipeline _pipelineOpti = VK_NULL_HANDLE;
 
     void UpdateDescriptorSet(VkCommandBuffer cmdList, int setIndex, VkImageView inputView, VkImageView motionView,
                              VkImageView outputView);
@@ -31,6 +33,9 @@ class RCAS_Vk : public Shader_Vk, public RCAS_Common
     bool DispatchDepthAdaptive(VkCommandBuffer InCmdList, RcasConstants InConstants, const VkImageInfo& InResourceInfo,
                                const VkImageInfo& InMotionVectorsInfo, const VkImageInfo& OutResourceInfo,
                                VkImageInfo* InDepthInfo, bool isDAS);
+    bool DispatchNeural(SharpenShader InShader, VkCommandBuffer InCmdList, RcasConstants InConstants,
+                        const VkImageInfo& InResourceInfo, const VkImageInfo& InMotionVectorsInfo,
+                        const VkImageInfo& OutResourceInfo);
 
   public:
     RCAS_Vk(std::string InName, VkDevice InDevice, VkPhysicalDevice InPhysicalDevice);

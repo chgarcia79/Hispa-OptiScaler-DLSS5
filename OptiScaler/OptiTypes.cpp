@@ -200,6 +200,10 @@ std::string SharpnessShaderToCode(SharpenShader sharpenShader)
         return "da";
     case SharpenShader::LocalContrastDepthAware:
         return "lcda";
+    case SharpenShader::BabaNeural:
+        return "baba";
+    case SharpenShader::OptiSharpen:
+        return "opti";
     default:
         return "";
     }
@@ -212,6 +216,8 @@ SharpenShader CodeToSharpnessShader(const std::string& code)
         { "rcas", SharpenShader::RCAS },
         { "da", SharpenShader::DepthAware },
         { "lcda", SharpenShader::LocalContrastDepthAware },
+        { "baba", SharpenShader::BabaNeural },
+        { "opti", SharpenShader::OptiSharpen },
     };
 
     auto it = mapping.find(code);

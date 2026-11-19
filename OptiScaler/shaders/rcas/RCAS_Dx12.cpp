@@ -5,8 +5,11 @@
 #include "precompile/RCAS_Shader.h"
 #include "precompile/da_das_sharpen_Shader.h"
 #include "precompile/da_rcas_sharpen_Shader.h"
+#include "precompile/baba_neural_sharpen_Shader.h"
+#include "precompile/opti_sharpen_Shader.h"
 
 #include <Config.h>
+#include <magic_enum.hpp>
 
 bool RCAS_Dx12::DispatchRCAS(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* InResource,
                              ID3D12Resource* InMotionVectors, RcasConstants InConstants, ID3D12Resource* OutResource,
@@ -119,6 +122,66 @@ void RCAS_Dx12::SetBufferState(ID3D12GraphicsCommandList* InCommandList, D3D12_R
     return Shader_Dx12::SetBufferState(InCommandList, InState, _buffer, &_bufferState);
 }
 
+bool RCAS_Dx12::EnsureNeuralPipeline(SharpenShader InShader)
+{
+    const bool isOpti = InShader == SharpenShader::OptiSharpen;
+    auto& pipeline = isOpti ? _pipelineStateOpti : _pipelineStateBaba;
+    auto& failed = isOpti ? _optiPipelineFailed : _babaPipelineFailed;
+    if (pipeline != nullptr)
+        return true;
+    if (failed || _device == nullptr)
+        return false;
+
+    const bool ok =
+        isOpti ? CreateComputePipeline(_device, &pipeline, opti_sharpen_cso, sizeof(opti_sharpen_cso),
+                                       optiSharpenCode.c_str())
+               : CreateComputePipeline(_device, &pipeline, baba_neural_sharpen_cso, sizeof(baba_neural_sharpen_cso),
+                                       babaNeuralCode.c_str());
+    if (!ok)
+    {
+        LOG_ERROR("[{0}] Failed to create neural sharpening pipeline", _name);
+        failed = true;
+        return false;
+    }
+    return true;
+}
+
+bool RCAS_Dx12::DispatchNeural(SharpenShader InShader, ID3D12GraphicsCommandList* InCmdList,
+                               ID3D12Resource* InResource, ID3D12Resource* InMotionVectors, RcasConstants InConstants,
+                               ID3D12Resource* OutResource, FrameDescriptorHeap& currentHeap)
+{
+    if (!EnsureNeuralPipeline(InShader) || InMotionVectors == nullptr || _device == nullptr)
+        return false;
+
+    CreateShaderResourceView(_device, InResource, currentHeap.GetSrvCPU(0));
+    CreateShaderResourceView(_device, InMotionVectors, currentHeap.GetSrvCPU(1));
+    CreateUnorderedAccessView(_device, OutResource, currentHeap.GetUavCPU(0), 0);
+
+    auto inDesc = InResource->GetDesc();
+    auto outDesc = OutResource->GetDesc();
+    auto mvsDesc = InMotionVectors->GetDesc();
+
+    InternalConstantsBaba constants {};
+    constants.OutputWidth = (int) outDesc.Width;
+    constants.OutputHeight = (int) outDesc.Height;
+    constants.MotionWidth = (int) mvsDesc.Width;
+    constants.MotionHeight = (int) mvsDesc.Height;
+    FillMotionConstants(constants, InConstants, InShader, IsFloatFormat(inDesc.Format), (uint32_t) inDesc.Format,
+                        magic_enum::enum_name(inDesc.Format));
+
+    if (!CreateConstantsBuffer(_device, _constantBuffer, constants, currentHeap.GetCbvCPU(0)))
+        return false;
+
+    ID3D12DescriptorHeap* heaps[] = { currentHeap.GetHeapCSU() };
+    InCmdList->SetDescriptorHeaps(_countof(heaps), heaps);
+    InCmdList->SetComputeRootSignature(_rootSignature);
+    InCmdList->SetPipelineState(InShader == SharpenShader::OptiSharpen ? _pipelineStateOpti : _pipelineStateBaba);
+    InCmdList->SetComputeRootDescriptorTable(0, currentHeap.GetTableGPUStart());
+    InCmdList->Dispatch(static_cast<UINT>((outDesc.Width + InNumThreadsX - 1) / InNumThreadsX),
+                        (outDesc.Height + InNumThreadsY - 1) / InNumThreadsY, 1);
+    return true;
+}
+
 bool RCAS_Dx12::Dispatch(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* InResource,
                          ID3D12Resource* InMotionVectors, RcasConstants InConstants, ID3D12Resource* OutResource,
                          ID3D12Resource* InDepth)
@@ -136,6 +199,14 @@ bool RCAS_Dx12::Dispatch(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* I
     FrameDescriptorHeap& currentHeap = _frameHeaps[_counter];
 
     auto sharpnessShader = Config::Instance()->SharpnessShader.value_or_default();
+    if (InDepth == nullptr &&
+        (sharpnessShader == SharpenShader::LocalContrastDepthAware || sharpnessShader == SharpenShader::DepthAware))
+        sharpnessShader = SharpenShader::RCAS;
+    if ((sharpnessShader == SharpenShader::BabaNeural || sharpnessShader == SharpenShader::OptiSharpen) &&
+        !EnsureNeuralPipeline(sharpnessShader))
+        sharpnessShader = SharpenShader::RCAS;
+
+    SetTimedShader(sharpnessShader);
 
     if (sharpnessShader == SharpenShader::LocalContrastDepthAware)
     {
@@ -147,13 +218,14 @@ bool RCAS_Dx12::Dispatch(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* I
         return DispatchDepthAdaptive(_pipelineStateDA, InCmdList, InResource, InMotionVectors, InDepth, InConstants,
                                      OutResource, currentHeap);
     }
-    else if (sharpnessShader == SharpenShader::RCAS)
+    else if (sharpnessShader == SharpenShader::BabaNeural || sharpnessShader == SharpenShader::OptiSharpen)
     {
-        return DispatchRCAS(InCmdList, InResource, InMotionVectors, InConstants, OutResource, currentHeap);
+        return DispatchNeural(sharpnessShader, InCmdList, InResource, InMotionVectors, InConstants, OutResource,
+                              currentHeap);
     }
     else
     {
-        return false;
+        return DispatchRCAS(InCmdList, InResource, InMotionVectors, InConstants, OutResource, currentHeap);
     }
 }
 
@@ -173,7 +245,8 @@ RCAS_Dx12::RCAS_Dx12(std::string InName, ID3D12Device* InDevice) : Shader_Dx12(I
         return;
     }
 
-    D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(sizeof(InternalConstantsDA));
+    D3D12_RESOURCE_DESC desc = CD3DX12_RESOURCE_DESC::Buffer(
+        std::max({ sizeof(InternalConstants), sizeof(InternalConstantsDA), sizeof(InternalConstantsBaba) }));
     auto heapProps = CD3DX12_HEAP_PROPERTIES(D3D12_HEAP_TYPE_UPLOAD);
 
     auto result =
@@ -216,6 +289,8 @@ RCAS_Dx12::~RCAS_Dx12()
 
     SAFE_RELEASE(_pipelineStateDA);
     SAFE_RELEASE(_pipelineStateDASDA);
+    SAFE_RELEASE(_pipelineStateBaba);
+    SAFE_RELEASE(_pipelineStateOpti);
 
     for (int i = 0; i < RCAS_NUM_OF_HEAPS; i++)
     {

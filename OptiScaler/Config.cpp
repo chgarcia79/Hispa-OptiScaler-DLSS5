@@ -754,6 +754,20 @@ bool Config::Reload(std::filesystem::path iniPath)
             DADepthBias.set_from_config(readFloat("CAS", "DADepthBias"));
             DAClampOutput.set_from_config(readBool("CAS", "DAClampOutput"));
 
+            if (auto setting = readInt("CAS", "BabaNeuralModel"); setting.has_value())
+                BabaNeuralModel.set_from_config(std::clamp(setting.value(), 0, 1));
+            if (auto setting = readFloat("CAS", "BabaNeuralEdgeResponse"); setting.has_value())
+                BabaNeuralEdgeResponse.set_from_config(std::clamp(setting.value(), -1.0f, 1.0f));
+            if (auto setting = readInt("CAS", "BabaNeuralDebugView"); setting.has_value())
+                BabaNeuralDebugView.set_from_config(std::clamp(setting.value(), 0, 2));
+            if (auto setting = readInt("CAS", "BabaNeuralLinearMode"); setting.has_value())
+                BabaNeuralLinearMode.set_from_config(std::clamp(setting.value(), 0, 2));
+
+            if (auto setting = readInt("CAS", "OptiSharpenModel"); setting.has_value())
+                OptiSharpenModel.set_from_config(std::clamp(setting.value(), 0, 5));
+            if (auto setting = readInt("CAS", "OptiSharpenDebugView"); setting.has_value())
+                OptiSharpenDebugView.set_from_config(std::clamp(setting.value(), 0, 2));
+
             MotionSharpnessDebug.set_from_config(readBool("CAS", "SharpenerDebug"));
         }
 
@@ -1630,6 +1644,17 @@ bool Config::SaveIni()
         ini.SetValue("CAS", "DADepthScale", GetFloatValue(Instance()->DADepthScale.value_for_config()).c_str());
         ini.SetValue("CAS", "DADepthBias", GetFloatValue(Instance()->DADepthBias.value_for_config()).c_str());
         ini.SetValue("CAS", "DAClampOutput", GetBoolValue(Instance()->DAClampOutput.value_for_config()).c_str());
+
+        ini.SetValue("CAS", "BabaNeuralModel", GetIntValue(Instance()->BabaNeuralModel.value_for_config()).c_str());
+        ini.SetValue("CAS", "BabaNeuralEdgeResponse",
+                     GetFloatValue(Instance()->BabaNeuralEdgeResponse.value_for_config()).c_str());
+        ini.SetValue("CAS", "BabaNeuralDebugView",
+                     GetIntValue(Instance()->BabaNeuralDebugView.value_for_config()).c_str());
+        ini.SetValue("CAS", "BabaNeuralLinearMode",
+                     GetIntValue(Instance()->BabaNeuralLinearMode.value_for_config()).c_str());
+        ini.SetValue("CAS", "OptiSharpenModel", GetIntValue(Instance()->OptiSharpenModel.value_for_config()).c_str());
+        ini.SetValue("CAS", "OptiSharpenDebugView",
+                     GetIntValue(Instance()->OptiSharpenDebugView.value_for_config()).c_str());
 
         ini.SetValue("CAS", "SharpenerDebug",
                      GetBoolValue(Instance()->MotionSharpnessDebug.value_for_config()).c_str());

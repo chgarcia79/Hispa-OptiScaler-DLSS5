@@ -93,7 +93,9 @@ enum class SharpenShader
 {
     RCAS,
     DepthAware,
-    LocalContrastDepthAware
+    LocalContrastDepthAware,
+    BabaNeural,
+    OptiSharpen
 };
 
 enum class FSR4Support : uint8_t

@@ -628,6 +628,14 @@ class Config
     CustomOptional<float, NoDefault> DADepthBias;
     CustomOptional<bool, NoDefault> DAClampOutput;
 
+    // Neural (BaBa) & OptiSharpen
+    CustomOptional<int> BabaNeuralModel { 0 };              // 0 = Standard A, 1 = Edge-enhancing B
+    CustomOptional<float> BabaNeuralEdgeResponse { 0.0f };  // -1 smooth edges, +1 enhance edges
+    CustomOptional<int> BabaNeuralDebugView { 0 };          // 0 = normal, 1 = sharpening map, 2 = residual map
+    CustomOptional<int> BabaNeuralLinearMode { 0 };         // 0 = Auto (Float+HDR), 1 = Force Linear, 2 = Force Perceptual
+    CustomOptional<int> OptiSharpenModel { 3 };             // 0..5: Clean, TAA, TAA Wide, TAA Wide 12, Punch 10, Punch 15
+    CustomOptional<int> OptiSharpenDebugView { 0 };         // 0 = normal, 1 = sharpening map, 2 = change magnitude
+
     // MAS
     CustomOptional<bool> MotionSharpnessEnabled { false };
     CustomOptional<bool> MotionSharpnessDebug { false };

@@ -9,6 +9,7 @@
 #include <dlssnr/DlssNr_OwnNr.h>
 #include "MenuLayout.h"
 #include "Menu_Dev10LivePacingSection.h"
+#include "Menu_NeuralSharpenSection.h"
 #include "Menu_GpuPrioritization.h"
 
 #include "input/input_system.h"
@@ -5456,6 +5457,8 @@ void MenuCommon::RenderActiveImageSettings(RenderMenuContext& ctx)
                            "The farther away is the object, the more\n"
                            "sharpening is applied");
 
+            MenuNeuralSharpen::RenderRadioOptions(sharpnessShader, config);
+
             ImGui::Spacing();
 
             if (bool overrideMotionSharpness = config->MotionSharpnessEnabled.value_or_default();
@@ -5463,7 +5466,12 @@ void MenuCommon::RenderActiveImageSettings(RenderMenuContext& ctx)
                 config->MotionSharpnessEnabled = overrideMotionSharpness;
             ShowHelpMarker("Enables sharpness adjustments according to the motion");
 
-            if (Config::Instance()->SharpnessShader.value_or_default() != SharpenShader::RCAS)
+            if (Config::Instance()->SharpnessShader.value_or_default() == SharpenShader::BabaNeural ||
+                Config::Instance()->SharpnessShader.value_or_default() == SharpenShader::OptiSharpen)
+            {
+                MenuNeuralSharpen::RenderParameters(config, isHdr);
+            }
+            else if (Config::Instance()->SharpnessShader.value_or_default() != SharpenShader::RCAS)
             {
                 if (bool overrideMSDebug = config->MotionSharpnessDebug.value_or_default();
                     ImGui::Checkbox("DA + MAS Debug", &overrideMSDebug))
