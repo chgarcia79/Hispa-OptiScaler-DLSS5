@@ -34,6 +34,7 @@
 #include "DlssNr_DetailReuse_Dx12.h"
 #include "DlssNr_MipSubresource.h"
 #include "DlssNr_DepthFade.h"
+#include "DlssNr_Nvfp4Bridge.h"
 #include <dlssnr/DlssNr_NativeBlend.h>
 #include "precompile/DlssNr_Shader.h"
 #include "precompile/dlssnr_residual_Shader.h"
@@ -2196,10 +2197,12 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         }
 
         SetExtras(cfg, nullptr, nullptr, 0, 0, 0, 0);
+        const unsigned int wantPreset0 = (unsigned int) cfg.DlssNrPreset.value_or_default();
+        DlssNr::Nvfp4Bridge::ConfigureForPresets(&wantPreset0, 1);
         g_nr.feature =
             g_nr.create(snippet->wstring().c_str(), State::Instance().NVNGX_ApplicationDataPath.c_str(),
                         device, cmdList, g_nr.capabilityParams, workWidth, workHeight,
-                        (int) cfg.DlssNrPreset.value_or_default(),
+                        (int) DlssNr::Nvfp4Bridge::RuntimePresetFor(wantPreset0),
                         cfg.DlssNrIntensity.value_or_default(), ResolvePassStyle(cfg, 0),
                         cfg.DlssNrLocalStructure.value_or_default(), cfg.DlssNrLocalTone.value_or_default(),
                         cfg.DlssNrSkinStructure.value_or_default(),
@@ -2308,10 +2311,13 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             else
             {
                 SetExtras(cfg, nullptr, nullptr, 0, 0, 0, 0);
+                const unsigned int passPreset = (unsigned int) ResolvePassPreset(cfg, pass);
+                DlssNr::Nvfp4Bridge::ConfigureForPresets(&passPreset, 1);
                 // Later passes zero LocalTone to prevent compounding local contrast burn across cascaded passes.
                 g_nr.passFeature[pass] = g_nr.create(
                     snippet->wstring().c_str(), State::Instance().NVNGX_ApplicationDataPath.c_str(), device, cmdList,
-                    g_nr.capabilityParams, workWidth, workHeight, ResolvePassPreset(cfg, pass),
+                    g_nr.capabilityParams, workWidth, workHeight,
+                    (int) DlssNr::Nvfp4Bridge::RuntimePresetFor(passPreset),
                     cfg.DlssNrIntensity.value_or_default(), ResolvePassStyle(cfg, pass),
                     cfg.DlssNrLocalStructure.value_or_default(), 0.0f, cfg.DlssNrSkinStructure.value_or_default(),
                     cfg.DlssNrAutoMask.value_or_default() ? 1 : 0, 1);
@@ -2766,6 +2772,11 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         const bool passReset = g_nr.reset || (pass > 0 && g_nr.passNeedsReset[pass]);
         const float passLocalTone = pass == 0 ? cfg.DlssNrLocalTone.value_or_default() : 0.0f;
 
+        const unsigned int passPreset =
+            pass == 0 ? (unsigned int) cfg.DlssNrPreset.value_or_default() : (unsigned int) ResolvePassPreset(cfg, pass);
+        DlssNr::Nvfp4Bridge::ConfigureForPresets(&passPreset, 1);
+        DlssNr::Nvfp4::BeginEvaluation(passPreset);
+
         MakeModelWritable(passOutput);
         result = g_nr.evaluate(
             cmdList, passFeature, g_nr.capabilityParams, passInput, depthIn, motionIn, passOutput,
@@ -2775,6 +2786,12 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             passLocalTone, cfg.DlssNrSkinStructure.value_or_default(),
             cfg.DlssNrAutoMask.value_or_default() ? 1 : 0, g_nr.guideMvScaleX * mvToWorkX,
             g_nr.guideMvScaleY * mvToWorkY);
+
+        if (!DlssNr::Nvfp4Bridge::EvaluatePass(passPreset, cmdList, false))
+        {
+            result = NVSDK_NGX_Result_Fail;
+            break;
+        }
 
         if (result != NVSDK_NGX_Result_Success)
             break;
@@ -3130,6 +3147,8 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
                                                    : (ID3D12CommandQueue*) State::Instance().currentCommandQueue)
     {
         g_nrRetired.SignalEpoch(device, signalQueue, frame.SubmissionEpoch);
+        DlssNr::Nvfp4Bridge::TickRetire(device, signalQueue, frame.SubmissionEpoch,
+                                        cfg.DlssNrGpuSafeRetire.value_or_default(), effectivePasses);
     }
 
     device->Release();
@@ -3829,6 +3848,7 @@ void Shutdown()
     std::lock_guard<std::mutex> nrLock(g_nrMutex);
 
     g_nrRetired.FreeAll(FreeNrRetiredNow);
+    DlssNr::Nvfp4Bridge::ReleaseAll();
     g_contexts.Reset();
     g_absorbedFormatFlips.store(0, std::memory_order_relaxed);
     g_rebuildStandDown.store(false, std::memory_order_relaxed);

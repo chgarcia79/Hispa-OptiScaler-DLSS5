@@ -3,6 +3,7 @@
 #include "DlssNrFeature_Vk.h"
 #include "DlssNr_DriverGate.h"
 #include "DlssNr_VkExtensions.h"
+#include "NrNvfp4.h"
 
 #include <Config.h>
 #include <State.h>
@@ -837,6 +838,11 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
     }
 
     const int wantPreset = (int) cfg.DlssNrPreset.value_or_default();
+    if (DlssNr::Nvfp4::IsNvfp4((unsigned int) wantPreset))
+    {
+        DlssNr::Nvfp4::Refuse("NVFP4 requiere DirectX 12 en RTX 50");
+        return;
+    }
     const int wantStyle = (int) cfg.DlssNrStyle.value_or_default();
     const float wantIntensity = cfg.DlssNrIntensity.value_or_default();
     const float wantLocalStructure = cfg.DlssNrLocalStructure.value_or_default();

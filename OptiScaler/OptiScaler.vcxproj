@@ -641,6 +641,12 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="dlssnr\DlssNr_VkExtensions.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_Contexts.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_Retire.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_Nvfp4Bridge.h" />
+    <ClInclude Include="dlssnr\NrNvfp4.h" />
+    <ClInclude Include="dlssnr\NrPassBorrowTables.h" />
+    <ClInclude Include="dlssnr\nvfp4\NrFfnV2.h" />
+    <ClInclude Include="dlssnr\nvfp4\NrNet4.h" />
+    <ClInclude Include="dlssnr\nvfp4\NrSwin4.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_SurfaceFormats.h" />
     <ClInclude Include="framegen\xefg\XeFGPacingPolicy.h" />
     <ClInclude Include="hooks\FgGpuTimeSource.h" />
@@ -889,6 +895,18 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClCompile Include="dlssnr\DlssNrFeature_Vk.cpp" />
     <ClCompile Include="dlssnr\DlssNr_ExposureScan.cpp" />
     <ClCompile Include="dlssnr\DlssNr_Proxy.cpp" />
+    <ClCompile Include="dlssnr\NrNvfp4.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="dlssnr\nvfp4\NrFfnV2.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="dlssnr\nvfp4\NrNet4.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="dlssnr\nvfp4\NrSwin4.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
     <ClCompile Include="dlssnr\DlssNr_Menu.cpp" />
     <ClCompile Include="dlssnr\DlssNr_GameNrRuntime.cpp" />
     <ClCompile Include="inputs\NVNGX_DLSS_Dx12.cpp" />

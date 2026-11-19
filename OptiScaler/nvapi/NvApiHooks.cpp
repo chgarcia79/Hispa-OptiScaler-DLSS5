@@ -10,6 +10,7 @@
 #include <detours/detours.h>
 #include <misc/IdentifyGpu.h>
 #include <low_latency/input/input_reflex.h>
+#include <dlssnr/NrNvfp4.h>
 
 // #define LOG_ALL_DRS_GET_CALLS
 
@@ -254,7 +255,7 @@ void* __stdcall NvApiHooks::hkNvAPI_QueryInterface(unsigned int InterfaceId)
 
     // LOG_DEBUG("counter: {} functionPointer: {:X}", qiCounter, (size_t)functionPointer);
 
-    return functionPointer;
+    return DlssNr::Nvfp4::WrapNvapi(InterfaceId, functionPointer);
 }
 
 // Requires HMODULE to make sure nvapi is loaded before calling this function

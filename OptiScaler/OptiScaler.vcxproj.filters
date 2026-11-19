@@ -173,6 +173,24 @@
     <ClInclude Include="menu\Menu_NeuralSharpenSection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="shaders\dlssnr\DlssNr_Nvfp4Bridge.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\NrNvfp4.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\NrPassBorrowTables.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\nvfp4\NrFfnV2.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\nvfp4\NrNet4.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\nvfp4\NrSwin4.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="menu\Menu_GpuPrioritization.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1209,6 +1227,18 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="inputs\XeSS_UE_Dx12_Disasm.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="dlssnr\NrNvfp4.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="dlssnr\nvfp4\NrFfnV2.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="dlssnr\nvfp4\NrNet4.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="dlssnr\nvfp4\NrSwin4.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="hooks\Vulkan_Hooks.cpp">
