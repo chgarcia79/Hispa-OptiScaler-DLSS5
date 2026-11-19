@@ -2,7 +2,7 @@
 
 #include <Config.h>
 #include <dlssnr/DlssNrFeature_Dx12.h>
-#include <menu/ScopedCollapsingHeader.h>
+#include <menu/menu_common.h>
 #include <imgui/imgui.h>
 #include <algorithm>
 

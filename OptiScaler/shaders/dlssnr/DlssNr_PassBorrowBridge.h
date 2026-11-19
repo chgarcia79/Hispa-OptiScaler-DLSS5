@@ -55,7 +55,7 @@ inline void CollectRetired(ID3D12Device* device, ID3D12CommandQueue* queue, uint
     }
     if (queue != nullptr)
         RetiredQueue().SignalEpoch(device, queue, epoch);
-    RetiredQueue().Tick(epoch, gpuSafeEnabled, FreeObjNow);
+    RetiredQueue().Tick(epoch, gpuSafeEnabled, [](const RetiredBorrowObj& item, bool) { FreeObjNow(item); });
 }
 
 inline void ReleaseAll()

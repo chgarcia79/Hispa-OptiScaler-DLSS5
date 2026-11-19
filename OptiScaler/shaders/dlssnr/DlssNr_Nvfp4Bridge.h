@@ -76,7 +76,7 @@ inline void TickRetire(ID3D12Device* device, ID3D12CommandQueue* queue, uint64_t
         RetiredQueue().Park({ device, ticket });
     if (queue != nullptr)
         RetiredQueue().SignalEpoch(device, queue, epoch);
-    RetiredQueue().Tick(epoch, gpuSafeEnabled, FreeTicketNow);
+    RetiredQueue().Tick(epoch, gpuSafeEnabled, [](const RetiredNvfp4Ticket& item, bool) { FreeTicketNow(item); });
 }
 
 inline void ReleaseAll(ID3D12Device* device = nullptr)

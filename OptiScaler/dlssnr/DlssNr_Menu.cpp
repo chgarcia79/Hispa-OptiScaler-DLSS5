@@ -1,6 +1,10 @@
 #include "pch.h"
 #include "DlssNrFeature_Vk.h"
 
+#include <Config.h>
+#include <State.h>
+#include <menu/menu_common.h>
+
 #include "DlssNr.h"
 #include "DlssNr_DriverGate.h"
 #include "DlssNr_ExposureScan.h"
@@ -10,11 +14,6 @@
 #include "DlssNr_MenuPassShortcutsSection.h"
 #include "DlssNr_MenuDiagnosticsSection.h"
 #include "DlssNr_SteadyValue.h"
-
-
-#include <Config.h>
-#include <State.h>
-#include <menu/menu_common.h>
 
 #include <imgui/imgui.h>
 
