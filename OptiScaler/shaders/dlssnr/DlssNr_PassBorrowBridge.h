@@ -1,5 +1,6 @@
 #pragma once
 
+#include <Config.h>
 #include <dlssnr/NrPassBorrow.h>
 #include <dlssnr/PassProfiles.h>
 #include <shaders/dlssnr/DlssNr_Retire.h>

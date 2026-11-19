@@ -6,6 +6,7 @@
 #include "precompile/baba_neural_sharpen_Shader_Vk.h"
 #include "precompile/opti_sharpen_Shader_Vk.h"
 #include <Config.h>
+#include <algorithm>
 #include <magic_enum.hpp>
 
 static bool IsFloatVkFormat(VkFormat InFormat)

@@ -5,6 +5,7 @@
 #include <menu/ScopedCollapsingHeader.h>
 #include <imgui/imgui.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdio>
 
 namespace DlssNr

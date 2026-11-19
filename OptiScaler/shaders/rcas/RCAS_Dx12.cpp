@@ -9,6 +9,7 @@
 #include "precompile/opti_sharpen_Shader.h"
 
 #include <Config.h>
+#include <algorithm>
 #include <magic_enum.hpp>
 
 bool RCAS_Dx12::DispatchRCAS(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* InResource,

@@ -10,6 +10,7 @@
 #include <misc/IdentifyGpu.h>
 
 #include <SimpleIni.h>
+#include <format>
 
 static CSimpleIniA ini;
 

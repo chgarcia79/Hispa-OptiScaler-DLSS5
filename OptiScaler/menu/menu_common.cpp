@@ -5481,7 +5481,7 @@ void MenuCommon::RenderActiveImageSettings(RenderMenuContext& ctx)
             if (Config::Instance()->SharpnessShader.value_or_default() == SharpenShader::BabaNeural ||
                 Config::Instance()->SharpnessShader.value_or_default() == SharpenShader::OptiSharpen)
             {
-                MenuNeuralSharpen::RenderParameters(config, isHdr);
+                MenuNeuralSharpen::RenderParameters(config, currentFeature != nullptr && currentFeature->IsHdr());
             }
             else if (Config::Instance()->SharpnessShader.value_or_default() != SharpenShader::RCAS)
             {
