@@ -238,7 +238,7 @@ bool RCAS_Dx11::EnsureNeuralShader(SharpenShader InShader, ID3D11Device* InDevic
                                                   sizeof(opti_sharpen_cso), optiSharpenCode.c_str())
                             : CreateComputeShader(InDevice, computeShader,
                                                   reinterpret_cast<const void*>(baba_neural_sharpen_cso),
-                                                  sizeof(baba_neural_sharpen_cso), babaNeuralCode.c_str());
+                                                  sizeof(baba_neural_sharpen_cso), babaNeuralSharpenCode.c_str());
     if (FAILED(result))
     {
         LOG_ERROR("[{0}] CreateComputeShader error for neural shader: {1:X}", _name, result);

@@ -137,7 +137,7 @@ bool RCAS_Dx12::EnsureNeuralPipeline(SharpenShader InShader)
         isOpti ? CreateComputePipeline(_device, &pipeline, opti_sharpen_cso, sizeof(opti_sharpen_cso),
                                        optiSharpenCode.c_str())
                : CreateComputePipeline(_device, &pipeline, baba_neural_sharpen_cso, sizeof(baba_neural_sharpen_cso),
-                                       babaNeuralCode.c_str());
+                                       babaNeuralSharpenCode.c_str());
     if (!ok)
     {
         LOG_ERROR("[{0}] Failed to create neural sharpening pipeline", _name);
