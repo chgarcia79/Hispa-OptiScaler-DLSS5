@@ -6,6 +6,9 @@
 // We launch nr_swin4 instead, with the same grid and block shape, the runtime's own buffers and flags, and our weight
 // record. The runtime's neighbours wait for a block's flags without a time limit, so a kernel of ours must publish
 // every window's flag exactly as the runtime's does; it does so unconditionally at its end.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <bcrypt.h>
 #include <d3d12.h>
