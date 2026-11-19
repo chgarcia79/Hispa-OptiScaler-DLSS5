@@ -206,6 +206,15 @@
     <ClInclude Include="dlssnr\DlssNr_ModelParameters.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_MenuNvfp4Section.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_MenuPassShortcutsSection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_MenuDiagnosticsSection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="shaders\dlssnr\DlssNr_Spatial.h">
       <Filter>Header Files</Filter>
     </ClInclude>

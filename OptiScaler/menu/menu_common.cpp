@@ -10,6 +10,7 @@
 #include "MenuLayout.h"
 #include "Menu_Dev10LivePacingSection.h"
 #include "Menu_NeuralSharpenSection.h"
+#include <inputs/XeSS_UE_Dx12.h>
 #include "Menu_GpuPrioritization.h"
 
 #include "input/input_system.h"
@@ -2267,6 +2268,17 @@ void MenuCommon::RenderMainMenuHeaderMessages(RenderMenuContext& ctx)
 
             ImGui::Text("libxess: %s",
                         (state.libxessExists || XeSSProxy::Module() != nullptr) ? "Exists" : "Doesn't Exist");
+            if (bool ueFix = config->XeSSUnrealDepthMvFix.value_or_default();
+                ImGui::Checkbox("Extraer Depth y Motion Vectors en Unreal Engine (XeSS DX12)", &ueFix))
+            {
+                config->XeSSUnrealDepthMvFix = ueFix;
+            }
+            if (XeSSUnreal::Hooked())
+            {
+                ImGui::SameLine(0.0f, 12.0f);
+                ImGui::TextColored(ImVec4(0.45f, 0.90f, 0.55f, 1.0f),
+                                   XeSSUnreal::HasCapturedDepth() ? "(Hook activo + SceneDepth)" : "(Hook activo)");
+            }
 
             ImGui::Text("FSR Hooks: %s", state.fsrHooks ? "Exist" : "Don't Exist");
             ImGui::SameLine(0.0f, 16.0f);

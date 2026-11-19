@@ -6,6 +6,9 @@
 #include "DlssNr_ExposureScan.h"
 #include "DlssNr_MenuDepthFadeSection.h"
 #include "DlssNr_MenuStabilitySection.h"
+#include "DlssNr_MenuNvfp4Section.h"
+#include "DlssNr_MenuPassShortcutsSection.h"
+#include "DlssNr_MenuDiagnosticsSection.h"
 #include "DlssNr_SteadyValue.h"
 
 
@@ -333,22 +336,7 @@ void RenderMenu(Config* config, float menuResScale)
 
         ImGui::TextUnformatted("Se aplica al compilar el modelo de IA en GPU.");
 
-        static const char* nrPresetNames[] = {
-            "Auto (Performance / Small FP8)",
-            "Quality (Honest Tench - Maxima Fidelidad)",
-            "Performance (Crazy Cuckoo Small FP8, +40% FPS)"
-        };
-        int preset = (int) std::min(config->DlssNrPreset.value_or_default(), 2u);
-        if (ImGui::Combo("Preset del modelo IA", &preset, nrPresetNames, IM_ARRAYSIZE(nrPresetNames)))
-            config->DlssNrPreset = (uint32_t) preset;
-
-        HelpMarker("Modelos IA embebidos en nvngx_dlssnr.dll v310.9.16.0:\n"
-                   "0 - Auto: Selecciona Performance (Small FP8) por defecto.\n"
-                   "1 - Quality (Honest Tench): Red completa de maxima fidelidad.\n"
-                   "2 - Performance (Crazy Cuckoo Small FP8): Red cuantizada FP8 (+40% FPS en Tensor Cores).");
-        if (false)
-        if (ImGui::Combo("Preset del modelo IA", &preset, nrPresetNames, IM_ARRAYSIZE(nrPresetNames)))
-            config->DlssNrPreset = (uint32_t) preset;
+        RenderNvfp4PresetSelector(config, HelpMarker);
 
         // HelpMarker for v310.9.16.0 presets rendered above.
 
@@ -399,9 +387,7 @@ void RenderMenu(Config* config, float menuResScale)
                 std::snprintf(styleLabel, sizeof(styleLabel), "Pasada %u - Estilo", passNum);
 
                 auto* presetOpt = passPresets[passNum - 2];
-                int pPreset = (int) std::min(presetOpt->value_or_default(), 2u);
-                if (ImGui::Combo(presetLabel, &pPreset, passPresetNames, IM_ARRAYSIZE(passPresetNames)))
-                    *presetOpt = (uint32_t) pPreset;
+                RenderNvfp4PassPresetCombo(presetLabel, config, passNum - 2, presetOpt);
 
                 auto* styleOpt = passStyles[passNum - 2];
                 int pStyle = (int) std::min(styleOpt->value_or_default(), 3u);
@@ -1290,6 +1276,8 @@ void RenderMenu(Config* config, float menuResScale)
         // KeepModelOnFormatFlip, IsolateMainFeature, GpuSafeRetire).
         RenderDev9StabilitySection(config, HelpMarker);
         RenderDev10DepthFadeSection(config, HelpMarker);
+        RenderPassShortcutsSection(config, HelpMarker);
+        RenderDiagnosticsSection(config, HelpMarker);
 
         ImGui::SeparatorText("Comparativa A/B");
 
