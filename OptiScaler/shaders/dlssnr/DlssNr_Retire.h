@@ -137,4 +137,101 @@ template <typename Item> class FenceQueue
     std::unordered_set<const void*> _openLists;
     std::vector<ParkedEntry> _parked;
 };
+
+class CreationGuard
+{
+  public:
+    void RecordCreation(ID3D12GraphicsCommandList* cmdList, uint64_t epoch)
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _cmdList = cmdList;
+        _epoch = epoch;
+        _submitted = false;
+        _ready = false;
+        _active = (cmdList != nullptr);
+    }
+
+    void NotifySubmission(UINT count, ID3D12CommandList* const* lists)
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _submissionsSeen = true;
+        if (_active && !_submitted && _cmdList != nullptr && lists != nullptr)
+        {
+            for (UINT i = 0; i < count; ++i)
+            {
+                if (lists[i] == static_cast<ID3D12CommandList*>(_cmdList))
+                {
+                    _submitted = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    bool IsReady(uint64_t epoch)
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        if (!_active)
+            return false;
+        if (_ready)
+            return true;
+        if (_submitted || (!_submissionsSeen && epoch != _epoch))
+        {
+            _ready = true;
+            _discards = 0;
+            return true;
+        }
+        return false;
+    }
+
+    bool IsDiscarded(uint64_t epoch, ID3D12GraphicsCommandList* currentList) const
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _active && !_ready && _submissionsSeen && !_submitted && (epoch != _epoch || currentList == _cmdList);
+    }
+
+    uint32_t RecordDiscard()
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _active = false;
+        _cmdList = nullptr;
+        ++_totalDiscards;
+        return ++_discards;
+    }
+
+    void ResetCounter()
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _discards = 0;
+        _totalDiscards = 0;
+    }
+
+    void Clear()
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        _active = false;
+        _cmdList = nullptr;
+        _submitted = false;
+        _ready = false;
+    }
+
+    uint32_t TotalDiscards() const
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _totalDiscards;
+    }
+
+    const ID3D12GraphicsCommandList* CmdList() const
+    {
+        std::lock_guard<std::mutex> lock(_mutex);
+        return _cmdList;
+    }
+
+  private:
+    mutable std::mutex _mutex;
+    ID3D12GraphicsCommandList* _cmdList = nullptr;
+    uint64_t _epoch = 0;
+    uint32_t _discards = 0, _totalDiscards = 0;
+    bool _active = false, _submitted = false, _ready = false, _submissionsSeen = false;
+};
 } // namespace DlssNr::Retire

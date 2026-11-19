@@ -6,7 +6,9 @@
 #include <Config.h>
 #include <Logger.h>
 #include <proxies/NVNGX_Proxy.h>
+#include <shaders/dlssnr/DlssNr_Retire.h>
 #include <State.h>
+#include <algorithm>
 
 namespace
 {
@@ -86,9 +88,12 @@ struct ProxyState
     unsigned int height = 0;
 
     bool failed = false;
+    bool pausedByDiscards = false;
+    bool pendingSubmission = false;
 };
 
 ProxyState g_proxy;
+DlssNr::Retire::CreationGuard g_creationGuard;
 
 // Everything the model reads when the feature is built.
 //
@@ -143,14 +148,34 @@ void Release()
     g_proxy.params = nullptr;
     g_proxy.width = 0;
     g_proxy.height = 0;
+    g_proxy.pendingSubmission = false;
+    g_creationGuard.Clear();
 }
+
+void NotifyQueueSubmission(unsigned int count, ID3D12CommandList* const* lists)
+{
+    g_creationGuard.NotifySubmission(count, lists);
+}
+
+unsigned int InitDiscardCount() { return g_creationGuard.TotalDiscards(); }
+
+void ResetInitDiscardCounter()
+{
+    g_creationGuard.ResetCounter();
+    g_proxy.failed = false;
+    g_proxy.pausedByDiscards = false;
+    g_proxy.pendingSubmission = false;
+}
+
+bool IsPausedByDiscards() { return g_proxy.pausedByDiscards; }
 
 unsigned int Run(ID3D12GraphicsCommandList* cmdList, ID3D12Device* device, ID3D12Resource* color,
                  ID3D12Resource* depth, ID3D12Resource* motion, ID3D12Resource* output,
                  unsigned int width, unsigned int height, unsigned int guideWidth,
                  unsigned int guideHeight, bool depthInverted, bool reset, float mvScaleX,
-                 float mvScaleY)
+                 float mvScaleY, unsigned long long submissionEpoch)
 {
+    g_proxy.pendingSubmission = false;
     if (g_proxy.failed || !Available())
         return 0;
 
@@ -165,6 +190,25 @@ unsigned int Run(ID3D12GraphicsCommandList* cmdList, ID3D12Device* device, ID3D1
 
     if (g_proxy.feature != nullptr && (g_proxy.width != width || g_proxy.height != height))
         Release();
+
+    if (cfg.DlssNrInitDiscardGuard.value_or_default() && g_proxy.feature != nullptr &&
+        g_creationGuard.IsDiscarded(submissionEpoch, cmdList))
+    {
+        const unsigned int maxDiscards =
+            static_cast<unsigned int>(std::clamp(cfg.DlssNrInitMaxDiscards.value_or_default(), 1, 10));
+        const unsigned int discards = g_creationGuard.RecordDiscard();
+        LOG_WARN("DLSS-NR (proxy): la CommandList de CreateFeature fue descartada antes de llegar a GPU ({}/{}).",
+                 discards, maxDiscards);
+        Release();
+        if (discards >= maxDiscards)
+        {
+            g_proxy.failed = true;
+            g_proxy.pausedByDiscards = true;
+            LOG_ERROR("DLSS-NR (proxy): CreateFeature descartado {} veces seguidas; NR pausado hasta reset manual.",
+                      discards);
+            return 0;
+        }
+    }
 
     if (g_proxy.params == nullptr)
     {
@@ -251,9 +295,16 @@ unsigned int Run(ID3D12GraphicsCommandList* cmdList, ID3D12Device* device, ID3D1
 
         g_proxy.width = width;
         g_proxy.height = height;
+        g_creationGuard.RecordCreation(cmdList, submissionEpoch);
         LOG_INFO("DLSS-NR (proxy): feature created at {}x{} through the driver's nvngx -- no "
                  "forwarder in this path",
                  width, height);
+    }
+    else if (cfg.DlssNrInitDiscardGuard.value_or_default() && !g_creationGuard.IsReady(submissionEpoch) &&
+             cmdList != g_creationGuard.CmdList())
+    {
+        g_proxy.pendingSubmission = true;
+        return 0;
     }
 
     NVSDK_NGX_Parameter* params = g_proxy.params;

@@ -1699,9 +1699,7 @@ class FfxApiProxy
 
         LOG_INFO("LoadResult: {}", loadResult);
 
-        if (loadResult)
-            VersionVk();
-        else
+        if (!loadResult)
             main_vk.dll = nullptr;
 
         return loadResult;

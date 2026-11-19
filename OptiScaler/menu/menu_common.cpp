@@ -2724,42 +2724,22 @@ void MenuCommon::RenderActiveUpscalerSettings(RenderMenuContext& ctx)
                         // This will be applied by default
                         if (ImGui::Button("Stability"))
                         {
-                            auto const scaleRatioX =
-                                (float) currentFeature->TargetWidth() / (float) currentFeature->RenderWidth();
-                            auto const scaleRatioY =
-                                (float) currentFeature->TargetHeight() / (float) currentFeature->RenderHeight();
-                            auto const scaleRatio = std::max(scaleRatioX, scaleRatioY);
-
                             config->FsrVelocity = 0.5f;
-                            config->FsrReactiveScale = 0.25f;
-
-                            config->FsrShadingScale.reset();
-                            config->FsrAccAddPerFrame.reset();
-                            config->FsrMinDisOccAcc.reset();
-                            config->FsrShadingScale.set_volatile_value(0.5f / scaleRatio);
-                            config->FsrAccAddPerFrame.set_volatile_value(scaleRatio / 10.0f);
-                            config->FsrMinDisOccAcc.set_volatile_value(scaleRatio / 20.0f);
+                            config->FsrReactiveScale = 0.333f;
+                            config->FsrShadingScale = 0.5f;
+                            config->FsrAccAddPerFrame = 0.333f;
+                            config->FsrMinDisOccAcc = 0.0f;
                         }
 
                         ImGui::SameLine(0.0f, 6.0f);
 
                         if (ImGui::Button("Motion"))
                         {
-                            auto const scaleRatioX =
-                                (float) currentFeature->TargetWidth() / (float) currentFeature->RenderWidth();
-                            auto const scaleRatioY =
-                                (float) currentFeature->TargetHeight() / (float) currentFeature->RenderHeight();
-                            auto const scaleRatio = std::max(scaleRatioX, scaleRatioY);
-
                             config->FsrVelocity = 1.0f;
-                            config->FsrReactiveScale = 0.5f;
-
-                            config->FsrShadingScale.reset();
-                            config->FsrAccAddPerFrame.reset();
-                            config->FsrMinDisOccAcc.reset();
-                            config->FsrShadingScale.set_volatile_value(1.0f / scaleRatio);
-                            config->FsrAccAddPerFrame.set_volatile_value(scaleRatio / 10.0f);
-                            config->FsrMinDisOccAcc.set_volatile_value(scaleRatio / 20.0f);
+                            config->FsrReactiveScale = 0.666f;
+                            config->FsrShadingScale = 1.0f;
+                            config->FsrAccAddPerFrame = 0.166f;
+                            config->FsrMinDisOccAcc = 0.0f;
                         }
 
                         ImGui::SameLine(0.0f, 6.0f);
@@ -3413,7 +3393,8 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
 
             ImGui::BeginDisabled(state.dlssgLastSetMode != sl::DLSSGMode::eDynamic);
             static float fpsTarget = config->FGDLSSGFramerateTargetDMFG.value_or_default();
-            ImGui::SliderFloat("DMFG FPS Target", &fpsTarget, 0, 200, "%.0f");
+            const float maxDmfgTarget = config->ExtendedLimits.value_or_default() ? 500.0f : 360.0f;
+            ImGui::SliderFloat("DMFG FPS Target", &fpsTarget, 0.0f, maxDmfgTarget, "%.2f");
 
             ShowHelpMarker("An active limit of 0 means auto-detect the display refresh rate");
 
@@ -4206,7 +4187,8 @@ void MenuCommon::RenderFrameGenerationRuntimeSettings(RenderMenuContext& ctx)
 
                 ImGui::BeginDisabled(!config->FGDLSSGForceDMFG.value_or_default());
                 static float fpsTarget = config->FGDLSSGFramerateTargetDMFG.value_or_default();
-                ImGui::SliderFloat("DMFG FPS Target", &fpsTarget, 0, 200, "%.0f");
+                const float maxDmfgTarget = config->ExtendedLimits.value_or_default() ? 500.0f : 360.0f;
+                ImGui::SliderFloat("DMFG FPS Target", &fpsTarget, 0.0f, maxDmfgTarget, "%.2f");
 
                 ShowHelpMarker("An active limit of 0 means auto-detect the display refresh rate");
 
@@ -5098,12 +5080,46 @@ void MenuCommon::RenderFramerateSettings(RenderMenuContext& ctx)
         if (std::isinf(_limitFps))
             _limitFps = config->FramerateLimit.value_or_default();
 
-        ImGui::SliderFloat("FPS Limit", &_limitFps, 0, 200, "%.0f");
+        const float maxFpsLimit = config->ExtendedLimits.value_or_default() ? 500.0f : 360.0f;
+        const auto currentLlMode = fakenvapi::getCurrentMode();
+        const bool integerOnlyFps =
+            (currentLlMode == LowLatencyMode::AntiLag2 || currentLlMode == LowLatencyMode::AntiLagVk);
+        auto applyFpsLimit = [&](float val)
+        {
+            val = std::clamp(val, 0.0f, maxFpsLimit);
+            if (integerOnlyFps)
+                val = std::round(val);
+            _limitFps = val;
+            config->FramerateLimit = _limitFps;
+            FpsLimitSync::NotifyConfigChanged();
+        };
+
+        ImGui::SliderFloat("FPS Limit", &_limitFps, 0.0f, maxFpsLimit, integerOnlyFps ? "%.0f" : "%.2f");
+        ShowHelpMarker("Permite decimales (Ctrl+Click para escribir p. ej. 96.70 o 116.50).\n"
+                       "En NVIDIA Reflex y XeLL se traduce a microsegundos exactos; en AMD Anti-Lag se redondea a entero.");
+
+        if (config->FpsLimitLiveApply.value_or_default() && ImGui::IsItemDeactivatedAfterEdit())
+            applyFpsLimit(_limitFps);
+
+        if (ImGui::Button("-0.10"))
+            applyFpsLimit(_limitFps - 0.10f);
+        ImGui::SameLine(0.0f, 4.0f);
+        if (ImGui::Button("-0.05"))
+            applyFpsLimit(_limitFps - 0.05f);
+        ImGui::SameLine(0.0f, 4.0f);
+        if (ImGui::Button("+0.05"))
+            applyFpsLimit(_limitFps + 0.05f);
+        ImGui::SameLine(0.0f, 4.0f);
+        if (ImGui::Button("+0.10"))
+            applyFpsLimit(_limitFps + 0.10f);
+
+        bool liveApplyFps = config->FpsLimitLiveApply.value_or_default();
+        if (ImGui::Checkbox("Aplicar limite automaticamente al ajustar", &liveApplyFps))
+            config->FpsLimitLiveApply = liveApplyFps;
 
         if (ImGui::Button("Apply Limit"))
         {
-            config->FramerateLimit = _limitFps;
-            FpsLimitSync::NotifyConfigChanged();
+            applyFpsLimit(_limitFps);
         }
 
         ImGui::SameLine(0.0f, 16.0f);

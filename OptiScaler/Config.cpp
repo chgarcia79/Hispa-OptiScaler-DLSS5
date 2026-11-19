@@ -270,6 +270,7 @@ bool Config::Reload(std::filesystem::path iniPath)
         // Framerate
         {
             FramerateLimit.set_from_config(readFloat("Framerate", "FramerateLimit"));
+            FpsLimitLiveApply.set_from_config(readBool("Framerate", "LiveApply"));
             FpsLimitSingleReflexOwner.set_from_config(readBool("Framerate", "SingleReflexOwner"));
             FpsLimitUseFgMultiplier.set_from_config(readBool("Framerate", "UseFgMultiplier"));
         }
@@ -366,6 +367,8 @@ bool Config::Reload(std::filesystem::path iniPath)
                 DlssNrScalingDownscaler.reset();
             DlssNrProxyProbe.set_from_config(readBool("DlssNr", "ProxyProbe"));
             DlssNrUseProxy.set_from_config(readBool("DlssNr", "UseProxy"));
+            DlssNrInitDiscardGuard.set_from_config(readBool("DlssNr", "InitDiscardGuard"));
+            DlssNrInitMaxDiscards.set_from_config(readInt("DlssNr", "InitMaxDiscards"));
             DlssNrScanExposure.set_from_config(readBool("DlssNr", "ScanExposure"));
             DlssNrWhitePointSource.set_from_config(readUInt("DlssNr", "WhitePointSource"));
 
@@ -953,6 +956,7 @@ bool Config::Reload(std::filesystem::path iniPath)
         {
             EnableDlssInputs.set_from_config(readBool("Inputs", "EnableDlssInputs"));
             EnableXeSSInputs.set_from_config(readBool("Inputs", "EnableXeSSInputs"));
+            XeSSUnrealDepthMvFix.set_from_config(readBool("Inputs", "XeSSUnrealDepthMvFix"));
 
             EnableFsr2Inputs.set_from_config(readBool("Inputs", "EnableFsr2Inputs"));
             UseFsr2Inputs.set_from_config(readBool("Inputs", "UseFsr2Inputs"));
@@ -1315,6 +1319,8 @@ bool Config::SaveIni()
     {
         ini.SetValue("Framerate", "FramerateLimit",
                      GetFloatValue(Instance()->FramerateLimit.value_for_config()).c_str());
+        ini.SetValue("Framerate", "LiveApply",
+                     GetBoolValue(Instance()->FpsLimitLiveApply.value_for_config()).c_str());
         ini.SetValue("Framerate", "SingleReflexOwner",
                      GetBoolValue(Instance()->FpsLimitSingleReflexOwner.value_for_config()).c_str());
         ini.SetValue("Framerate", "UseFgMultiplier",
@@ -1438,6 +1444,8 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "ScanMeter", GetBoolValue(Instance()->DlssNrScanMeter.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Passes", GetIntValue(Instance()->DlssNrPasses.value_for_config()).c_str());
     ini.SetValue("DlssNr", "UseProxy", GetBoolValue(Instance()->DlssNrUseProxy.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "InitDiscardGuard", GetBoolValue(Instance()->DlssNrInitDiscardGuard.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "InitMaxDiscards", GetIntValue(Instance()->DlssNrInitMaxDiscards.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ProxyProbe", GetBoolValue(Instance()->DlssNrProxyProbe.value_for_config()).c_str());
     // ScanExposure is a developer override with no menu control; persist it so a set ini keeps it.
     ini.SetValue("DlssNr", "ScanExposure", GetBoolValue(Instance()->DlssNrScanExposure.value_for_config()).c_str());
@@ -1920,6 +1928,8 @@ bool Config::SaveIni()
                      GetBoolValue(Instance()->EnableDlssInputs.value_for_config()).c_str());
         ini.SetValue("Inputs", "EnableXeSSInputs",
                      GetBoolValue(Instance()->EnableXeSSInputs.value_for_config()).c_str());
+        ini.SetValue("Inputs", "XeSSUnrealDepthMvFix",
+                     GetBoolValue(Instance()->XeSSUnrealDepthMvFix.value_for_config()).c_str());
         ini.SetValue("Inputs", "UseFsr2Inputs", GetBoolValue(Instance()->UseFsr2Inputs.value_for_config()).c_str());
         ini.SetValue("Inputs", "UseFsr2Dx11Inputs",
                      GetBoolValue(Instance()->UseFsr2Dx11Inputs.value_for_config()).c_str());

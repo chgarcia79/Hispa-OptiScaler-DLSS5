@@ -43,6 +43,9 @@ void ApplyResidualAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Par
 
 void ReleaseGameFeature(uint32_t gameFeature);
 void NotifyQueueSubmission(ID3D12CommandQueue* queue, UINT count, ID3D12CommandList* const* lists);
+uint32_t InitDiscardCount();
+void ResetInitDiscardCounter();
+bool IsPausedByInitDiscards();
 
 struct StabilityTelemetry
 {

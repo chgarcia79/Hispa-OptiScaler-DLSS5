@@ -391,6 +391,8 @@ class Config
     //
     // Off until it is shown to produce the same picture. If it does, the forwarder can go.
     CustomOptional<bool> DlssNrUseProxy { false };
+    CustomOptional<bool> DlssNrInitDiscardGuard { true };
+    CustomOptional<int> DlssNrInitMaxDiscards { 3 };
 
     // Look for the exposure the game computed but never handed to the upscaler.
     //
@@ -769,12 +771,12 @@ class Config
     CustomOptional<bool> FsrNonLinearPQ { false };
     CustomOptional<bool> FsrAgilitySDKUpgrade { false };
 
-    // These default values will be overwritten at upscaler init time with optimized values
-    CustomOptional<float> FsrVelocity { 1.0f };
-    CustomOptional<float> FsrReactiveScale { 1.0f };
-    CustomOptional<float> FsrShadingScale { 1.0f };
+    // Stability preset values
+    CustomOptional<float> FsrVelocity { 0.5f };
+    CustomOptional<float> FsrReactiveScale { 0.333f };
+    CustomOptional<float> FsrShadingScale { 0.5f };
     CustomOptional<float> FsrAccAddPerFrame { 0.333f };
-    CustomOptional<float> FsrMinDisOccAcc { -0.333f };
+    CustomOptional<float> FsrMinDisOccAcc { 0.0f };
 
     // FSR4
     CustomOptional<FSR4Support> Fsr4ForceModel { FSR4Support::None };
@@ -952,6 +954,7 @@ class Config
     // Inputs
     CustomOptional<bool> EnableDlssInputs { true };
     CustomOptional<bool> EnableXeSSInputs { true };
+    CustomOptional<bool> XeSSUnrealDepthMvFix { true };
     CustomOptional<bool> UseFsr2Inputs { true };
     CustomOptional<bool> UseFsr2Dx11Inputs { false };
     CustomOptional<bool> UseFsr2VulkanInputs { false };
@@ -966,6 +969,7 @@ class Config
 
     // Framerate
     CustomOptional<float> FramerateLimit { 0.0f };
+    CustomOptional<bool> FpsLimitLiveApply { false };
     CustomOptional<bool> FpsLimitSingleReflexOwner { true };
     CustomOptional<bool> FpsLimitUseFgMultiplier { true };
 

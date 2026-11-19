@@ -2683,16 +2683,21 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         const unsigned int proxyResult = DlssNr::Proxy::Run(
             cmdList, device, modelInput, depthIn, motionIn, g_nr.output, workWidth, workHeight,
             evalGuideWidth, evalGuideHeight, g_nr.guideDepthInverted, g_nr.reset,
-            g_nr.guideMvScaleX * mvToWorkX, g_nr.guideMvScaleY * mvToWorkY);
+            g_nr.guideMvScaleX * mvToWorkX, g_nr.guideMvScaleY * mvToWorkY, frame.SubmissionEpoch);
 
         g_nr.reset = false;
 
-        if (proxyResult != 1)
+        if (proxyResult != 1 && proxyResult != 0)
         {
             g_nr.failed = true;
             g_nr.reason = "the proxy path could not run the model";
             LOG_ERROR("DLSS-NR (proxy): evaluate returned 0x{:X} ({}), disabling for this session",
                       proxyResult, NgxResultName(proxyResult));
+        }
+        else if (proxyResult == 0 && DlssNr::Proxy::IsPausedByDiscards())
+        {
+            g_nr.failed = true;
+            g_nr.reason = "CreateFeature CommandList descartada repetidamente; pulsa Reset en ImGui";
         }
 
         TransitionTarget(outputArrival);
@@ -3779,7 +3784,23 @@ void ReleaseGameFeature(uint32_t gameFeature)
 void NotifyQueueSubmission(ID3D12CommandQueue* queue, UINT count, ID3D12CommandList* const* lists)
 {
     g_nrRetired.OnQueueSubmission(queue, count, lists);
+    DlssNr::Proxy::NotifyQueueSubmission(count, lists);
 }
+
+uint32_t InitDiscardCount() { return DlssNr::Proxy::InitDiscardCount(); }
+
+void ResetInitDiscardCounter()
+{
+    std::lock_guard<std::mutex> nrLock(g_nrMutex);
+    DlssNr::Proxy::ResetInitDiscardCounter();
+    if (g_nr.failed)
+    {
+        g_nr.failed = false;
+        g_nr.reason.clear();
+    }
+}
+
+bool IsPausedByInitDiscards() { return DlssNr::Proxy::IsPausedByDiscards(); }
 
 StabilityTelemetry GetStabilityTelemetry()
 {

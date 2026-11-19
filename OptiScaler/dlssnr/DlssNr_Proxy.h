@@ -44,10 +44,16 @@ unsigned int Run(ID3D12GraphicsCommandList* cmdList, ID3D12Device* device, ID3D1
                  ID3D12Resource* depth, ID3D12Resource* motion, ID3D12Resource* output,
                  unsigned int width, unsigned int height, unsigned int guideWidth,
                  unsigned int guideHeight, bool depthInverted, bool reset, float mvScaleX,
-                 float mvScaleY);
+                 float mvScaleY, unsigned long long submissionEpoch = 0);
 
 // Drops the feature and its parameter block, for a resolution change or shutdown.
 void Release();
+
+// Tracks ExecuteCommandLists submissions so discarded CreateFeature command lists are detected.
+void NotifyQueueSubmission(unsigned int count, ID3D12CommandList* const* lists);
+unsigned int InitDiscardCount();
+void ResetInitDiscardCounter();
+bool IsPausedByDiscards();
 } // namespace Proxy
 } // namespace DlssNr
 

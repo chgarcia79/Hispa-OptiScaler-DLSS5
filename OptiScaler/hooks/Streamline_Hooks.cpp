@@ -1135,7 +1135,6 @@ bool StreamlineHooks::hkcommon_slOnPluginLoad(sl::param::IParameters* params, co
 sl::Result StreamlineHooks::hkslDLSSGSetOptions(const sl::ViewportHandle& viewport, const sl::DLSSGOptions& options)
 {
     lastDlssgViewport = viewport;
-    lastDlssgOptions = options;
 
     // Avoid reading past the game's struct's size
     sl::DLSSGOptions newOptions {};
@@ -1151,6 +1150,7 @@ sl::Result StreamlineHooks::hkslDLSSGSetOptions(const sl::ViewportHandle& viewpo
         newOptions = options;
 
     newOptions.structVersion = newStructVer;
+    lastDlssgOptions = newOptions;
 
     auto& state = State::Instance();
 
@@ -1205,7 +1205,8 @@ sl::Result StreamlineHooks::hkslDLSSGSetOptions(const sl::ViewportHandle& viewpo
         {
             sl::DLSSGState localState {};
             sl::DLSSGOptions localOptions {};
-            if (o_slDLSSGGetState(viewport, localState, &localOptions) == sl::Result::eOk &&
+            if (o_slDLSSGGetState != nullptr &&
+                o_slDLSSGGetState(viewport, localState, &localOptions) == sl::Result::eOk &&
                 localState.numFramesToGenerateMax > 0 && localState.numFramesToGenerateMax < 6)
             {
                 state.dlssgMfgMax = localState.numFramesToGenerateMax;
@@ -1287,7 +1288,8 @@ sl::Result StreamlineHooks::hkslDLSSGGetState(const sl::ViewportHandle& viewport
         {
             sl::DLSSGState localState {};
             sl::DLSSGOptions localOptions {};
-            if (o_slDLSSGGetState(viewport, localState, &localOptions) == sl::Result::eOk &&
+            if (o_slDLSSGGetState != nullptr &&
+                o_slDLSSGGetState(viewport, localState, &localOptions) == sl::Result::eOk &&
                 localState.numFramesToGenerateMax > 0 && localState.numFramesToGenerateMax < 6)
             {
                 optiState.dlssgMfgMax = localState.numFramesToGenerateMax;
@@ -1442,6 +1444,8 @@ void* StreamlineHooks::hkdlssg_slGetPluginFunction(const char* functionName)
     if (strcmp(functionName, "slDLSSGSetOptions") == 0)
     {
         o_slDLSSGSetOptions = (decltype(&slDLSSGSetOptions)) o_dlssg_slGetPluginFunction(functionName);
+        // Keep the pair from the active Streamline plugin, not a superseded one
+        o_slDLSSGGetState = (decltype(&slDLSSGGetState)) o_dlssg_slGetPluginFunction("slDLSSGGetState");
 
         // Give steam overlay the original as it seems to be hooking it
         auto steamOverlay = KernelBaseProxy::GetModuleHandleA_()("gameoverlayrenderer64.dll");
@@ -1457,6 +1461,7 @@ void* StreamlineHooks::hkdlssg_slGetPluginFunction(const char* functionName)
     if (strcmp(functionName, "slDLSSGGetState") == 0)
     {
         o_slDLSSGGetState = (decltype(&slDLSSGGetState)) o_dlssg_slGetPluginFunction(functionName);
+        o_slDLSSGSetOptions = (decltype(&slDLSSGSetOptions)) o_dlssg_slGetPluginFunction("slDLSSGSetOptions");
 
         // Give steam overlay the original as it seems to be hooking it
         auto steamOverlay = KernelBaseProxy::GetModuleHandleA_()("gameoverlayrenderer64.dll");
