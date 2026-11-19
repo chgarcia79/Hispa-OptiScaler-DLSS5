@@ -3896,7 +3896,7 @@ void ResetInitDiscardCounter()
     if (g_nr.failed)
     {
         g_nr.failed = false;
-        g_nr.reason.clear();
+        g_nr.reason = "";
     }
 }
 

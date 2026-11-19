@@ -2,7 +2,6 @@
 #include "XeSS_UE_Dx12_Internal.h"
 
 #include <State.h>
-#include <misc/DeferredRelease.h>
 
 namespace XeSSUnreal::Detail
 {
@@ -142,7 +141,7 @@ int AddCandidateLocked(ID3D12Resource* depth)
     depth->AddRef();
     auto previous = s.candidates[slot].exchange(depth);
     s.candidateInfo[slot] = { false, 0, s.writeOrder };
-    if (previous != nullptr) { s.queueStates.erase(previous); DeferredRelease::Release(previous); }
+    if (previous != nullptr) { s.queueStates.erase(previous); previous->Release(); }
     else { s.candidateCount++; }
     auto desc = depth->GetDesc();
     LOG_INFO("Scene depth candidate: {:X}, {}x{}, format: {}", (size_t) depth, desc.Width, desc.Height, (UINT) desc.Format);

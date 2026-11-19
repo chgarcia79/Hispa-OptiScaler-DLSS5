@@ -1552,7 +1552,7 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "SpatialShowWork", GetBoolValue(Instance()->DlssNrSpatialShowWork.value_for_config()).c_str());
     for (unsigned int i = 0; i < std::size(Instance()->DlssNrPassOverrides); ++i)
     {
-        const auto& p = Instance()->DlssNrPassOverrides[i];
+        auto& p = Instance()->DlssNrPassOverrides[i];
         const unsigned int n = i + 2;
         ini.SetValue("DlssNr", std::format("Pass{}Reapply", n).c_str(), GetBoolValue(p.reapply.value_for_config()).c_str());
         ini.SetValue("DlssNr", std::format("Pass{}BorrowTransformer", n).c_str(), GetBoolValue(p.borrowTransformer.value_for_config()).c_str());
