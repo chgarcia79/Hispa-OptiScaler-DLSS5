@@ -35,6 +35,7 @@
 #include "DlssNr_MipSubresource.h"
 #include "DlssNr_DepthFade.h"
 #include "DlssNr_Nvfp4Bridge.h"
+#include "DlssNr_PassBorrowBridge.h"
 #include <dlssnr/DlssNr_NativeBlend.h>
 #include "precompile/DlssNr_Shader.h"
 #include "precompile/dlssnr_residual_Shader.h"
@@ -1427,11 +1428,13 @@ void RecordBuiltTuning(const Config& cfg)
 
 int ResolvePassPreset(const Config& cfg, unsigned int pass)
 {
-    const uint32_t basePreset = std::min(cfg.DlssNrPreset.value_or_default(), 3u);
+    const uint32_t basePreset = cfg.DlssNrPreset.value_or_default();
     if (pass >= 1 && pass < 10)
     {
+        if (pass - 1 < std::size(cfg.DlssNrPassOverrides) && cfg.DlssNrPassOverrides[pass - 1].preset.has_value())
+            return (int) cfg.DlssNrPassOverrides[pass - 1].preset.value();
         const uint32_t p = GetConfiguredPassPreset(cfg, pass);
-        return p == 1 ? 1 : (p == 2 ? 2 : (int) basePreset);
+        return p != 0 ? (int) p : (int) basePreset;
     }
     return (int) basePreset;
 }
@@ -1647,6 +1650,13 @@ DlssNr_Dx12::DlssNr_Dx12(std::string InName, ID3D12Device* InDevice)
         LOG_WARN("[{0}] ResidualAcrossRR compute pipeline unavailable", _name);
     }
 
+    if (!CreateComputePipeline(InDevice, &_reapplyPipelineState, dlssnr_reapply_cso, sizeof(dlssnr_reapply_cso),
+                               nullptr))
+    {
+        _reapplyPipelineState = nullptr;
+        LOG_WARN("[{0}] Re-apply compute pipeline unavailable", _name);
+    }
+
     _init = InitHeaps(InDevice, _frameHeaps, DLSSNR_NUM_OF_HEAPS);
 }
 
@@ -1724,6 +1734,43 @@ DlssNr_Dx12::~DlssNr_Dx12()
         _residualPipelineState->Release();
         _residualPipelineState = nullptr;
     }
+
+    if (_reapplyPipelineState != nullptr)
+    {
+        _reapplyPipelineState->Release();
+        _reapplyPipelineState = nullptr;
+    }
+}
+
+bool DlssNr_Dx12::DispatchReapplyPass(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* InSource,
+                                      ID3D12Resource* InModel, ID3D12Resource* OutTarget, uint32_t width,
+                                      uint32_t height, float gain)
+{
+    if (!_init || _reapplyPipelineState == nullptr || InCmdList == nullptr || _device == nullptr ||
+        InSource == nullptr || InModel == nullptr || OutTarget == nullptr || width == 0 || height == 0)
+        return false;
+
+    const uint32_t slot = _heapIndex;
+    _heapIndex = (_heapIndex + 1) % DLSSNR_NUM_OF_HEAPS;
+    FrameDescriptorHeap& currentHeap = _frameHeaps[slot];
+
+    ID3D12Resource* const srvs[kSrvCount] = { InSource, InModel, InSource, InSource, InSource, InSource };
+    for (uint32_t i = 0; i < kSrvCount; ++i)
+        DlssNr::MipSubresource::CreateTopMipSrv(_device, srvs[i], currentHeap.GetSrvCPU(i));
+    for (uint32_t i = 0; i < kUavCount; ++i)
+        DlssNr::MipSubresource::CreateTopMipUav(_device, OutTarget, currentHeap.GetUavCPU(i));
+
+    DlssNr::PassBorrowBridge::ReapplyConstants constants { 0u, gain, width, height };
+    if (!CreateConstantsBuffer(_device, _constantBuffers[slot], constants, currentHeap.GetCbvCPU(0)))
+        return false;
+
+    ID3D12DescriptorHeap* heaps[] = { currentHeap.GetHeapCSU() };
+    InCmdList->SetDescriptorHeaps(_countof(heaps), heaps);
+    InCmdList->SetComputeRootSignature(_rootSignature);
+    InCmdList->SetPipelineState(_reapplyPipelineState);
+    InCmdList->SetComputeRootDescriptorTable(0, currentHeap.GetTableGPUStart());
+    InCmdList->Dispatch((width + _numThreadsX - 1) / _numThreadsX, (height + _numThreadsY - 1) / _numThreadsY, 1);
+    return true;
 }
 
 bool DlssNr_Dx12::DispatchResidualPass(ID3D12GraphicsCommandList* InCmdList, const DlssNrConstants& InConstants,
@@ -2765,9 +2812,36 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     };
 
     int result = NVSDK_NGX_Result_Success;
+    std::array<NrPassBorrow::Cut, 10> passCuts {};
+    unsigned int netEvaluations = 0;
+    DlssNr::PassBorrowBridge::BuildPassCuts(cfg, effectivePasses, passCuts, netEvaluations);
+    NrPassBorrow::BeginFrame(cmdList, passCuts.data(), netEvaluations);
+    unsigned int evalIdx = 0;
 
     for (unsigned int pass = 0; pass < effectivePasses && result == NVSDK_NGX_Result_Success; ++pass)
     {
+        if (pass > 0 && DlssNr::Profiles::PassReapplies(cfg, pass) && finalAnswer != nullptr)
+        {
+            const unsigned int runCount = DlssNr::Profiles::ReapplyRun(cfg, pass, effectivePasses);
+            if (runCount > 0)
+            {
+                const float gain = static_cast<float>(runCount) * DlssNr::Profiles::ReapplyGain(cfg);
+                MakeModelWritable(passOutput);
+                if (DispatchReapplyPass(cmdList, passInput, finalAnswer, passOutput, workWidth, workHeight, gain))
+                {
+                    finalAnswer = passOutput;
+                    MakeModelReadable(finalAnswer);
+                    if (pass + runCount < effectivePasses)
+                    {
+                        passInput = finalAnswer;
+                        passOutput = passOutput == g_nr.output ? g_nr.passScratch : g_nr.output;
+                    }
+                    pass += runCount - 1;
+                    continue;
+                }
+            }
+        }
+
         void* const passFeature = pass == 0 ? g_nr.feature : g_nr.passFeature[pass];
         const bool passReset = g_nr.reset || (pass > 0 && g_nr.passNeedsReset[pass]);
         const float passLocalTone = pass == 0 ? cfg.DlssNrLocalTone.value_or_default() : 0.0f;
@@ -2776,6 +2850,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             pass == 0 ? (unsigned int) cfg.DlssNrPreset.value_or_default() : (unsigned int) ResolvePassPreset(cfg, pass);
         DlssNr::Nvfp4Bridge::ConfigureForPresets(&passPreset, 1);
         DlssNr::Nvfp4::BeginEvaluation(passPreset);
+        NrPassBorrow::BeginEvaluation(evalIdx++);
 
         MakeModelWritable(passOutput);
         result = g_nr.evaluate(
@@ -2787,7 +2862,9 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             cfg.DlssNrAutoMask.value_or_default() ? 1 : 0, g_nr.guideMvScaleX * mvToWorkX,
             g_nr.guideMvScaleY * mvToWorkY);
 
-        if (!DlssNr::Nvfp4Bridge::EvaluatePass(passPreset, cmdList, false))
+        const auto borrowOutcome = NrPassBorrow::EndEvaluation();
+        const bool borrowed = (borrowOutcome == NrPassBorrow::Outcome::Borrowed);
+        if (!DlssNr::Nvfp4Bridge::EvaluatePass(passPreset, cmdList, borrowed))
         {
             result = NVSDK_NGX_Result_Fail;
             break;
@@ -2808,6 +2885,8 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             passOutput = passOutput == g_nr.output ? g_nr.passScratch : g_nr.output;
         }
     }
+
+    NrPassBorrow::EndFrame();
 
     if (g_ngxTime != nullptr)
         g_ngxTime->End(cmdList);
@@ -3149,6 +3228,8 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         g_nrRetired.SignalEpoch(device, signalQueue, frame.SubmissionEpoch);
         DlssNr::Nvfp4Bridge::TickRetire(device, signalQueue, frame.SubmissionEpoch,
                                         cfg.DlssNrGpuSafeRetire.value_or_default(), effectivePasses);
+        DlssNr::PassBorrowBridge::CollectRetired(device, signalQueue, frame.SubmissionEpoch,
+                                                 cfg.DlssNrGpuSafeRetire.value_or_default());
     }
 
     device->Release();
@@ -3848,6 +3929,7 @@ void Shutdown()
     std::lock_guard<std::mutex> nrLock(g_nrMutex);
 
     g_nrRetired.FreeAll(FreeNrRetiredNow);
+    DlssNr::PassBorrowBridge::ReleaseAll();
     DlssNr::Nvfp4Bridge::ReleaseAll();
     g_contexts.Reset();
     g_absorbedFormatFlips.store(0, std::memory_order_relaxed);

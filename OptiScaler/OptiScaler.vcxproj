@@ -647,6 +647,15 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="dlssnr\nvfp4\NrFfnV2.h" />
     <ClInclude Include="dlssnr\nvfp4\NrNet4.h" />
     <ClInclude Include="dlssnr\nvfp4\NrSwin4.h" />
+    <ClInclude Include="dlssnr\NrPassBorrow.h" />
+    <ClInclude Include="dlssnr\NrPassBorrowCopy.h" />
+    <ClInclude Include="dlssnr\NrPassBorrowTest.h" />
+    <ClInclude Include="dlssnr\PassProfiles.h" />
+    <ClInclude Include="dlssnr\DlssNr_ModelParameters.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_Spatial.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_PassBorrowBridge.h" />
+    <ClInclude Include="shaders\dlssnr\precompile\dlssnr_reapply_Shader.h" />
+    <ClInclude Include="shaders\dlssnr\precompile\dlssnr_reapply_Shader_Vk.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_SurfaceFormats.h" />
     <ClInclude Include="framegen\xefg\XeFGPacingPolicy.h" />
     <ClInclude Include="hooks\FgGpuTimeSource.h" />
@@ -905,6 +914,9 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="dlssnr\nvfp4\NrSwin4.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="dlssnr\NrPassBorrow.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="dlssnr\DlssNr_Menu.cpp" />

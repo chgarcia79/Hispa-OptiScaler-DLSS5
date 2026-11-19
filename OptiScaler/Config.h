@@ -532,6 +532,36 @@ class Config
     CustomOptional<uint32_t> DlssNrPass9Style { 0 };
     CustomOptional<uint32_t> DlssNrPass10Preset { 0 };
     CustomOptional<uint32_t> DlssNrPass10Style { 0 };
+
+    struct NrPassOverrides
+    {
+        CustomOptional<uint32_t, NoDefault> preset, style;
+        CustomOptional<float, NoDefault> intensity, structure, tone, skin;
+        CustomOptional<bool, NoDefault> autoMask;
+        CustomOptional<float, NoDefault> workingScale;
+        CustomOptional<Scaler, NoDefault> scalingDownscaler;
+        CustomOptional<uint32_t, NoDefault> transfer;
+        CustomOptional<int, NoDefault> privateUpscaler;
+        CustomOptional<bool, NoDefault> spatialCompression;
+        CustomOptional<float, NoDefault> spatialCenterX, spatialCenterY, spatialWorkX, spatialWorkY;
+        CustomOptional<float, NoDefault> spatialOffsetX, spatialOffsetY, spatialShiftX, spatialShiftY;
+        CustomOptional<bool, NoDefault> reapply, borrowTransformer, borrowBelow;
+        CustomOptional<uint32_t, NoDefault> borrowLevel;
+    };
+    NrPassOverrides DlssNrPassOverrides[29];
+    CustomOptional<float> DlssNrReapplyGain { 0.81f };
+
+    CustomOptional<bool> DlssNrSpatialCompression { false };
+    CustomOptional<float> DlssNrSpatialCenterX { 80.0f };
+    CustomOptional<float> DlssNrSpatialCenterY { 80.0f };
+    CustomOptional<float> DlssNrSpatialWorkX { 90.0f };
+    CustomOptional<float> DlssNrSpatialWorkY { 90.0f };
+    CustomOptional<float> DlssNrSpatialOffsetX { 0.0f };
+    CustomOptional<float> DlssNrSpatialOffsetY { 0.0f };
+    CustomOptional<float> DlssNrSpatialShiftX { 0.0f };
+    CustomOptional<float> DlssNrSpatialShiftY { 0.0f };
+    CustomOptional<bool> DlssNrSpatialShowCenter { false };
+    CustomOptional<bool> DlssNrSpatialShowWork { false };
     CustomOptional<bool> DlssNrMatchGuides { true };
     CustomOptional<bool> DlssNrRenderMotionScale { true };
     CustomOptional<uint32_t> DlssNrQualityProfile { 0 };

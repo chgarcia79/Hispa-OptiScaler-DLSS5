@@ -69,6 +69,7 @@ class DlssNr_Dx12 : public Shader_Dx12, public DlssNr_Common
     uint32_t _numThreadsY = 8;
 
     ID3D12PipelineState* _residualPipelineState = nullptr;
+    ID3D12PipelineState* _reapplyPipelineState = nullptr;
 
   public:
     DlssNr_Dx12(std::string InName, ID3D12Device* InDevice);
@@ -102,4 +103,6 @@ class DlssNr_Dx12 : public Shader_Dx12, public DlssNr_Common
     bool DispatchResidualPass(ID3D12GraphicsCommandList* InCmdList, const DlssNrConstants& InConstants,
                               ID3D12Resource* InOriginal, ID3D12Resource* InEdited, ID3D12Resource* InHistory,
                               ID3D12Resource* InMotion, ID3D12Resource* OutTarget);
+    bool DispatchReapplyPass(ID3D12GraphicsCommandList* InCmdList, ID3D12Resource* InSource, ID3D12Resource* InModel,
+                             ID3D12Resource* OutTarget, uint32_t width, uint32_t height, float gain);
 };

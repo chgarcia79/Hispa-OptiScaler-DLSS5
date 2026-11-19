@@ -421,6 +421,42 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrPass9Style.set_from_config(readUInt("DlssNr", "Pass9Style"));
             DlssNrPass10Preset.set_from_config(readUInt("DlssNr", "Pass10Preset"));
             DlssNrPass10Style.set_from_config(readUInt("DlssNr", "Pass10Style"));
+            DlssNrReapplyGain.set_from_config(readFloat("DlssNr", "ReapplyGain"));
+            DlssNrSpatialCompression.set_from_config(readBool("DlssNr", "SpatialCompression"));
+            DlssNrSpatialCenterX.set_from_config(readFloat("DlssNr", "SpatialCenterX"));
+            DlssNrSpatialCenterY.set_from_config(readFloat("DlssNr", "SpatialCenterY"));
+            DlssNrSpatialWorkX.set_from_config(readFloat("DlssNr", "SpatialWorkX"));
+            DlssNrSpatialWorkY.set_from_config(readFloat("DlssNr", "SpatialWorkY"));
+            DlssNrSpatialOffsetX.set_from_config(readFloat("DlssNr", "SpatialOffsetX"));
+            DlssNrSpatialOffsetY.set_from_config(readFloat("DlssNr", "SpatialOffsetY"));
+            DlssNrSpatialShiftX.set_from_config(readFloat("DlssNr", "SpatialShiftX"));
+            DlssNrSpatialShiftY.set_from_config(readFloat("DlssNr", "SpatialShiftY"));
+            DlssNrSpatialShowCenter.set_from_config(readBool("DlssNr", "SpatialShowCenter"));
+            DlssNrSpatialShowWork.set_from_config(readBool("DlssNr", "SpatialShowWork"));
+            for (unsigned int i = 0; i < std::size(DlssNrPassOverrides); ++i)
+            {
+                auto& p = DlssNrPassOverrides[i];
+                const unsigned int n = i + 2;
+                p.reapply.set_from_config(readBool("DlssNr", std::format("Pass{}Reapply", n)));
+                p.borrowTransformer.set_from_config(readBool("DlssNr", std::format("Pass{}BorrowTransformer", n)));
+                p.borrowBelow.set_from_config(readBool("DlssNr", std::format("Pass{}BorrowBelow", n)));
+                p.borrowLevel.set_from_config(readUInt("DlssNr", std::format("Pass{}BorrowLevel", n)));
+                p.workingScale.set_from_config(readFloat("DlssNr", std::format("Pass{}WorkingScale", n)));
+                p.intensity.set_from_config(readFloat("DlssNr", std::format("Pass{}Intensity", n)));
+                p.structure.set_from_config(readFloat("DlssNr", std::format("Pass{}LocalStructure", n)));
+                p.tone.set_from_config(readFloat("DlssNr", std::format("Pass{}LocalTone", n)));
+                p.skin.set_from_config(readFloat("DlssNr", std::format("Pass{}SkinStructure", n)));
+                p.autoMask.set_from_config(readBool("DlssNr", std::format("Pass{}AutoMask", n)));
+                p.spatialCompression.set_from_config(readBool("DlssNr", std::format("Pass{}SpatialCompression", n)));
+                p.spatialCenterX.set_from_config(readFloat("DlssNr", std::format("Pass{}SpatialCenterX", n)));
+                p.spatialCenterY.set_from_config(readFloat("DlssNr", std::format("Pass{}SpatialCenterY", n)));
+                p.spatialWorkX.set_from_config(readFloat("DlssNr", std::format("Pass{}SpatialWorkX", n)));
+                p.spatialWorkY.set_from_config(readFloat("DlssNr", std::format("Pass{}SpatialWorkY", n)));
+                p.spatialOffsetX.set_from_config(readFloat("DlssNr", std::format("Pass{}SpatialOffsetX", n)));
+                p.spatialOffsetY.set_from_config(readFloat("DlssNr", std::format("Pass{}SpatialOffsetY", n)));
+                p.spatialShiftX.set_from_config(readFloat("DlssNr", std::format("Pass{}SpatialShiftX", n)));
+                p.spatialShiftY.set_from_config(readFloat("DlssNr", std::format("Pass{}SpatialShiftY", n)));
+            }
             DlssNrMatchGuides.set_from_config(readBool("DlssNr", "MatchGuides"));
             DlssNrRenderMotionScale.set_from_config(readBool("DlssNr", "RenderMotionScale"));
             DlssNrQualityProfile.set_from_config(readUInt("DlssNr", "QualityProfile"));
@@ -1501,6 +1537,42 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "Pass9Style", GetIntValue(Instance()->DlssNrPass9Style.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Pass10Preset", GetIntValue(Instance()->DlssNrPass10Preset.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Pass10Style", GetIntValue(Instance()->DlssNrPass10Style.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "ReapplyGain", GetFloatValue(Instance()->DlssNrReapplyGain.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "SpatialCompression", GetBoolValue(Instance()->DlssNrSpatialCompression.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "SpatialCenterX", GetFloatValue(Instance()->DlssNrSpatialCenterX.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "SpatialCenterY", GetFloatValue(Instance()->DlssNrSpatialCenterY.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "SpatialWorkX", GetFloatValue(Instance()->DlssNrSpatialWorkX.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "SpatialWorkY", GetFloatValue(Instance()->DlssNrSpatialWorkY.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "SpatialOffsetX", GetFloatValue(Instance()->DlssNrSpatialOffsetX.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "SpatialOffsetY", GetFloatValue(Instance()->DlssNrSpatialOffsetY.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "SpatialShiftX", GetFloatValue(Instance()->DlssNrSpatialShiftX.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "SpatialShiftY", GetFloatValue(Instance()->DlssNrSpatialShiftY.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "SpatialShowCenter", GetBoolValue(Instance()->DlssNrSpatialShowCenter.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "SpatialShowWork", GetBoolValue(Instance()->DlssNrSpatialShowWork.value_for_config()).c_str());
+    for (unsigned int i = 0; i < std::size(Instance()->DlssNrPassOverrides); ++i)
+    {
+        const auto& p = Instance()->DlssNrPassOverrides[i];
+        const unsigned int n = i + 2;
+        ini.SetValue("DlssNr", std::format("Pass{}Reapply", n).c_str(), GetBoolValue(p.reapply.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}BorrowTransformer", n).c_str(), GetBoolValue(p.borrowTransformer.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}BorrowBelow", n).c_str(), GetBoolValue(p.borrowBelow.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}BorrowLevel", n).c_str(), GetIntValue(p.borrowLevel.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}WorkingScale", n).c_str(), GetFloatValue(p.workingScale.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}Intensity", n).c_str(), GetFloatValue(p.intensity.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}LocalStructure", n).c_str(), GetFloatValue(p.structure.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}LocalTone", n).c_str(), GetFloatValue(p.tone.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}SkinStructure", n).c_str(), GetFloatValue(p.skin.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}AutoMask", n).c_str(), GetBoolValue(p.autoMask.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}SpatialCompression", n).c_str(), GetBoolValue(p.spatialCompression.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}SpatialCenterX", n).c_str(), GetFloatValue(p.spatialCenterX.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}SpatialCenterY", n).c_str(), GetFloatValue(p.spatialCenterY.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}SpatialWorkX", n).c_str(), GetFloatValue(p.spatialWorkX.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}SpatialWorkY", n).c_str(), GetFloatValue(p.spatialWorkY.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}SpatialOffsetX", n).c_str(), GetFloatValue(p.spatialOffsetX.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}SpatialOffsetY", n).c_str(), GetFloatValue(p.spatialOffsetY.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}SpatialShiftX", n).c_str(), GetFloatValue(p.spatialShiftX.value_for_config()).c_str());
+        ini.SetValue("DlssNr", std::format("Pass{}SpatialShiftY", n).c_str(), GetFloatValue(p.spatialShiftY.value_for_config()).c_str());
+    }
     ini.SetValue("DlssNr", "MatchGuides", GetBoolValue(Instance()->DlssNrMatchGuides.value_for_config()).c_str());
     ini.SetValue("DlssNr", "RenderMotionScale", GetBoolValue(Instance()->DlssNrRenderMotionScale.value_for_config()).c_str());
     ini.SetValue("DlssNr", "QualityProfile", GetIntValue(Instance()->DlssNrQualityProfile.value_for_config()).c_str());
