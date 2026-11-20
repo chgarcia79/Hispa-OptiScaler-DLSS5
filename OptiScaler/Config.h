@@ -397,6 +397,10 @@ class Config
     CustomOptional<std::string> DlssNrWeightsSet {};
     CustomOptional<bool> DlssNrCalibratorEnabled { true };
     CustomOptional<bool> DlssNrCalibratorSkinOpt { false };
+    CustomOptional<bool> DlssNrAutoFreeVram { true };
+    CustomOptional<int> DlssNrAutoFreeVramDelaySec { 10 };
+    CustomOptional<bool> OptiFgClearGameDlssgHooks { true };
+    CustomOptional<bool> DlssNrDetailReuseAntiTrail { true };
 
     // Look for the exposure the game computed but never handed to the upscaler.
     //

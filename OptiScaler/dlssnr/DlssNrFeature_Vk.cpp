@@ -540,9 +540,29 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
                             VkPhysicalDevice physicalDevice, VkDevice device)
 {
     auto& cfg = *Config::Instance();
+    static std::chrono::steady_clock::time_point s_vkOffSince {};
+    static bool s_vkOffReleased = false;
 
     if (!cfg.DlssNrEnabled.value_or_default())
+    {
+        if (cfg.DlssNrAutoFreeVram.value_or_default() && !s_vkOffReleased && g_vk.device != VK_NULL_HANDLE &&
+            (g_vk.feature != nullptr || g_vk.output.Valid()))
+        {
+            const int delaySec = std::clamp(cfg.DlssNrAutoFreeVramDelaySec.value_or_default(), 1, 60);
+            const auto now = std::chrono::steady_clock::now();
+            if (s_vkOffSince == std::chrono::steady_clock::time_point {})
+                s_vkOffSince = now;
+            if (now - s_vkOffSince >= std::chrono::seconds(delaySec))
+            {
+                s_vkOffReleased = true;
+                Release(true);
+                LOG_INFO("DLSS-NR Vulkan: switched off for {} s, models and surfaces released", delaySec);
+            }
+        }
         return;
+    }
+    s_vkOffSince = {};
+    s_vkOffReleased = false;
 
     if (DlssNr::DriverGate::Blocked())
         return;

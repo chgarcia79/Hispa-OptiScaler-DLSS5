@@ -937,9 +937,16 @@ bool StreamlineHooks::hkdlssg_slOnPluginLoad(sl::param::IParameters* params, con
     nlohmann::json configJson = nlohmann::json::parse(*pluginJSON);
 
     // Kill the DLSSG streamline swapchain hooks
+    const bool ownsFgSwapchain =
+        Config::Instance()->OptiFgClearGameDlssgHooks.value_or_default() &&
+        renderApi != sl::RenderAPI::eVulkan && State::Instance().activeFgInput != FGInput::NoFG &&
+        State::Instance().activeFgInput != FGInput::NvngxFG && State::Instance().activeFgOutput != FGOutput::NoFG;
     if (!Config::Instance()->FGNativePassthrough.value_or_default() &&
-        (State::Instance().activeFgInput == FGInput::DLSSG || State::Instance().activeFgOutput == FGOutput::DLSSG))
+        (State::Instance().activeFgInput == FGInput::DLSSG || State::Instance().activeFgOutput == FGOutput::DLSSG ||
+         ownsFgSwapchain))
     {
+        if (State::Instance().activeFgInput != FGInput::DLSSG && ownsFgSwapchain)
+            State::Instance().gameDlssgReplacedByOwnFg = true;
         if (configJson.contains("/hooks"_json_pointer))
             configJson["hooks"].clear();
 
@@ -1162,6 +1169,13 @@ sl::Result StreamlineHooks::hkslDLSSGSetOptions(const sl::ViewportHandle& viewpo
     }
 
     // Make DLSSG auto always mean On
+    if (state.activeFgInput != FGInput::DLSSG && state.gameDlssgReplacedByOwnFg)
+    {
+        newOptions.mode = sl::DLSSGMode::eOff;
+        newOptions.flags &= ~sl::DLSSGFlags::eRetainResourcesWhenOff;
+        return o_slDLSSGSetOptions(viewport, newOptions);
+    }
+
     if (newOptions.mode == sl::DLSSGMode::eAuto)
         newOptions.mode = sl::DLSSGMode::eOn;
 

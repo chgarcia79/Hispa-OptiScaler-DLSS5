@@ -23,6 +23,7 @@
 #include <gpu_time/GpuTime_Dx12.h>
 
 #include <atomic>
+#include <chrono>
 #include <mutex>
 #include <algorithm>
 #include <cstring>
@@ -3347,6 +3348,20 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
 {
     if (!DlssNr::OwnNrEnabled())
     {
+        auto& cfg = *Config::Instance();
+        static std::chrono::steady_clock::time_point s_offSince {};
+        const bool autoFree = cfg.DlssNrAutoFreeVram.value_or_default();
+        const int delaySec = std::clamp(cfg.DlssNrAutoFreeVramDelaySec.value_or_default(), 1, 60);
+        const auto now = std::chrono::steady_clock::now();
+        if (s_offSince == std::chrono::steady_clock::time_point {})
+            s_offSince = now;
+
+        if (autoFree && now - s_offSince >= std::chrono::seconds(delaySec) && IsVramAllocated())
+        {
+            ReleaseVramNow();
+            LOG_INFO("DLSS-NR DX12: switched off for {} s, VRAM models and surfaces parked for release", delaySec);
+        }
+        TickNrRetired(State::Instance().frameCount, cfg.DlssNrGpuSafeRetire.value_or_default());
         ReportSkipOnce("it is switched off");
         return;
     }
@@ -3913,6 +3928,32 @@ void ResetInitDiscardCounter()
 }
 
 bool IsPausedByInitDiscards() { return DlssNr::Proxy::IsPausedByDiscards(); }
+
+void ReleaseVramNow()
+{
+    std::lock_guard<std::mutex> nrLock(g_nrMutex);
+    ParkNrFeature(g_nr.feature);
+    g_nr.featurePendingSubmission = false;
+    for (unsigned int i = 0; i < 10; ++i)
+    {
+        ParkNrFeature(g_nr.passFeature[i]);
+        g_nr.passNeedsReset[i] = false;
+        g_nr.passCreateFailed[i] = false;
+        g_nr.passPendingSubmission[i] = false;
+    }
+    for (ID3D12Resource** r :
+         { &g_nr.output, &g_nr.passScratch, &g_nr.colorCopy, &g_nr.hdrCopy, &g_nr.hdrCopySpare, &g_nr.colorSmall,
+           &g_nr.outputNative, &g_nr.residualEdited, &g_nr.residualHistory[0], &g_nr.residualHistory[1],
+           &g_nr.residualComposed })
+        ParkNrResource(*r);
+    g_nr.width = g_nr.height = g_nr.workWidth = g_nr.workHeight = 0;
+    g_nr.reset = true;
+}
+
+bool IsVramAllocated()
+{
+    return g_nr.feature != nullptr || g_nr.output != nullptr || g_nr.colorCopy != nullptr;
+}
 
 StabilityTelemetry GetStabilityTelemetry()
 {

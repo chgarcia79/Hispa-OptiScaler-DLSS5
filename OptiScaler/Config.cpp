@@ -374,6 +374,10 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrWeightsSet.set_from_config(readString("DlssNr", "WeightsSet"));
             DlssNrCalibratorEnabled.set_from_config(readBool("DlssNr", "CalibratorEnabled"));
             DlssNrCalibratorSkinOpt.set_from_config(readBool("DlssNr", "CalibratorSkinOpt"));
+            DlssNrAutoFreeVram.set_from_config(readBool("DlssNr", "AutoFreeVram"));
+            DlssNrAutoFreeVramDelaySec.set_from_config(readInt("DlssNr", "AutoFreeVramDelaySec"));
+            DlssNrDetailReuseAntiTrail.set_from_config(readBool("DlssNr", "DetailReuseAntiTrail"));
+            OptiFgClearGameDlssgHooks.set_from_config(readBool("FrameGen", "OptiFgClearGameDlssgHooks"));
             DlssNrScanExposure.set_from_config(readBool("DlssNr", "ScanExposure"));
             DlssNrWhitePointSource.set_from_config(readUInt("DlssNr", "WhitePointSource"));
 
@@ -1505,6 +1509,10 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "WeightsSet", Instance()->DlssNrWeightsSet.value_for_config_or("").c_str());
     ini.SetValue("DlssNr", "CalibratorEnabled", GetBoolValue(Instance()->DlssNrCalibratorEnabled.value_for_config()).c_str());
     ini.SetValue("DlssNr", "CalibratorSkinOpt", GetBoolValue(Instance()->DlssNrCalibratorSkinOpt.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "AutoFreeVram", GetBoolValue(Instance()->DlssNrAutoFreeVram.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "AutoFreeVramDelaySec", GetIntValue(Instance()->DlssNrAutoFreeVramDelaySec.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "DetailReuseAntiTrail", GetBoolValue(Instance()->DlssNrDetailReuseAntiTrail.value_for_config()).c_str());
+    ini.SetValue("FrameGen", "OptiFgClearGameDlssgHooks", GetBoolValue(Instance()->OptiFgClearGameDlssgHooks.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ProxyProbe", GetBoolValue(Instance()->DlssNrProxyProbe.value_for_config()).c_str());
     // ScanExposure is a developer override with no menu control; persist it so a set ini keeps it.
     ini.SetValue("DlssNr", "ScanExposure", GetBoolValue(Instance()->DlssNrScanExposure.value_for_config()).c_str());

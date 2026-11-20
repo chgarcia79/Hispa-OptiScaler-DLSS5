@@ -46,6 +46,8 @@ void NotifyQueueSubmission(ID3D12CommandQueue* queue, UINT count, ID3D12CommandL
 uint32_t InitDiscardCount();
 void ResetInitDiscardCounter();
 bool IsPausedByInitDiscards();
+void ReleaseVramNow();
+bool IsVramAllocated();
 
 struct StabilityTelemetry
 {

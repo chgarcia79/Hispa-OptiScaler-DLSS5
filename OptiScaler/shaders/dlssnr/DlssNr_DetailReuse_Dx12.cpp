@@ -91,12 +91,21 @@ DetailReuseConstants DlssNr_DetailReuse_Dx12::BuildConstants(uint32_t mode, uint
     const uint32_t dw = ((uint32_t) dDesc.Width < w) ? std::min<uint32_t>(subW, (uint32_t) dDesc.Width) : std::min<uint32_t>(w, (uint32_t) dDesc.Width);
     const uint32_t dh = (dDesc.Height < h) ? std::min<uint32_t>(subH, dDesc.Height) : std::min<uint32_t>(h, dDesc.Height);
 
+    float blendStrength = std::clamp(cfg.DlssNrDetailReuseBlend.value_or_default(), 0.0f, 1.0f);
+    float motionReject = std::clamp(cfg.DlssNrDetailReuseMotionReject.value_or_default(), 0.0f, 1.0f);
+    if (mode == 1u && _cadenceStep >= 2u && cfg.DlssNrDetailReuseAntiTrail.value_or_default())
+    {
+        // PR #348 anti-trail: on the 3rd-frame chained reprojection, attenuate carried trust and tighten motion rejection.
+        blendStrength *= 0.72f;
+        motionReject = std::min(1.0f, motionReject + 0.20f);
+    }
+
     return DetailReuseConstants {
         mode, w, h, mw, mh, dw, dh,
         (mw > 0 && std::isfinite(frame.MvScaleX)) ? (frame.MvScaleX / (float) mw) : 0.0f,
         (mh > 0 && std::isfinite(frame.MvScaleY)) ? (frame.MvScaleY / (float) mh) : 0.0f,
-        std::clamp(cfg.DlssNrDetailReuseBlend.value_or_default(), 0.0f, 1.0f),
-        std::clamp(cfg.DlssNrDetailReuseMotionReject.value_or_default(), 0.0f, 1.0f),
+        blendStrength,
+        motionReject,
         frame.DepthInverted ? 1u : 0u
     };
 }

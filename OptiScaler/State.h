@@ -220,6 +220,7 @@ class State
     bool WAR_xefgRequestFGToggle = false;
 
     bool dlssgGameDMFGSupported = false;
+    std::atomic<bool> gameDlssgReplacedByOwnFg = false;
     sl::DLSSGMode dlssgLastSetMode = sl::DLSSGMode::eOff;
     int dlssgDetectedInterpolationCount = 0;
 
