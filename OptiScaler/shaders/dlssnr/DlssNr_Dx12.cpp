@@ -2244,6 +2244,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         }
 
         SetExtras(cfg, nullptr, nullptr, 0, 0, 0, 0);
+        DlssNr::Nvfp4Bridge::ApplyWeightsFolder(g_nr.forwarder, cfg);
         const unsigned int wantPreset0 = (unsigned int) cfg.DlssNrPreset.value_or_default();
         DlssNr::Nvfp4Bridge::ConfigureForPresets(&wantPreset0, 1);
         g_nr.feature =
@@ -2358,6 +2359,7 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
             else
             {
                 SetExtras(cfg, nullptr, nullptr, 0, 0, 0, 0);
+                DlssNr::Nvfp4Bridge::ApplyWeightsFolder(g_nr.forwarder, cfg);
                 const unsigned int passPreset = (unsigned int) ResolvePassPreset(cfg, pass);
                 DlssNr::Nvfp4Bridge::ConfigureForPresets(&passPreset, 1);
                 // Later passes zero LocalTone to prevent compounding local contrast burn across cascaded passes.

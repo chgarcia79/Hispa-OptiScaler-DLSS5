@@ -370,6 +370,8 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrUseProxy.set_from_config(readBool("DlssNr", "UseProxy"));
             DlssNrInitDiscardGuard.set_from_config(readBool("DlssNr", "InitDiscardGuard"));
             DlssNrInitMaxDiscards.set_from_config(readInt("DlssNr", "InitMaxDiscards"));
+            DlssNrFp8Enabled.set_from_config(readBool("DlssNr", "Fp8Enabled"));
+            DlssNrWeightsSet.set_from_config(readString("DlssNr", "WeightsSet"));
             DlssNrScanExposure.set_from_config(readBool("DlssNr", "ScanExposure"));
             DlssNrWhitePointSource.set_from_config(readUInt("DlssNr", "WhitePointSource"));
 
@@ -1497,6 +1499,8 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "UseProxy", GetBoolValue(Instance()->DlssNrUseProxy.value_for_config()).c_str());
     ini.SetValue("DlssNr", "InitDiscardGuard", GetBoolValue(Instance()->DlssNrInitDiscardGuard.value_for_config()).c_str());
     ini.SetValue("DlssNr", "InitMaxDiscards", GetIntValue(Instance()->DlssNrInitMaxDiscards.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Fp8Enabled", GetBoolValue(Instance()->DlssNrFp8Enabled.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "WeightsSet", Instance()->DlssNrWeightsSet.value_for_config_or("").c_str());
     ini.SetValue("DlssNr", "ProxyProbe", GetBoolValue(Instance()->DlssNrProxyProbe.value_for_config()).c_str());
     // ScanExposure is a developer override with no menu control; persist it so a set ini keeps it.
     ini.SetValue("DlssNr", "ScanExposure", GetBoolValue(Instance()->DlssNrScanExposure.value_for_config()).c_str());

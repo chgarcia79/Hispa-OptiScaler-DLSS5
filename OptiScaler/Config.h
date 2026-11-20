@@ -393,6 +393,8 @@ class Config
     CustomOptional<bool> DlssNrUseProxy { false };
     CustomOptional<bool> DlssNrInitDiscardGuard { true };
     CustomOptional<int> DlssNrInitMaxDiscards { 3 };
+    CustomOptional<bool> DlssNrFp8Enabled { true };
+    CustomOptional<std::string> DlssNrWeightsSet {};
 
     // Look for the exposure the game computed but never handed to the upscaler.
     //

@@ -1,6 +1,8 @@
 #pragma once
 
+#include <Config.h>
 #include <dlssnr/NrNvfp4.h>
+#include <dlssnr/DlssNr_Weights.h>
 #include <shaders/dlssnr/DlssNr_Retire.h>
 #include <Util.h>
 
@@ -32,8 +34,22 @@ inline std::filesystem::path AssetsPath()
     return Util::DllPath().parent_path() / L"OptiScaler" / L"nvfp4";
 }
 
+inline void ApplyWeightsFolder(HMODULE forwarder, const Config& cfg)
+{
+    if (forwarder == nullptr)
+        return;
+    using PFN_Select = void (*)(const wchar_t*);
+    static auto fn = reinterpret_cast<PFN_Select>(GetProcAddress(forwarder, "dlssnr_weights_select"));
+    if (fn != nullptr)
+    {
+        const auto folder = DlssNr::Weights::Folder(cfg.DlssNrWeightsSet.value_or_default());
+        fn(folder.empty() ? L"" : folder.c_str());
+    }
+}
+
 inline void ConfigureForPresets(const unsigned int* passPresets, unsigned int passCount)
 {
+    DlssNr::Nvfp4::SetFp8Enabled(Config::Instance()->DlssNrFp8Enabled.value_or_default());
     bool anyNvfp4 = false;
     for (unsigned int i = 0; i < passCount; ++i)
     {
