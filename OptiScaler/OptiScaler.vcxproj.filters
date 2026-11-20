@@ -197,6 +197,21 @@
     <ClInclude Include="dlssnr\DlssNr_Weights.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_Presets.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_Calibrate.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\NrCalibrate.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_Readback.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="shaders\dlssnr\DlssNr_CalibrateBridge.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="dlssnr\NrPassBorrow.h">
       <Filter>Header Files</Filter>
     </ClInclude>
@@ -1284,6 +1299,12 @@
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="dlssnr\nvfp4\NrFp8.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="dlssnr\DlssNr_Presets.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
+    <ClCompile Include="dlssnr\DlssNr_Calibrate.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
     <ClCompile Include="dlssnr\NrPassBorrow.cpp">

@@ -395,6 +395,8 @@ class Config
     CustomOptional<int> DlssNrInitMaxDiscards { 3 };
     CustomOptional<bool> DlssNrFp8Enabled { true };
     CustomOptional<std::string> DlssNrWeightsSet {};
+    CustomOptional<bool> DlssNrCalibratorEnabled { true };
+    CustomOptional<bool> DlssNrCalibratorSkinOpt { false };
 
     // Look for the exposure the game computed but never handed to the upscaler.
     //

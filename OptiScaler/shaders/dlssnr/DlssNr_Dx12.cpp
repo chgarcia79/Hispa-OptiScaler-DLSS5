@@ -6,6 +6,7 @@
 
 
 #include <dlssnr/DlssNr_Capture.h>
+#include "DlssNr_CalibrateBridge.h"
 #include <dlssnr/DlssNr_DriverGate.h>
 #include <dlssnr/DlssNr_Proxy.h>
 #include <dlssnr/DlssNr_ExposureScan.h>
@@ -2422,16 +2423,24 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
     }
 
     ++g_frames;
+    DlssNr::CalibrateBridge::Tick(g_capture);
     CheckCaptureTrigger();
 
     if (g_captureWriteAtFrame != 0 && g_frames >= g_captureWriteAtFrame)
     {
         g_captureWriteAtFrame = 0;
-        const auto captureDir = Util::DllPath().remove_filename() / "dlssnr-capture";
-        const auto written = g_capture.write(captureDir);
+        if (g_capture.hasReader())
+        {
+            g_capture.deliverReader();
+        }
+        else
+        {
+            const auto captureDir = Util::DllPath().remove_filename() / "dlssnr-capture";
+            const auto written = g_capture.write(captureDir);
 
-        if (!written.empty())
-            LOG_INFO("DLSS-NR wrote matched before/after frames to {}", written);
+            if (!written.empty())
+                LOG_INFO("DLSS-NR wrote matched before/after frames to {}", written);
+        }
     }
 
     if (g_gpuTime == nullptr)
@@ -3150,8 +3159,9 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
                              targetState);
 
             if (g_capture.readyToWrite() && g_captureWriteAtFrame == 0)
-                g_captureWriteAtFrame = g_frames + 8;
+                g_captureWriteAtFrame = g_frames + (g_capture.hasReader() ? 3 : 8);
         }
+        DlssNr::CalibrateBridge::Composed();
     }
     else
     {

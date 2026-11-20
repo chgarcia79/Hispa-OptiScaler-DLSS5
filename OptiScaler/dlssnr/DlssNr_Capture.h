@@ -15,10 +15,12 @@
 
 #include <windows.h>
 #include <d3d12.h>
+#include <dlssnr/DlssNr_Readback.h>
 #include <shaders/dlssnr/DlssNr_MipSubresource.h>
 
 #include <cstdio>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -40,14 +42,35 @@ class FrameCapture
 {
   public:
     // Asks for a capture. Ignored if one is already running.
-    void request(unsigned int frames)
+    bool request(unsigned int frames, std::function<void(const DlssNr::ReadbackImage&)> reader = {})
     {
         if (active_)
-            return;
+            return false;
 
         wanted_ = frames > kMaxFrames ? kMaxFrames : frames;
         captured_ = 0;
+        reader_ = std::move(reader);
         active_ = wanted_ > 0;
+        return active_;
+    }
+
+    bool hasReader() const { return static_cast<bool>(reader_); }
+
+    void deliverReader()
+    {
+        auto reader = std::move(reader_);
+        if (reader && ready_)
+        {
+            for (unsigned int i = 0; i < captured_ && i < afterShots_.size(); ++i)
+            {
+                DlssNr::ReadbackImage img {};
+                img.readback = afterShots_[i].readback;
+                img.layout = afterShots_[i].layout;
+                img.bytes = afterShots_[i].bytes;
+                reader(img);
+            }
+        }
+        release();
     }
 
     bool isActive() const { return active_; }
@@ -338,6 +361,7 @@ class FrameCapture
     std::vector<Shot> afterShots_;
     D3D12_RESOURCE_DESC beforeDesc_ = {};
     D3D12_RESOURCE_DESC afterDesc_ = {};
+    std::function<void(const DlssNr::ReadbackImage&)> reader_;
     unsigned int wanted_ = 0;
     unsigned int captured_ = 0;
     bool active_ = false;

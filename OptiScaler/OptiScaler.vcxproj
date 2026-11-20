@@ -649,6 +649,11 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="dlssnr\nvfp4\NrSwin4.h" />
     <ClInclude Include="dlssnr\nvfp4\NrFp8.h" />
     <ClInclude Include="dlssnr\DlssNr_Weights.h" />
+    <ClInclude Include="dlssnr\DlssNr_Presets.h" />
+    <ClInclude Include="dlssnr\DlssNr_Calibrate.h" />
+    <ClInclude Include="dlssnr\NrCalibrate.h" />
+    <ClInclude Include="dlssnr\DlssNr_Readback.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_CalibrateBridge.h" />
     <ClInclude Include="dlssnr\NrPassBorrow.h" />
     <ClInclude Include="dlssnr\NrPassBorrowCopy.h" />
     <ClInclude Include="dlssnr\NrPassBorrowTest.h" />
@@ -928,6 +933,8 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
     <ClCompile Include="dlssnr\DlssNr_Menu.cpp" />
+    <ClCompile Include="dlssnr\DlssNr_Presets.cpp" />
+    <ClCompile Include="dlssnr\DlssNr_Calibrate.cpp" />
     <ClCompile Include="dlssnr\DlssNr_GameNrRuntime.cpp" />
     <ClCompile Include="inputs\NVNGX_DLSS_Dx12.cpp" />
     <ClCompile Include="dllmain.cpp" />
