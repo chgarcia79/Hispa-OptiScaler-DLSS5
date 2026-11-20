@@ -23,21 +23,9 @@ constexpr const char* kSection = "DlssNr";
 template <class Visitor> void Visit(Config& c, Visitor&& v)
 {
     // Where NR runs.
-    v("RunBeforeSR", c.DlssNrRunBeforeSr);
-    v("FinishedPicture", c.DlssNrFinishedPicture);
-    v("HdrTransfer", c.DlssNrHdrTransfer);
-    v("DeferredDLSS", c.DlssNrDeferredDlss);
-    v("PrivateUpscaler", c.DlssNrPrivateUpscaler);
     v("ResidualAcrossRR", c.DlssNrResidualAcrossRr);
     v("ResidualAcrossRRBlend", c.DlssNrResidualAcrossRrBlend);
     v("DenoiseFirst", c.DlssNrDenoiseFirst);
-    v("DenoiseFirstStep", c.DlssNrDenoiseFirstStep);
-    v("DenoiseFirstEdit", c.DlssNrDenoiseFirstEdit);
-    v("DenoiseFirstKernel", c.DlssNrDenoiseFirstKernel);
-    v("DenoiseFirstShift", c.DlssNrDenoiseFirstShift);
-    v("DenoiseFirstFlipJitter", c.DlssNrDenoiseFirstFlipJitter);
-    v("DenoiseFirstNeighbourhoodClamp", c.DlssNrDenoiseFirstNeighbourhoodClamp);
-    v("DenoiseFirstFireflyGuard", c.DlssNrDenoiseFirstFireflyGuard);
     // The model of pass 1, which later passes inherit.
     v("Preset", c.DlssNrPreset);
     v("Intensity", c.DlssNrIntensity);
@@ -47,8 +35,9 @@ template <class Visitor> void Visit(Config& c, Visitor&& v)
     v("SkinStructure", c.DlssNrSkinStructure);
     v("AutoMask", c.DlssNrAutoMask);
     v("Passes", c.DlssNrPasses);
-    v("UnlockPasses", c.DlssNrUnlockPasses);
     v("ReapplyGain", c.DlssNrReapplyGain);
+    v("Fp8Enabled", c.DlssNrFp8Enabled);
+    v("WeightsSet", c.DlssNrWeightsSet);
     // Input, resolution and reconstruction.
     v("MatchGuides", c.DlssNrMatchGuides);
     v("RenderMotionScale", c.DlssNrRenderMotionScale);
@@ -69,12 +58,6 @@ template <class Visitor> void Visit(Config& c, Visitor&& v)
     v("ColourStrength", c.DlssNrColourStrength);
     v("MaxRatio", c.DlssNrMaxRatio);
     v("ReversibleMode", c.DlssNrReversibleMode);
-    v("SkinProtection", c.DlssNrSkinProtection);
-    v("SkinDetail", c.DlssNrSkinDetail);
-    v("SkinColour", c.DlssNrSkinColour);
-    v("EnvironmentDetail", c.DlssNrEnvironmentDetail);
-    v("EnvironmentColour", c.DlssNrEnvironmentColour);
-    v("ReplaceDetailStrength", c.DlssNrReplaceDetailStrength);
     v("ResidualConfidenceSensitivity", c.DlssNrResidualConfidenceSensitivity);
     v("HistoryRejection", c.DlssNrHistoryRejection);
     v("HaloSuppression", c.DlssNrHaloSuppression);
@@ -84,10 +67,6 @@ template <class Visitor> void Visit(Config& c, Visitor&& v)
     v("WhitePointScale", c.DlssNrWhitePointScale);
     v("WhitePointSource", c.DlssNrWhitePointSource);
     v("WhitePointTrim", c.DlssNrWhitePointTrim);
-    v("AutoExposureTrim", c.DlssNrAutoExposureTrim);
-    v("AutoExposureHighlightProtection", c.DlssNrAutoExposureHighlightProtection);
-    v("ExposureTrimAnchors", c.DlssNrExposureTrimAnchors);
-    v("AutoExposureTrimAnchors", c.DlssNrAutoExposureTrimAnchors);
     // Passes 2..30: what each sets apart from pass 1.
     for (unsigned i = 0; i < std::size(c.DlssNrPassOverrides); ++i)
     {

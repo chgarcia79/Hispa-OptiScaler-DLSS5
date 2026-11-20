@@ -536,6 +536,8 @@ bool ExposureOfferedVk() { return g_vk.exposureOffered; }
 
 std::optional<double> LastGpuTimeVk() { return g_vk.lastGpuTime; }
 
+void ShutdownVk(bool deviceAlive);
+
 void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* params, VkInstance instance,
                             VkPhysicalDevice physicalDevice, VkDevice device)
 {
@@ -555,7 +557,7 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
             if (now - s_vkOffSince >= std::chrono::seconds(delaySec))
             {
                 s_vkOffReleased = true;
-                Release(true);
+                ShutdownVk(true);
                 LOG_INFO("DLSS-NR Vulkan: switched off for {} s, models and surfaces released", delaySec);
             }
         }
