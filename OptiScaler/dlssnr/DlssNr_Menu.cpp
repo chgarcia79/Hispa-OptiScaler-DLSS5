@@ -11,6 +11,7 @@
 #include "DlssNr_MenuDepthFadeSection.h"
 #include "DlssNr_MenuStabilitySection.h"
 #include "DlssNr_MenuNvfp4Section.h"
+#include "DlssNr_MenuPresetsCalibrateSection.h"
 #include "DlssNr_MenuPassShortcutsSection.h"
 #include "DlssNr_MenuDiagnosticsSection.h"
 #include "DlssNr_SteadyValue.h"
@@ -1275,6 +1276,7 @@ void RenderMenu(Config* config, float menuResScale)
         // KeepModelOnFormatFlip, IsolateMainFeature, GpuSafeRetire).
         RenderDev9StabilitySection(config, HelpMarker);
         RenderDev10DepthFadeSection(config, HelpMarker);
+        RenderPresetsCalibrateSection(config, HelpMarker);
         RenderPassShortcutsSection(config, HelpMarker);
         RenderDiagnosticsSection(config, HelpMarker);
 

@@ -13,7 +13,7 @@ template <typename HelpFn> inline void RenderDiagnosticsSection(::Config* config
     if (!config)
         return;
 
-    if (auto ch = ScopedCollapsingHeader("Guardia CommandList Inicializacion NR (UE5)"); ch.IsHeaderOpen())
+    if (auto ch = ScopedCollapsingHeader("Guardia CommandList, VRAM y DetailReuse"); ch.IsHeaderOpen())
     {
         ScopedIndent indent {};
         ImGui::Spacing();
@@ -36,6 +36,30 @@ template <typename HelpFn> inline void RenderDiagnosticsSection(::Config* config
 
         if (ImGui::SmallButton("Resetear contador y reintentar NR"))
             ResetInitDiscardCounter();
+
+        ImGui::Separator();
+
+        bool autoFree = config->DlssNrAutoFreeVram.value_or_default();
+        if (ImGui::Checkbox("Auto-liberar VRAM al apagar NR", &autoFree))
+            config->DlssNrAutoFreeVram = autoFree;
+        helpMarker("Libera modelos y superficies NR (~1.4 GB en 1440p) tras el retardo configurado al desactivar NR.");
+
+        int delaySec = std::clamp(config->DlssNrAutoFreeVramDelaySec.value_or_default(), 1, 60);
+        if (ImGui::SliderInt("Retardo de liberacion (s)", &delaySec, 1, 60))
+            config->DlssNrAutoFreeVramDelaySec = delaySec;
+
+        if (ImGui::SmallButton("Liberar VRAM NR ahora"))
+            ReleaseVramNow();
+        ImGui::SameLine();
+        if (IsVramAllocated())
+            ImGui::TextColored(ImVec4(0.95f, 0.80f, 0.35f, 1.0f), "VRAM NR asignada");
+        else
+            ImGui::TextColored(ImVec4(0.45f, 0.90f, 0.55f, 1.0f), "VRAM NR liberada");
+
+        bool antiTrail = config->DlssNrDetailReuseAntiTrail.value_or_default();
+        if (ImGui::Checkbox("Anti-estelas en Reuse Detail cada 3er frame", &antiTrail))
+            config->DlssNrDetailReuseAntiTrail = antiTrail;
+        helpMarker("Atenua arrastres y refuerza rechazo de movimiento en la segunda reproyeccion consecutiva.");
     }
 }
 } // namespace DlssNr

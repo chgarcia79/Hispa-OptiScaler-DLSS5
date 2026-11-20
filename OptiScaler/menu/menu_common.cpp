@@ -3341,6 +3341,9 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
             state.activeFgOutput == FGOutput::DLSSG || state.activeFgInput == FGInput::DLSSG;
 
         ImGui::BeginDisabled(state.dlssgGameDMFGSupported && config->FGDLSSGOverrideForceDMFG.value_or_default());
+        if (bool clearDlssg = config->OptiFgClearGameDlssgHooks.value_or_default();
+            ImGui::Checkbox("OptiFG: Limpiar hooks DLSS-G del juego", &clearDlssg))
+            config->OptiFgClearGameDlssgHooks = clearDlssg;
         if (MenuLayout::ShowsDlssgRatioCombo(state.dlssgMfgMax, dlssgInputOrOutput))
         {
             auto maxInterpolationCount = state.dlssgMfgMax.value();

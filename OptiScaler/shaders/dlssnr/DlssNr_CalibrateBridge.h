@@ -13,7 +13,7 @@ inline void Tick(capture::FrameCapture& frames)
         return;
     if (!cfg->DlssNrCalibratorEnabled.value_or_default())
     {
-        if (DlssNr::Calibrate::State().active)
+        if (DlssNr::Calibrate::Read().active)
             DlssNr::Calibrate::Cancel();
     }
     DlssNr::Calibrate::Tick(*cfg, frames);

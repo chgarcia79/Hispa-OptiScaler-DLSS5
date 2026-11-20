@@ -230,6 +230,9 @@
     <ClInclude Include="dlssnr\DlssNr_MenuNvfp4Section.h">
       <Filter>Header Files</Filter>
     </ClInclude>
+    <ClInclude Include="dlssnr\DlssNr_MenuPresetsCalibrateSection.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
     <ClInclude Include="dlssnr\DlssNr_MenuPassShortcutsSection.h">
       <Filter>Header Files</Filter>
     </ClInclude>
