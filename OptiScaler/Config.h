@@ -394,7 +394,7 @@ class Config
     CustomOptional<bool> DlssNrInitDiscardGuard { true };
     CustomOptional<int> DlssNrInitMaxDiscards { 3 };
     CustomOptional<bool> DlssNrFp8Enabled { true };
-    CustomOptional<std::string> DlssNrWeightsSet {};
+    CustomOptional<std::string> DlssNrWeightsSet { std::string() };
     CustomOptional<bool> DlssNrCalibratorEnabled { true };
     CustomOptional<bool> DlssNrCalibratorSkinOpt { false };
     CustomOptional<bool> DlssNrAutoFreeVram { true };
