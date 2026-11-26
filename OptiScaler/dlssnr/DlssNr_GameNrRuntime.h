@@ -1,26 +1,31 @@
-#pragma once
+﻿#pragma once
 
-#include <SysUtils.h>
+#include <nvsdk_ngx_params.h>
 
 struct ID3D12Device;
 struct ID3D12GraphicsCommandList;
 
-// Tracks and executes a game's native NR features (NGX feature 18), both when created natively by the driver (RTX 5090)
-// and when created through the direct runtime (nvngx.dll_dlssnr.dll -> nvngx_dlssnr.dll).
+// Owns the game's own NR features (NGX feature 18) created through the direct runtime after the driver refused them
+// (DlssNr_GameNr.h decides when). Handles are keyed by pointer: their ids come from nvngx_dlssnr.dll and may collide
+// with driver handle ids, so these calls are routed before any id-based lookup.
 namespace DlssNr::GameNr
 {
-bool HasCandidates();
 NVSDK_NGX_Result CreateDirect(ID3D12GraphicsCommandList* commands, NVSDK_NGX_Parameter* params,
                               NVSDK_NGX_Handle** handle);
-void RecordDriverCreate(const NVSDK_NGX_Handle* handle, const NVSDK_NGX_Parameter* params);
 bool Owns(const NVSDK_NGX_Handle* handle);
-bool ForgetDriverHandle(const NVSDK_NGX_Handle* handle);
 NVSDK_NGX_Result Evaluate(ID3D12GraphicsCommandList* commands, const NVSDK_NGX_Handle* handle,
                           NVSDK_NGX_Parameter* params);
 NVSDK_NGX_Result Release(NVSDK_NGX_Handle* handle);
+// "Preload NR": load and initialise the direct runtime on this device now, and keep it until NGX shutdown.
 void Preload(ID3D12Device* device);
-void PreloadRuntimeIfEnabled(ID3D12Device* device);
-bool IsGameNativeNrRunning();
-inline bool Active() { return IsGameNativeNrRunning(); }
+// GetFeatureRequirements(18) reported the feature unlocked to the game in this session.
+void NoteUnlocked();
+bool Unlocked();
+// Once unlocked: let the direct runtime publish its callbacks (DLSSNRComputeScalingRatioCallback) into a block the
+// game got from NGX, when the driver left them out. Streamline's sl.dlss_nr needs them before it creates feature 18.
+void PublishCallbacks(ID3D12Device* device, NVSDK_NGX_Parameter* params);
+// True while the game has a live NR feature; OptiScaler's own NR yields to it.
+bool Active();
+// NGX shutdown: release what the game left behind and drop the retained runtimes.
 void Shutdown();
 } // namespace DlssNr::GameNr

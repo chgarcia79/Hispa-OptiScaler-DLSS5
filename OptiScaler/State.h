@@ -9,6 +9,7 @@
 
 #include <set>
 #include <deque>
+#include <atomic>
 #include <mutex>
 #include <sl_dlss_g.h>
 #include <vulkan/vulkan.h>
@@ -313,6 +314,8 @@ class State
     ApiUpscalerInput currentInputApiName;
 
     bool isShuttingDown = false;
+    std::string dlssgAppliedPreset;
+    std::atomic<uint64_t> presentCount { 0 };
     std::set<PVOID> modulesToFree;
 
     // menu warnings

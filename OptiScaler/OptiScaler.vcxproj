@@ -662,6 +662,11 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="dlssnr\DlssNr_Weights.h" />
     <ClInclude Include="dlssnr\DlssNr_WeightsRules.h" />
     <ClInclude Include="shaders\dlssnr\DlssNr_CompareModelBridge.h" />
+    <ClInclude Include="framegen\dlssg\DlssgPresetPolicy.h" />
+    <ClInclude Include="framegen\dlssg\AdaMfgCeiling.h" />
+    <ClInclude Include="menu\MenuWindowOwnerPolicy.h" />
+    <ClInclude Include="menu\input\WndProcChainPolicy.h" />
+    <ClInclude Include="inputs\RetiredFeatures.h" />
     <ClInclude Include="dlssnr\DlssNr_Presets.h" />
     <ClInclude Include="dlssnr\DlssNr_Calibrate.h" />
     <ClInclude Include="dlssnr\NrCalibrate.h" />

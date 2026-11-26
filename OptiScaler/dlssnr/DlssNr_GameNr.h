@@ -1,18 +1,20 @@
-#pragma once
+﻿#pragma once
 
 #include "DlssNr_DriverGate.h"
 
 #include <optional>
 #include <string>
 
-// A game's own DLSS Neural Rendering option (NGX feature 18, e.g. Metro 2033 Redux / NBA 2K27) stays hidden when the
-// driver reports NR unsupported. The direct runtime (nvngx.dll_dlssnr.dll -> nvngx_dlssnr.dll) runs NR on GPUs NVIDIA
-// does not unlock, with one hard rule: on Windows a driver without NR support (FAIL_OutOfDate, DriverVersionUnsupported,
-// or below the 610.88 gate) must never reach the direct runtime, which hung the GPU in DLSS Unlocked #60.
+// A game's own DLSS Neural Rendering option (NGX feature 18, e.g. Metro 2033 Redux) stays hidden when the driver
+// reports NR unsupported. The fork's direct runtime (nvngx_dlssnr.dll) runs NR on GPUs NVIDIA does not support, so
+// the option is unlocked on Windows and Linux alike, with one exception: on Windows a driver without NR support
+// (FAIL_OutOfDate, DriverVersionUnsupported, or below the 610.88 gate) must never reach the direct runtime, which
+// hung the GPU in DLSS Unlocked #60. Kept free of Windows headers so the unit test runs the same rule.
 namespace DlssNr::GameNr
 {
 inline constexpr unsigned int FeatureId = 18;
 inline constexpr unsigned int NgxResultSuccess = 0x1;
+// NVSDK_NGX_FeatureSupportResult bits
 inline constexpr unsigned int SupportDriverVersionUnsupported = 2;
 
 enum class Decision
@@ -21,6 +23,7 @@ enum class Decision
     Unlock       // report feature 18 supported; creation may use the direct runtime
 };
 
+// The support bits are only meaningful when the query itself succeeded.
 constexpr bool DriverSupports(unsigned int result, unsigned int supportBits)
 {
     return result == NgxResultSuccess && supportBits == 0;
@@ -38,6 +41,7 @@ constexpr Decision Decide(bool onWine, bool enabled, bool hasCandidate, bool dri
     if (!enabled || !hasCandidate || DriverSupports(driverResult, supportBits))
         return Decision::PassThrough;
 
+    // Wine: the Linux NGX has no NR feature at all, so every answer is "unsupported".
     if (!onWine && (driverBlocked || DriverLacksNr(driverResult, supportBits)))
         return Decision::PassThrough;
 
@@ -46,6 +50,8 @@ constexpr Decision Decide(bool onWine, bool enabled, bool hasCandidate, bool dri
 
 constexpr bool Failed(unsigned int result) { return (result & 0xFFF00000u) == 0xBAD00000u; }
 
+// After the driver's CreateFeature(18): create through the direct runtime only when the driver produced no feature
+// and the same rule unlocks it. A Windows FAIL_OutOfDate therefore always reaches the game unchanged.
 constexpr bool ShouldCreateDirect(bool onWine, bool enabled, bool hasCandidate, bool driverBlocked,
                                   unsigned int createResult, bool gotHandle)
 {
@@ -53,11 +59,23 @@ constexpr bool ShouldCreateDirect(bool onWine, bool enabled, bool hasCandidate, 
            Decide(onWine, enabled, hasCandidate, driverBlocked, createResult, 0) == Decision::Unlock;
 }
 
+// Streamline's sl.dlss_nr reads this callback from the NGX parameter blocks before it creates feature 18. The NR
+// module publishes it from its PopulateParameters_Impl export, which the driver calls only for a module it accepted.
+// On a GPU the module doesn't target (an RTX 30 with a 0x1B0 build) the driver never calls it, and Streamline stops.
+inline constexpr const char* ScalingRatioCallbackKey = "DLSSNRComputeScalingRatioCallback";
+
+// Publish the module's callbacks into a block only when this session unlocked feature 18 and the driver left them out.
+// A GPU the driver supports never unlocks, and a block that already has the callback is left alone.
+constexpr bool ShouldPublishCallbacks(bool unlocked, bool hasCallback) { return unlocked && !hasCallback; }
+
+// "Preload NR": load the direct runtime at the game's NGX init, never on a Windows driver below the 610.88 gate.
 constexpr bool ShouldPreload(bool enabled, bool hasCandidate, bool driverBlocked)
 {
     return enabled && hasCandidate && !driverBlocked;
 }
 
+// The weights nvngx_dlssnr.dll 310.9 picks from DLSSNR.Hint.Render.Preset (NR-LIGHTWEIGHT-MODEL-PRESET-SUPPORT.md):
+// 0 or unset fall back to the lightweight model.
 inline std::string ModelName(std::optional<unsigned int> preset)
 {
     if (!preset || *preset == 0 || *preset == 2)

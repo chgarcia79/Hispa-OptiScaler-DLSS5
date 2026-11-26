@@ -392,6 +392,13 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrAutoFreeVramDelaySec.set_from_config(readInt("DlssNr", "AutoFreeVramDelaySec"));
             DlssNrDetailReuseAntiTrail.set_from_config(readBool("DlssNr", "DetailReuseAntiTrail"));
             OptiFgClearGameDlssgHooks.set_from_config(readBool("FrameGen", "OptiFgClearGameDlssgHooks"));
+            DlssgPreset.set_from_config(readString("DLSSG", "DlssgPreset"));
+            DlssgMaxFramesCeiling.set_from_config(readInt("DLSSG", "DlssgMaxFramesCeiling"));
+            OverlayLockPrimaryWindow.set_from_config(readBool("Menu", "OverlayLockPrimaryWindow"));
+            DlssNrStreamlineNativeBridge.set_from_config(readBool("DlssNr", "StreamlineNativeBridge"));
+            DeferredFeatureRelease.set_from_config(readBool("Dx12", "DeferredFeatureRelease"));
+            StreamlineDisableOta.set_from_config(readBool("NvApi", "DisableOTA"));
+            StreamlineSkipNvidiaAppOverride.set_from_config(readBool("NvApi", "SkipNvidiaAppOverride"));
             DlssNrScanExposure.set_from_config(readBool("DlssNr", "ScanExposure"));
             DlssNrWhitePointSource.set_from_config(readUInt("DlssNr", "WhitePointSource"));
 
@@ -1534,6 +1541,13 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "AutoFreeVramDelaySec", GetIntValue(Instance()->DlssNrAutoFreeVramDelaySec.value_for_config()).c_str());
     ini.SetValue("DlssNr", "DetailReuseAntiTrail", GetBoolValue(Instance()->DlssNrDetailReuseAntiTrail.value_for_config()).c_str());
     ini.SetValue("FrameGen", "OptiFgClearGameDlssgHooks", GetBoolValue(Instance()->OptiFgClearGameDlssgHooks.value_for_config()).c_str());
+    ini.SetValue("DLSSG", "DlssgPreset", Instance()->DlssgPreset.value_for_config_or("auto").c_str());
+    ini.SetValue("DLSSG", "DlssgMaxFramesCeiling", GetIntValue(Instance()->DlssgMaxFramesCeiling.value_for_config()).c_str());
+    ini.SetValue("Menu", "OverlayLockPrimaryWindow", GetBoolValue(Instance()->OverlayLockPrimaryWindow.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "StreamlineNativeBridge", GetBoolValue(Instance()->DlssNrStreamlineNativeBridge.value_for_config()).c_str());
+    ini.SetValue("Dx12", "DeferredFeatureRelease", GetBoolValue(Instance()->DeferredFeatureRelease.value_for_config()).c_str());
+    ini.SetValue("NvApi", "DisableOTA", GetBoolValue(Instance()->StreamlineDisableOta.value_for_config()).c_str());
+    ini.SetValue("NvApi", "SkipNvidiaAppOverride", GetBoolValue(Instance()->StreamlineSkipNvidiaAppOverride.value_for_config()).c_str());
     ini.SetValue("DlssNr", "ProxyProbe", GetBoolValue(Instance()->DlssNrProxyProbe.value_for_config()).c_str());
     // ScanExposure is a developer override with no menu control; persist it so a set ini keeps it.
     ini.SetValue("DlssNr", "ScanExposure", GetBoolValue(Instance()->DlssNrScanExposure.value_for_config()).c_str());

@@ -3,6 +3,7 @@
 #include "Config.h"
 
 #include "NVNGX_DLSS.h"
+#include "RetiredFeatures.h"
 #include "NVNGX_Parameter.h"
 #include "proxies/NVNGX_Proxy.h"
 #include "dlssnr/DlssNr.h"
@@ -37,6 +38,7 @@ static std::unordered_map<unsigned int, NVSDK_NGX_Feature> HandleToFeature;
 static ID3D12Device* D3D12Device = nullptr;
 static int evalCounter = 0;
 static bool shutdown = false;
+static RetiredFeatures<IFeature_Dx12> g_retiredFeatures;
 static bool _skipInit = false;
 static wchar_t const** paths;
 
@@ -389,6 +391,7 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_Shutdown(void)
     // Unhooking and cleaning stuff causing issues during shutdown.
     // Disabled for now to check if it cause any issues
     // UnhookAll();
+    g_retiredFeatures.Collect(0, 0.0, true);
     DLSSFeatureDx12::Shutdown(D3D12Device);
 
     if (!State::Instance().isShuttingDown)
@@ -902,6 +905,8 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_ReleaseFeature(NVSDK_NGX_Handle* 
         return Nvngx_FG::D3D12_ReleaseFeature(InHandle);
     }
 
+    g_retiredFeatures.Collect(State::Instance().presentCount.load(std::memory_order_relaxed), Util::MillisecondsNow(),
+                              false);
     // Remove feature from context map
     if (auto it = Dx12Contexts.find(handleId); it != Dx12Contexts.end())
     {
@@ -912,6 +917,11 @@ NVSDK_NGX_API NVSDK_NGX_Result NVSDK_NGX_D3D12_ReleaseFeature(NVSDK_NGX_Handle* 
             // Clear global reference if it matches
             if (deviceContext == State::Instance().currentFeature)
                 State::Instance().currentFeature = nullptr;
+
+            if (!shutdown && Config::Instance()->DeferredFeatureRelease.value_or_default())
+                g_retiredFeatures.Park(std::move(entry.feature),
+                                       State::Instance().presentCount.load(std::memory_order_relaxed),
+                                       Util::MillisecondsNow());
 
             // Erase from map (smart pointer reset is implicit on erase)
             Dx12Contexts.erase(it);

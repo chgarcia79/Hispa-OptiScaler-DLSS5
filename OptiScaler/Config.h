@@ -406,6 +406,13 @@ class Config
     CustomOptional<int> DlssNrAutoFreeVramDelaySec { 10 };
     CustomOptional<bool> OptiFgClearGameDlssgHooks { true };
     CustomOptional<bool> DlssNrDetailReuseAntiTrail { true };
+    CustomOptional<std::string> DlssgPreset { std::string("auto") };
+    CustomOptional<int> DlssgMaxFramesCeiling { 6 };
+    CustomOptional<bool> OverlayLockPrimaryWindow { true };
+    CustomOptional<bool> DlssNrStreamlineNativeBridge { true };
+    CustomOptional<bool> DeferredFeatureRelease { true };
+    CustomOptional<bool> StreamlineDisableOta { false };
+    CustomOptional<bool> StreamlineSkipNvidiaAppOverride { false };
 
     // Look for the exposure the game computed but never handed to the upscaler.
     //

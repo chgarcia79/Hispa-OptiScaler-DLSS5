@@ -1,187 +1,251 @@
-#include "pch.h"
+﻿#include "pch.h"
 #include "DlssNr_GameNrRuntime.h"
-#include "DlssNr_GameNrLog.h"
+#include "DlssNr_CompatibilityRuntime.h"
+#include "DlssNr_GameNr.h"
 
-#include <State.h>
-#include <Util.h>
-#include <proxies/NVNGX_Proxy.h>
-
+#include <Config.h>
+#include <Logger.h>
 #include <d3d12.h>
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <format>
+#include <optional>
+#include <string>
+#include <memory>
 #include <mutex>
-#include <unordered_set>
+#include <unordered_map>
+#include <vector>
 
 namespace DlssNr::GameNr
 {
 namespace
 {
-struct DirectBridge
-{
-    HMODULE forwarder = nullptr;
-    std::wstring snippetPath;
-    int(__cdecl* preload)(const wchar_t*, const wchar_t*, ID3D12Device*, const void*) = nullptr;
-    int(__cdecl* create)(const wchar_t*, const wchar_t*, ID3D12Device*, ID3D12GraphicsCommandList*, const void*, void**) = nullptr;
-    int(__cdecl* evaluate)(ID3D12GraphicsCommandList*, const void*, const void*) = nullptr;
-    int(__cdecl* release)(void*) = nullptr;
-};
+std::mutex mutex;
+std::unordered_map<const NVSDK_NGX_Handle*, std::shared_ptr<CompatibilityRuntime>> live;
+// Read every frame by OptiScaler's own NR gate; mirrors live.size() without taking the lock.
+std::atomic<size_t> liveCount { 0 };
+// Set once GetFeatureRequirements(18) reported the feature unlocked; publishing callbacks depends on it.
+std::atomic<bool> unlocked { false };
+// A runtime stays loaded until NGX shuts down: toggling NR in the game must not re-initialise it on the device, and
+// work recorded by the game's last create or evaluate may still be executing.
+std::vector<std::shared_ptr<CompatibilityRuntime>> retained;
 
-std::mutex g_mutex;
-DirectBridge g_bridge {};
-std::unordered_set<const NVSDK_NGX_Handle*> g_liveDirect;
-std::unordered_set<const NVSDK_NGX_Handle*> g_liveDriver;
-std::atomic<size_t> g_liveCount { 0 };
-
-std::optional<std::filesystem::path> FindBesideDllOrExe(const char* fileName)
+template <class T> std::optional<T> Read(const NVSDK_NGX_Parameter* params, const char* key)
 {
-    auto found = Util::FindFilePath(Util::DllPath().remove_filename(), fileName);
-    return found ? found : Util::FindFilePath(Util::ExePath().remove_filename(), fileName);
+    T value {};
+    if (params && params->Get(key, &value) == NVSDK_NGX_Result_Success)
+        return value;
+    return std::nullopt;
 }
 
-bool EnsureBridgeLocked()
+std::string Text(std::optional<unsigned int> value) { return value ? std::to_string(*value) : "unset"; }
+std::string Text(std::optional<float> value) { return value ? std::format("{:.2f}", *value) : "unset"; }
+
+// What the game asked its own NR for; read-only, so "unset" can be told apart from 0.
+void LogGameSettings(const NVSDK_NGX_Parameter* params)
 {
-    if (g_bridge.forwarder)
-        return g_bridge.create && !g_bridge.snippetPath.empty();
-    const auto fwd = FindBesideDllOrExe("nvngx.dll_dlssnr.dll");
-    const auto snip = FindBesideDllOrExe("nvngx_dlssnr.dll");
-    if (!fwd || !snip || !(g_bridge.forwarder = LoadLibraryW(fwd->wstring().c_str())))
-        return false;
-    g_bridge.snippetPath = snip->wstring();
-    g_bridge.preload = reinterpret_cast<decltype(g_bridge.preload)>(GetProcAddress(g_bridge.forwarder, "dlssnr_direct_preload"));
-    g_bridge.create = reinterpret_cast<decltype(g_bridge.create)>(GetProcAddress(g_bridge.forwarder, "dlssnr_direct_create"));
-    g_bridge.evaluate = reinterpret_cast<decltype(g_bridge.evaluate)>(GetProcAddress(g_bridge.forwarder, "dlssnr_direct_evaluate"));
-    g_bridge.release = reinterpret_cast<decltype(g_bridge.release)>(GetProcAddress(g_bridge.forwarder, "dlssnr_direct_release"));
-    return g_bridge.preload && g_bridge.create && g_bridge.evaluate && g_bridge.release;
+    const auto preset = Read<unsigned int>(params, "DLSSNR.Hint.Render.Preset");
+    LOG_INFO("DLSS-NR (game): model settings: Preset={} -> {}, Style={}, Intensity={}, LocalStructure={}, "
+             "LocalTone={}, SkinStructure={}, AutoMask={}, Size={}x{}",
+             Text(preset), ModelName(preset), Text(Read<unsigned int>(params, "DLSSNR.Style")),
+             Text(Read<float>(params, "DLSSNR.Intensity")), Text(Read<float>(params, "DLSSNR.LocalStructureStrength")),
+             Text(Read<float>(params, "DLSSNR.LocalToneStrength")),
+             Text(Read<float>(params, "DLSSNR.SkinStructureStrength")),
+             Text(Read<unsigned int>(params, "DLSSNR.UseAutoMask")), Text(Read<unsigned int>(params, "DLSSNR.Width")),
+             Text(Read<unsigned int>(params, "DLSSNR.Height")));
 }
 
-NVSDK_NGX_Parameter* QueryCapabilityBlock(ID3D12Device* device)
+void RetainLocked(const std::shared_ptr<CompatibilityRuntime>& runtime)
 {
-    NVSDK_NGX_Parameter* cap = nullptr;
-    if ((!NVNGXProxy::IsDx12Inited() && !NVNGXProxy::InitDx12(device)) || !NVNGXProxy::D3D12_GetCapabilityParameters())
-        return nullptr;
-    return NVNGXProxy::D3D12_GetCapabilityParameters()(&cap) == NVSDK_NGX_Result_Success ? cap : nullptr;
+    if (runtime && std::find(retained.begin(), retained.end(), runtime) == retained.end())
+        retained.push_back(runtime);
 }
-
-void SyncCountLocked() { g_liveCount.store(g_liveDirect.size() + g_liveDriver.size(), std::memory_order_release); }
 } // namespace
 
-bool HasCandidates() { return FindBesideDllOrExe("nvngx.dll_dlssnr.dll") && FindBesideDllOrExe("nvngx_dlssnr.dll"); }
-bool IsGameNativeNrRunning() { return g_liveCount.load(std::memory_order_acquire) != 0; }
-
-NVSDK_NGX_Result CreateDirect(ID3D12GraphicsCommandList* commands, NVSDK_NGX_Parameter* params, NVSDK_NGX_Handle** handle)
+NVSDK_NGX_Result CreateDirect(ID3D12GraphicsCommandList* commands, NVSDK_NGX_Parameter* params,
+                              NVSDK_NGX_Handle** handle)
 {
-    ID3D12Device* device = nullptr;
-    if (!commands || !params || !handle || FAILED(commands->GetDevice(IID_PPV_ARGS(&device))) || !device)
+    if (!commands || !handle)
         return NVSDK_NGX_Result_Fail;
-    NVSDK_NGX_Parameter* cap = QueryCapabilityBlock(device);
-    std::unique_lock lock(g_mutex);
-    if (!EnsureBridgeLocked())
-    {
-        device->Release();
-        return NVSDK_NGX_Result_FAIL_FeatureNotSupported;
-    }
-    const auto bridge = g_bridge;
-    lock.unlock();
 
-    if (cap)
-        bridge.preload(bridge.snippetPath.c_str(), ::State::Instance().NVNGX_ApplicationDataPath.c_str(), device, cap);
-    void* raw = nullptr;
-    const auto res = (NVSDK_NGX_Result) bridge.create(
-        bridge.snippetPath.c_str(), ::State::Instance().NVNGX_ApplicationDataPath.c_str(), device, commands, params, &raw);
+    ID3D12Device* device = nullptr;
+    if (FAILED(commands->GetDevice(IID_PPV_ARGS(&device))) || !device)
+    {
+        LOG_ERROR("DLSS-NR (game): cannot get the D3D12 device from the command list");
+        return NVSDK_NGX_Result_Fail;
+    }
+
+    auto runtime = CompatibilityRuntime::TryOpen(device);
     device->Release();
-    *handle = static_cast<NVSDK_NGX_Handle*>(raw);
-    LOG_INFO("DLSS-NR (game): direct runtime CreateFeature(18) result=0x{:08X} handle={}", (unsigned int) res, raw);
-    if (res != NVSDK_NGX_Result_Success || !*handle)
-        return res == NVSDK_NGX_Result_Success ? NVSDK_NGX_Result_Fail : res;
+    if (!runtime)
+        return NVSDK_NGX_Result_FAIL_FeatureNotSupported;
 
-    LogGameSettingsAndYieldOwnNr(params);
-    lock.lock();
-    g_liveDirect.insert(*handle);
-    SyncCountLocked();
-    return res;
-}
+    *handle = nullptr;
+    const auto result = runtime->Create(commands, params, handle);
+    LOG_INFO("DLSS-NR (game): direct runtime CreateFeature(18) result=0x{:08X} handle={}", (unsigned int) result,
+             (void*) *handle);
 
-void RecordDriverCreate(const NVSDK_NGX_Handle* handle, const NVSDK_NGX_Parameter* params)
-{
-    if (!handle)
-        return;
-    LogGameSettingsAndYieldOwnNr(params);
-    std::lock_guard lock(g_mutex);
-    g_liveDriver.insert(handle);
-    SyncCountLocked();
-}
+    std::lock_guard lock(mutex);
+    RetainLocked(runtime);
+    if (result != NVSDK_NGX_Result_Success || *handle == nullptr)
+        return result == NVSDK_NGX_Result_Success ? NVSDK_NGX_Result_Fail : result;
 
-bool Owns(const NVSDK_NGX_Handle* handle)
-{
-    std::lock_guard lock(g_mutex);
-    return handle && g_liveDirect.contains(handle);
+    LogGameSettings(params);
+
+    live[*handle] = std::move(runtime);
+    liveCount.store(live.size(), std::memory_order_release);
+
+    // The game's NR wins: OptiScaler's own NR is turned off for this session and stays off when the game releases
+    // its feature, until the user ticks it again. Volatile, so the saved setting is never rewritten.
+    if (Config::Instance()->DlssNrEnabled.value_or_default())
+        LOG_INFO("DLSS-NR (game): the game runs its own NR; turning OptiScaler's NR off for this session");
+    Config::Instance()->DlssNrEnabled.set_volatile_value(false);
+    return result;
 }
 
-bool ForgetDriverHandle(const NVSDK_NGX_Handle* handle)
-{
-    std::lock_guard lock(g_mutex);
-    if (!handle || g_liveDriver.erase(handle) == 0)
-        return false;
-    SyncCountLocked();
-    return true;
-}
-
-NVSDK_NGX_Result Evaluate(ID3D12GraphicsCommandList* commands, const NVSDK_NGX_Handle* handle, NVSDK_NGX_Parameter* params)
-{
-    decltype(g_bridge.evaluate) fn = nullptr;
-    {
-        std::lock_guard lock(g_mutex);
-        if (g_liveDirect.contains(handle))
-            fn = g_bridge.evaluate;
-    }
-    return fn ? (NVSDK_NGX_Result) fn(commands, handle, params) : NVSDK_NGX_Result_FAIL_FeatureNotFound;
-}
-NVSDK_NGX_Result Release(NVSDK_NGX_Handle* handle)
-{
-    decltype(g_bridge.release) fn = nullptr;
-    {
-        std::lock_guard lock(g_mutex);
-        if (g_liveDirect.erase(handle) > 0)
-        {
-            SyncCountLocked();
-            fn = g_bridge.release;
-        }
-    }
-    return fn ? (NVSDK_NGX_Result) fn(handle) : NVSDK_NGX_Result_FAIL_FeatureNotFound;
-}
 void Preload(ID3D12Device* device)
 {
     if (!device)
         return;
+
     const auto start = std::chrono::steady_clock::now();
-    NVSDK_NGX_Parameter* cap = QueryCapabilityBlock(device);
-    std::unique_lock lock(g_mutex);
-    if (!cap || !EnsureBridgeLocked())
+    auto runtime = CompatibilityRuntime::TryOpen(device);
+    const auto ms =
+        std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
+    if (!runtime)
+    {
+        LOG_WARN("DLSS-NR: Preload NR found no usable nvngx_dlssnr.dll ({} ms)", ms);
         return;
-    const auto bridge = g_bridge;
-    lock.unlock();
-    const int res = bridge.preload(bridge.snippetPath.c_str(), ::State::Instance().NVNGX_ApplicationDataPath.c_str(), device, cap);
-    const auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start).count();
-    LOG_INFO("DLSS-NR: Preload NR finished in {} ms (result=0x{:X})", ms, (unsigned int) res);
+    }
+
+    LOG_INFO("DLSS-NR: Preload NR loaded the runtime in {} ms", ms);
+    std::lock_guard lock(mutex);
+    RetainLocked(runtime);
 }
-void PreloadRuntimeIfEnabled(ID3D12Device* device)
+
+bool Owns(const NVSDK_NGX_Handle* handle)
 {
-    if (ShouldPreload(Config::Instance()->DlssNrPreload.value_or_default(), HasCandidates(), DriverGate::Blocked()))
-        Preload(device);
+    if (!handle)
+        return false;
+    std::lock_guard lock(mutex);
+    return live.contains(handle);
 }
+
+NVSDK_NGX_Result Evaluate(ID3D12GraphicsCommandList* commands, const NVSDK_NGX_Handle* handle,
+                          NVSDK_NGX_Parameter* params)
+{
+    std::shared_ptr<CompatibilityRuntime> runtime;
+    {
+        std::lock_guard lock(mutex);
+        if (auto it = live.find(handle); it != live.end())
+            runtime = it->second;
+    }
+    if (!runtime)
+        return NVSDK_NGX_Result_FAIL_FeatureNotFound;
+
+    const auto result = runtime->Evaluate(commands, handle, params);
+    if (result != NVSDK_NGX_Result_Success)
+        LOG_WARN("DLSS-NR (game): direct runtime EvaluateFeature(18) result=0x{:08X}", (unsigned int) result);
+    return result;
+}
+
+NVSDK_NGX_Result Release(NVSDK_NGX_Handle* handle)
+{
+    std::shared_ptr<CompatibilityRuntime> runtime;
+    {
+        std::lock_guard lock(mutex);
+        if (auto it = live.find(handle); it != live.end())
+        {
+            runtime = std::move(it->second);
+            live.erase(it);
+            liveCount.store(live.size(), std::memory_order_release);
+            RetainLocked(runtime);
+        }
+    }
+    if (!runtime)
+        return NVSDK_NGX_Result_FAIL_FeatureNotFound;
+
+    const auto result = runtime->Release(handle);
+    LOG_INFO("DLSS-NR (game): direct runtime ReleaseFeature(18) result=0x{:08X}", (unsigned int) result);
+    return result;
+}
+
+void NoteUnlocked() { unlocked.store(true, std::memory_order_release); }
+
+bool Unlocked() { return unlocked.load(std::memory_order_acquire); }
+
+void PublishCallbacks(ID3D12Device* device, NVSDK_NGX_Parameter* params)
+{
+    if (!params || !Unlocked())
+        return;
+
+    void* callback = nullptr;
+    const auto hasCallback = [&]
+    {
+        callback = nullptr;
+        return params->Get(ScalingRatioCallbackKey, &callback) == NVSDK_NGX_Result_Success && callback != nullptr;
+    };
+
+    if (!ShouldPublishCallbacks(true, hasCallback()))
+        return;
+
+    if (!device)
+    {
+        static std::atomic<bool> warned { false };
+        if (!warned.exchange(true))
+            LOG_WARN("DLSS-NR (game): NR callbacks missing, but no D3D12 device yet to open the runtime on");
+        return;
+    }
+
+    // Same runtime CreateDirect uses later: opened and initialised on this device, kept until NGX shutdown.
+    auto runtime = CompatibilityRuntime::TryOpen(device);
+    if (!runtime)
+    {
+        static std::atomic<bool> warned { false };
+        if (!warned.exchange(true))
+            LOG_WARN("DLSS-NR (game): NR callbacks missing and no usable nvngx_dlssnr.dll to publish them");
+        return;
+    }
+    {
+        std::lock_guard lock(mutex);
+        RetainLocked(runtime);
+    }
+
+    const auto result = runtime->Populate(params);
+    const bool published = hasCallback();
+
+    static std::atomic<bool> logged { false };
+    if (!logged.exchange(true))
+    {
+        if (published)
+            LOG_INFO("DLSS-NR (game): published NR callbacks into the NGX parameters ({}={}), populate result=0x{:08X}",
+                     ScalingRatioCallbackKey, callback, (unsigned int) result);
+        else
+            LOG_WARN("DLSS-NR (game): nvngx_dlssnr.dll did not publish {}, populate result=0x{:08X}",
+                     ScalingRatioCallbackKey, (unsigned int) result);
+    }
+}
+
+bool Active() { return liveCount.load(std::memory_order_acquire) != 0; }
+
 void Shutdown()
 {
-    std::unordered_set<const NVSDK_NGX_Handle*> direct;
-    decltype(g_bridge.release) fn = nullptr;
+    decltype(live) features;
+    decltype(retained) runtimes;
     {
-        std::lock_guard lock(g_mutex);
-        direct.swap(g_liveDirect);
-        g_liveDriver.clear();
-        g_liveCount.store(0, std::memory_order_release);
-        fn = g_bridge.release;
+        std::lock_guard lock(mutex);
+        features.swap(live);
+        liveCount.store(0, std::memory_order_release);
+        runtimes.swap(retained);
     }
-    for (const auto* h : direct)
-        if (fn)
-            fn(const_cast<NVSDK_NGX_Handle*>(h));
+
+    for (auto& [handle, runtime] : features)
+    {
+        const auto result = runtime->Release(const_cast<NVSDK_NGX_Handle*>(handle));
+        LOG_INFO("DLSS-NR (game): released feature left by the game at shutdown, result=0x{:08X}",
+                 (unsigned int) result);
+    }
+    // features and runtimes go out of scope here; the last owner shuts the runtime down on its device.
 }
 } // namespace DlssNr::GameNr

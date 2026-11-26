@@ -1,6 +1,7 @@
 #include "pch.h"
 #include "menu_overlay_base.h"
 #include "menu_overlay_dx.h"
+#include "MenuWindowOwnerPolicy.h"
 
 #include <Util.h>
 #include <Logger.h>
@@ -540,6 +541,21 @@ void MenuOverlayDx::CleanupRenderTarget(bool clearQueue, HWND hWnd)
 void MenuOverlayDx::Present(IDXGISwapChain* pSwapChain, UINT SyncInterval, UINT Flags,
                             const DXGI_PRESENT_PARAMETERS* pPresentParameters, IUnknown* pDevice, HWND hWnd, bool isUWP)
 {
+    State::Instance().presentCount.fetch_add(1, std::memory_order_relaxed);
+    if (Config::Instance()->OverlayLockPrimaryWindow.value_or_default())
+    {
+        static HWND s_ownerHwnd = nullptr;
+        static double s_lastOwnerPresentMs = 0.0;
+        const double nowMs = Util::MillisecondsNow();
+        const bool ownerAlive = s_ownerHwnd != nullptr && IsWindow(s_ownerHwnd);
+        const auto decision =
+            MenuWindowOwnerPolicy::Decide(s_ownerHwnd, hWnd, ownerAlive, nowMs - s_lastOwnerPresentMs);
+        if (decision == MenuWindowOwnerPolicy::Decision::Skip)
+            return;
+        s_ownerHwnd = hWnd;
+        s_lastOwnerPresentMs = nowMs;
+    }
+
     if (!Config::Instance()->OverlayMenu.value_or_default())
     {
         MenuOverlayBase::Present();

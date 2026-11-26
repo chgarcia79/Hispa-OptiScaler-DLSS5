@@ -12,6 +12,8 @@
 #include <low_latency/input/input_reflex.h>
 #include <dlssnr/NrNvfp4.h>
 #include <dlssnr/NrPassBorrow.h>
+#include <framegen/dlssg/DlssgPresetPolicy.h>
+#include <framegen/dlssg/AdaMfgCeiling.h>
 
 // #define LOG_ALL_DRS_GET_CALLS
 
@@ -66,6 +68,38 @@ NvAPI_Status __stdcall NvApiHooks::hkNvAPI_DRS_GetSetting(NvDRSSessionHandle hSe
         return NVAPI_ERROR;
 
     auto result = o_NvAPI_DRS_GetSetting(hSession, hProfile, settingId, pSetting);
+
+    if (settingId == 0x10E41E06 && Config::Instance()->StreamlineSkipNvidiaAppOverride.value_or_default() &&
+        pSetting != nullptr && pSetting->version == NVDRS_SETTING_VER)
+    {
+        pSetting->settingType = NVDRS_DWORD_TYPE;
+        pSetting->u32CurrentValue = 0;
+        return NVAPI_OK;
+    }
+
+    if (settingId == DlssgPresetPolicy::kSettingId && pSetting != nullptr)
+    {
+        const auto parsedPreset = DlssgPresetPolicy::Parse(Config::Instance()->DlssgPreset.value_or("auto"));
+        if (parsedPreset.has_value() && *parsedPreset != DlssgPresetPolicy::Preset::Auto)
+        {
+            const auto action = DlssgPresetPolicy::Classify(
+                static_cast<int32_t>(result), pSetting != nullptr, pSetting->version, NVDRS_SETTING_VER,
+                static_cast<uint32_t>(pSetting->settingType));
+            if (action == DlssgPresetPolicy::Action::OverwriteValue ||
+                action == DlssgPresetPolicy::Action::FillMissing)
+            {
+                pSetting->settingType = NVDRS_DWORD_TYPE;
+                pSetting->u32CurrentValue = static_cast<NvU32>(*parsedPreset);
+                State::Instance().dlssgAppliedPreset = DlssgPresetPolicy::Name(*parsedPreset);
+                return NVAPI_OK;
+            }
+        }
+        else
+        {
+            State::Instance().dlssgAppliedPreset.clear();
+        }
+    }
+
     if (pSetting && result == NVAPI_OK)
     {
 #ifdef LOG_ALL_DRS_GET_CALLS
@@ -134,6 +168,17 @@ NvAPI_Status __stdcall NvApiHooks::hkNvAPI_DRS_GetSetting(NvDRSSessionHandle hSe
 
         //    LOG_DEBUG("Set NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX_ID to {}", pSetting->u32CurrentValue);
         //}
+
+        if (settingId == NGX_DLSSG_DYNAMIC_MULTI_FRAME_COUNT_MAX_ID)
+        {
+            const int ceiling = Config::Instance()->DlssgMaxFramesCeiling.value_or_default();
+            if (ceiling >= 2 && ceiling < 6)
+            {
+                const uint32_t maxGen = static_cast<uint32_t>(ceiling - 1);
+                if (pSetting->u32CurrentValue > maxGen)
+                    pSetting->u32CurrentValue = maxGen;
+            }
+        }
 
         // Making sure DLSSG is not set to force off
         if (settingId == NGX_DLSSG_MODE_ID)
