@@ -648,7 +648,20 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="dlssnr\nvfp4\NrNet4.h" />
     <ClInclude Include="dlssnr\nvfp4\NrSwin4.h" />
     <ClInclude Include="dlssnr\nvfp4\NrFp8.h" />
+    <ClInclude Include="dlssnr\nvfp4\NrAmpere.h" />
+    <ClInclude Include="dlssnr\nvfp4\NrHost.h" />
+    <ClInclude Include="dlssnr\nvfp4\NrHostPlan.h" />
+    <ClInclude Include="dlssnr\nvfp4\NrLayerDevice.h" />
+    <ClInclude Include="dlssnr\nvfp4\NrFourBitPlan.h" />
+    <ClInclude Include="dlssnr\nvfp4\NrPassRuntime.h" />
+    <ClInclude Include="dlssnr\nvfp4\NrWeightUpload.h" />
+    <ClInclude Include="dlssnr\nvfp4\NrFp8Sets.h" />
+    <ClInclude Include="dlssnr\NrHost_Vk.h" />
+    <ClInclude Include="dlssnr\NrFp8_Vk.h" />
+    <ClInclude Include="dlssnr\DlssNr_Image_Vk.h" />
     <ClInclude Include="dlssnr\DlssNr_Weights.h" />
+    <ClInclude Include="dlssnr\DlssNr_WeightsRules.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_CompareModelBridge.h" />
     <ClInclude Include="dlssnr\DlssNr_Presets.h" />
     <ClInclude Include="dlssnr\DlssNr_Calibrate.h" />
     <ClInclude Include="dlssnr\NrCalibrate.h" />
@@ -930,6 +943,16 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClCompile Include="dlssnr\nvfp4\NrFp8.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>
+    <ClCompile Include="dlssnr\nvfp4\NrAmpere.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="dlssnr\nvfp4\NrHost.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="dlssnr\NrHost_Vk.cpp">
+      <PrecompiledHeader>NotUsing</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="dlssnr\NrFp8_Vk.cpp" />
     <ClCompile Include="dlssnr\NrPassBorrow.cpp">
       <PrecompiledHeader>NotUsing</PrecompiledHeader>
     </ClCompile>

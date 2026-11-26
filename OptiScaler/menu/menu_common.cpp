@@ -1617,8 +1617,14 @@ void MenuCommon::RenderNrCompareTags()
 
     // The left side is the untouched frame unless swapped -- matching the shader's
     // showOriginal = (uv.x < split) != swap.
-    const char* leftText = swap ? "DLSS NR : ON" : "DLSS NR : OFF";
-    const char* rightText = swap ? "DLSS NR : OFF" : "DLSS NR : ON";
+    const unsigned int activePreset = static_cast<unsigned int>(config->DlssNrPreset.value_or_default());
+    const unsigned int otherShown = DlssNr::Nvfp4::ComparisonShown();
+    const std::string activeName =
+        activePreset == 0 ? "DLSS NR : ON" : std::string(DlssNr::Nvfp4::ModelName(activePreset));
+    const std::string otherName =
+        otherShown != 0 ? std::string(DlssNr::Nvfp4::ModelName(otherShown)) : std::string("DLSS NR : OFF");
+    const char* leftText = swap ? activeName.c_str() : otherName.c_str();
+    const char* rightText = swap ? otherName.c_str() : activeName.c_str();
 
     ImDrawList* dl = ImGui::GetForegroundDrawList(ImGui::GetMainViewport());
     ImFont* font = ImGui::GetFont();

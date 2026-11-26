@@ -6,6 +6,11 @@
 // runtime's block, 32-bit constants, the address of our record and an options word. Ours is launched with the
 // runtime's grid and block. The runtime's neighbours wait for a kernel's flags without a time limit, so a kernel of
 // ours must publish exactly what the runtime's does; that is proven per family before its assets exist.
+#include "NrLayerDevice.h"
+#include "NrFourBitPlan.h"
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include <windows.h>
 #include <bcrypt.h>
 #include <d3d12.h>
@@ -97,11 +102,7 @@ int GroupOf(unsigned family, const std::string& name) {
     return -1;
 }
 
-struct Buffer {
-    ComPtr<ID3D12Resource> resource;
-    uint64_t bytes = 0;
-    uint64_t Address() const { return resource->GetGPUVirtualAddress(); }
-};
+using Buffer = NrLayer::Buffer;
 ComPtr<ID3D12Resource> CreateBuffer(ID3D12Device* device, uint64_t bytes, D3D12_HEAP_TYPE heap, D3D12_RESOURCE_STATES state) {
     D3D12_RESOURCE_DESC desc{};
     desc.Dimension = D3D12_RESOURCE_DIMENSION_BUFFER;
@@ -136,6 +137,7 @@ struct Manifest {
     std::map<unsigned, SmallKernel> smallKernels; // same ABI/grid/block; gate on dimensions in our parameter block
     std::array<uint32_t, kMaxGroups> defaults{};
     std::vector<Slot> slots;
+    std::map<unsigned, int> planSlots;
     std::map<std::string, std::pair<unsigned, unsigned>> names; // runtime kernel -> its parameter size and record offset
     std::vector<unsigned char> blob;
     std::vector<unsigned char> trained;         // <family>4_trained.bin: the same records with trained codes; empty without the file
@@ -150,7 +152,6 @@ struct Device {
     std::array<Weights, kFamilies> weights;
     std::array<std::map<std::string, Module>, kFamilies> modules;       // by cubin file
     std::array<std::vector<Kernel>, kFamilies> kernels;                 // by the manifest's kernel number
-    std::vector<ComPtr<IUnknown>> parked;       // what an upload that did not finish may still be using; freed with the device
     std::map<uint64_t, std::pair<unsigned, unsigned>> known;            // address of a runtime weight record -> family, slot
     NVDX_ObjectHandle poolModule = nullptr, poolKernel = nullptr, unpoolKernel = nullptr;
     NVDX_ObjectHandle poolCapture = nullptr;
@@ -158,7 +159,7 @@ struct Device {
     unsigned poolProbeH=0, poolProbeW=0;
     // Stable per-runtime-buffer and pooled-count allocations, retained for recorded command lists.
     std::map<std::pair<uint64_t, unsigned>, Buffer> poolBuffers;
-    struct SideNative { Buffer weights; ComPtr<ID3D12Resource> upload; NVDX_ObjectHandle module=nullptr,function=nullptr; };
+    struct SideNative { Buffer weights; NVDX_ObjectHandle module=nullptr,function=nullptr; };
     std::map<std::pair<unsigned,unsigned>,SideNative> sides;
 };
 // What one command list is in the middle of. An evaluation of the model starts with cc_cb_clear.
@@ -196,7 +197,8 @@ struct SetInfo {
     std::array<Side,2> sides;
     std::array<std::vector<unsigned char>, kFamilies> blob;
 };
-struct Target {
+} // namespace
+struct NativeTarget {
     ID3D12Device* device = nullptr;
     NVDX_ObjectHandle module = nullptr;
     std::string name;
@@ -206,8 +208,11 @@ struct Target {
     Role role = Role::None;
     unsigned generation = 0;                    // of the manifests `family` was looked up in
     int family = -1;
+    int planIndex = -1, planSlot = -1;
     unsigned params = 0, record = 0;
 };
+namespace {
+using Target = NativeTarget;
 
 struct State {
     std::recursive_mutex mutex;
@@ -223,7 +228,6 @@ struct State {
     std::array<uint64_t,2> sideRuns{};
     std::array<bool, kFamilies> active{};       // a launch of the family was replaced since the last Enable()
     std::array<uint64_t, kFamilies> replaced{}, passed{};
-    uint64_t substituted = 0;                   // launches of ours that ran other records than the set asked for (Faults())
     std::array<std::array<uint64_t, kMaxGroups>, kFamilies> perGroup{};
     uint64_t learnt = 0;
     std::wstring runtimePath;
@@ -238,7 +242,15 @@ struct State {
     decltype(&NvAPI_D3D12_DestroyCuModule) destroyModule = nullptr;
     decltype(&NvAPI_D3D12_DestroyCuFunction) destroyFunction = nullptr;
 };
-State& S() { static State* state = new State; return *state; }
+NvAPI_Status Submit(State& state, ID3D12GraphicsCommandList* list, const NVAPI_CU_KERNEL_LAUNCH_PARAMS* kernels, NvU32 count) {
+    return NrFourBitPlan::current ? NrSwin4::SubmitNative(list, kernels, count) : state.launch(list, kernels, count);
+}
+
+State& S() {
+    if (NrLayer::active) return NrLayer::State<State>(NrLayer::active->net);
+    static State* state = new State;
+    return *state;
+}
 
 void Report(State& s, const std::string& text) {
     const std::string line = "NVFP4 network: " + text;
@@ -269,7 +281,7 @@ std::vector<std::string> Pieces(const std::string& text, char separator) {
 }
 
 const SetInfo* ChosenSet(const State& s) {
-    return s.passSet < kMaxSets && s.sets[s.passSet].present ? &s.sets[s.passSet] : nullptr;
+    return NrFourBitPlan::WeightSet(s.passSet) < kMaxSets && s.sets[NrFourBitPlan::WeightSet(s.passSet)].present ? &s.sets[NrFourBitPlan::WeightSet(s.passSet)] : nullptr;
 }
 
 // The numbered sets of an asset folder. A file that cannot be understood makes the set absent; it is reported.
@@ -386,7 +398,10 @@ Manifest LoadManifest(const fs::path& folder, unsigned family) {
             bool have[13]{};
             for (size_t i = 2; i + 1 < t.size(); i += 2) {
                 const std::string& key = t[i]; const std::string& value = t[i + 1];
-                if (key == "launch") { Number(value); have[0] = true; }
+                if (key == "launch") {
+                    if (!m.planSlots.emplace(unsigned(Number(value)), int(m.slots.size())).second) throw invalid("duplicate launch index");
+                    have[0] = true;
+                }
                 else if (key == "name") { s.name = value; have[1] = true; }
                 else if (key == "group") { const int g = GroupOf(family, value); if (g < 0) throw invalid("unknown group"); s.group = unsigned(g); have[2] = true; }
                 else if (key == "kernel") { s.kernel = unsigned(Number(value)); have[3] = true; }
@@ -471,7 +486,7 @@ Manifest LoadManifest(const fs::path& folder, unsigned family) {
 
 // Every weight these layers use is in their own files: any NR runtime is accepted. Whether its launches are the ones
 // these kernels replace is still checked per evaluation (launch count and kernel names) and per launch.
-bool RuntimeMatches(State&, unsigned) { return GetModuleHandleW(L"nvngx_dlssnr.dll") != nullptr; }
+bool RuntimeMatches(State&, unsigned) { return NrFourBitPlan::current || GetModuleHandleW(L"nvngx_dlssnr.dll") != nullptr; }
 
 void LoadWeights(State& s, Device& d, unsigned family, ID3D12Device* device) {
     auto& w = d.weights[family];
@@ -490,60 +505,15 @@ void LoadWeights(State& s, Device& d, unsigned family, ID3D12Device* device) {
             bytes = (bytes + own.size() + 4096 + 255) / 256 * 256;
         }
         w.blendAt = (bytes + 511) / 512 * 512; bytes = w.blendAt + 4096;     // our copy of the history blend weight
-        w.buffer ={CreateBuffer(device, bytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS), bytes};
+        w.buffer = NrLayer::Upload(device, bytes, CreateBuffer, [&](void* mapped) {
+            memset(mapped, 0, size_t(bytes));
+            memcpy(mapped, blob.data(), blob.size());
+            if (!trained.empty()) memcpy(static_cast<unsigned char*>(mapped) + second, trained.data(), trained.size());
+            for (unsigned n = 0; n < kMaxSets; ++n)
+                if (w.setAt[n]) memcpy(static_cast<unsigned char*>(mapped) + w.setAt[n], s.sets[n].blob[family].data(), blob.size());
+            memcpy(static_cast<unsigned char*>(mapped) + w.blendAt, &kBlendWeight, 2);
+        });
         w.trained = trained.empty() ? 0 : second;
-        auto upload = CreateBuffer(device, bytes, D3D12_HEAP_TYPE_UPLOAD, D3D12_RESOURCE_STATE_GENERIC_READ);
-        void* mapped = nullptr;
-        Check(upload->Map(0, nullptr, &mapped), "NVFP4 upload map");
-        memset(mapped, 0, size_t(bytes));
-        memcpy(mapped, blob.data(), blob.size());
-        if (!trained.empty()) memcpy(static_cast<unsigned char*>(mapped) + second, trained.data(), trained.size());
-        for (unsigned n = 0; n < kMaxSets; ++n)
-            if (w.setAt[n]) memcpy(static_cast<unsigned char*>(mapped) + w.setAt[n], s.sets[n].blob[family].data(), blob.size());
-        memcpy(static_cast<unsigned char*>(mapped) + w.blendAt, &kBlendWeight, 2);
-        upload->Unmap(0, nullptr);
-        D3D12_COMMAND_QUEUE_DESC queueDesc{};
-        queueDesc.Type = D3D12_COMMAND_LIST_TYPE_DIRECT;
-        ComPtr<ID3D12CommandQueue> queue; ComPtr<ID3D12CommandAllocator> allocator; ComPtr<ID3D12GraphicsCommandList> commands; ComPtr<ID3D12Fence> fence;
-        // Once the copy is submitted, a failure below must not free what it may still be using.
-        struct Park {
-            Device& d; Buffer& buffer; ComPtr<ID3D12Resource>& upload; ComPtr<ID3D12CommandQueue>& queue; ComPtr<ID3D12CommandAllocator>& allocator;
-            ComPtr<ID3D12GraphicsCommandList>& commands; bool armed = false;
-            ~Park() {
-                if (!armed) return;
-                try {
-                    for (IUnknown* object : {static_cast<IUnknown*>(buffer.resource.Get()), static_cast<IUnknown*>(upload.Get()),
-                                             static_cast<IUnknown*>(queue.Get()), static_cast<IUnknown*>(allocator.Get()),
-                                             static_cast<IUnknown*>(commands.Get())})
-                        d.parked.emplace_back(object);
-                } catch (...) {
-                }
-            }
-        } park{d, w.buffer, upload, queue, allocator, commands};
-        Check(device->CreateCommandQueue(&queueDesc, IID_PPV_ARGS(&queue)), "NVFP4 upload queue");
-        Check(device->CreateCommandAllocator(queueDesc.Type, IID_PPV_ARGS(&allocator)), "NVFP4 upload allocator");
-        Check(device->CreateCommandList(0, queueDesc.Type, allocator.Get(), nullptr, IID_PPV_ARGS(&commands)), "NVFP4 upload list");
-        Check(device->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&fence)), "NVFP4 upload fence");
-        D3D12_RESOURCE_BARRIER transition{};
-        transition.Type = D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-        transition.Transition = {w.buffer.resource.Get(), D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, D3D12_RESOURCE_STATE_COPY_DEST};
-        commands->ResourceBarrier(1, &transition);
-        commands->CopyBufferRegion(w.buffer.resource.Get(), 0, upload.Get(), 0, bytes);
-        std::swap(transition.Transition.StateBefore, transition.Transition.StateAfter);
-        commands->ResourceBarrier(1, &transition);
-        Check(commands->Close(), "NVFP4 upload close");
-        ID3D12CommandList* lists[] = {commands.Get()};
-        queue->ExecuteCommandLists(1, lists);
-        park.armed = true;
-        Check(queue->Signal(fence.Get(), 1), "NVFP4 upload signal");
-        HANDLE done = CreateEventW(nullptr, FALSE, FALSE, nullptr);
-        if (!done) throw std::runtime_error("NVFP4 upload event failed");
-        const HRESULT armed = fence->SetEventOnCompletion(1, done);
-        const DWORD waited = SUCCEEDED(armed) ? WaitForSingleObject(done, 20000) : WAIT_FAILED;
-        CloseHandle(done);
-        Check(armed, "NVFP4 upload wait");
-        if (waited != WAIT_OBJECT_0) throw std::runtime_error("NVFP4 weight upload did not complete");
-        park.armed = false;
         w.ready = true;
     } catch (const std::exception& error) {
         w.buffer = {};
@@ -593,7 +563,7 @@ uint32_t Word(const State& s, unsigned family, unsigned number) {
 
 bool Wanted(const State& s, unsigned family, unsigned number) {
     const auto& options = s.options.family[family];
-    return s.enabled && !s.paused && s.manifest[family].loaded && ((options.groups >> s.manifest[family].slots[number].group) & 1) &&
+    return s.enabled && !NrFourBitPlan::Paused(s.paused) && s.manifest[family].loaded && ((options.groups >> s.manifest[family].slots[number].group) & 1) &&
            ((options.slots[number / 64] >> (number % 64)) & 1);
 }
 
@@ -638,9 +608,14 @@ void Replace(State& s, ID3D12GraphicsCommandList* commands, ID3D12Device* device
                 if (theirsAt) memcpy(ours + c.dst + (kBlendParam - c.src), &own, 8);
             }
     uint64_t records = s.options.family[family].trained ? d.weights[family].trained : 0;
-    if (s.passSet < kMaxSets && s.sets[s.passSet].present && d.weights[family].setAt[s.passSet]) records = d.weights[family].setAt[s.passSet];
-    else if (family != PrePost && (s.passSet < kMaxSets || (s.options.family[family].trained && !records && !s.manifest[family].trainedIsFirst)))
-        ++s.substituted;                        // the set asked for (or the trained records) has no file for this family
+    const unsigned set = NrFourBitPlan::WeightSet(s.passSet);
+    if (set != kDefaultSet && family != PrePost) {
+        if (set >= kMaxSets || !s.sets[set].present || !d.weights[family].setAt[set])
+            throw std::runtime_error(std::string(kFamilyName[family]) + "4_set" + std::to_string(set) + ".bin is missing");
+        records = d.weights[family].setAt[set];
+    } else if (s.options.family[family].trained && !records && !s.manifest[family].trainedIsFirst) {
+        throw std::runtime_error(std::string(kFamilyName[family]) + "4_trained.bin is missing");
+    }
     const uint64_t record = d.weights[family].buffer.Address() + records + slot.offset;
     memcpy(ours + slot.w, &record, 8);
     memcpy(ours + slot.options, &options, 4);
@@ -661,7 +636,7 @@ void Replace(State& s, ID3D12GraphicsCommandList* commands, ID3D12Device* device
     launch.pParams = ours;
     launch.paramSize = slot.size;
     launch.dynSharedMemBytes = 0;
-    NvCheck(s.launch(commands, &launch, 1), "NVFP4 kernel launch");
+    NvCheck(Submit(s, commands, &launch, 1), "NVFP4 kernel launch");
 }
 
 // The blocks of the bottleneck that the chosen set leaves out. Nothing of such a block is launched; the next block
@@ -760,6 +735,12 @@ void Resolve(State& s, Target& t) {
         const auto found = s.manifest[f].names.find(t.name);
         if (found == s.manifest[f].names.end()) continue;
         t.family = int(f); t.params = found->second.first; t.record = found->second.second;
+        if (t.planIndex >= 0) {
+            const auto slot = s.manifest[f].planSlots.find(unsigned(t.planIndex));
+            if (slot == s.manifest[f].planSlots.end() || s.manifest[f].slots[slot->second].name != t.name)
+                throw std::runtime_error("unexpected native plan position for " + t.name);
+            t.planSlot = slot->second;
+        }
         return;
     }
 }
@@ -797,15 +778,17 @@ NvAPI_Status __cdecl CreateFunction(ID3D12Device* device, NVDX_ObjectHandle modu
 }
 
 void PoolBarrier(ID3D12GraphicsCommandList* commands) {
+    if (NrLayer::active) return NrLayer::active->Barrier();
     D3D12_RESOURCE_BARRIER barrier{}; barrier.Type = D3D12_RESOURCE_BARRIER_TYPE_UAV;
     commands->ResourceBarrier(1, &barrier);
 }
 uint64_t PoolBuffer(Device& d, ID3D12Device* device, uint64_t original, unsigned tokens) {
     if (!original) throw std::runtime_error("null transformer activation");
     auto& b = d.poolBuffers[{original, tokens}];
-    if (!b.resource) {
+    if (!b) {
         b.bytes = uint64_t((tokens + 127) / 128) * 128 * 4096;
-        b.resource = CreateBuffer(device, b.bytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        if (NrLayer::active) b.memory = NrLayer::active->AllocateMemory(b.bytes, false);
+        else b.resource = CreateBuffer(device, b.bytes, D3D12_HEAP_TYPE_DEFAULT, D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
     }
     return b.Address();
 }
@@ -820,7 +803,7 @@ int PoolRewrite(State& s, ListState& list, Target& target, ID3D12GraphicsCommand
     auto& d = s.devices[target.device];
     if (begin) {
         const auto set = ChosenSet(s);
-        if (!s.enabled || s.paused || !set || !set->poolVit || !list.depth.recognised) return 0;
+        if (!s.enabled || NrFourBitPlan::Paused(s.paused) || !set || !set->poolVit || !list.depth.recognised) return 0;
         if (in.paramSize != 24 || !in.pParams) throw std::runtime_error("unexpected pool repack ABI");
         struct Repack { uint64_t input,output; unsigned h,w; } r;
         memcpy(&r,in.pParams,sizeof r);
@@ -850,7 +833,7 @@ int PoolRewrite(State& s, ListState& list, Target& target, ID3D12GraphicsCommand
         }
         out=in;out.hFunction=d.poolKernel;out.pParams=&args;out.paramSize=sizeof args;
         out.gridDim={unsigned((p.tokens+127)/128*128*1024/256),1,1};out.blockDim={256,1,1};out.dynSharedMemBytes=0;
-        PoolBarrier(commands);NvCheck(s.launch(commands,&out,1),"pooled repack");PoolBarrier(commands);
+        PoolBarrier(commands);NvCheck(Submit(s, commands,&out,1),"pooled repack");PoolBarrier(commands);
         p.active=true;
         Notice(s,"ViT pooling " + std::to_string(p.h) + "x" + std::to_string(p.w) + " -> " + std::to_string((p.h+1)/2) + "x" + std::to_string((p.w+1)/2));
         return 2;
@@ -862,11 +845,11 @@ int PoolRewrite(State& s, ListState& list, Target& target, ID3D12GraphicsCommand
         struct Params { uint64_t full,stream,base,out; unsigned h,w; } args{p.full,PoolBuffer(d,target.device,ptr[0],p.tokens),p.base,ptr[1],p.h,p.w};
         out=in;out.hFunction=d.unpoolKernel;out.pParams=&args;out.paramSize=sizeof args;
         out.gridDim={unsigned((uint64_t(p.h)*p.w*1024+255)/256),1,1};out.blockDim={256,1,1};out.dynSharedMemBytes=0;
-        PoolBarrier(commands);NvCheck(s.launch(commands,&out,1),"unpooled repack");PoolBarrier(commands);
+        PoolBarrier(commands);NvCheck(Submit(s, commands,&out,1),"unpooled repack");PoolBarrier(commands);
         if (d.poolProbe.resource) {
             struct Capture { uint64_t full,stream,base,dump;unsigned h,w;uint64_t result; } capture{d.poolProbeFull.Address(),args.stream,p.base,d.poolProbe.Address(),p.h,p.w,ptr[1]};
             auto launch=out;launch.hFunction=d.poolCapture;launch.pParams=&capture;launch.paramSize=sizeof capture;
-            NvCheck(s.launch(commands,&launch,1),"pool diagnostic");PoolBarrier(commands);
+            NvCheck(Submit(s, commands,&launch,1),"pool diagnostic");PoolBarrier(commands);
             D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
             b.Transition={d.poolProbe.resource.Get(),D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,D3D12_RESOURCE_STATE_UNORDERED_ACCESS,D3D12_RESOURCE_STATE_COPY_SOURCE};
             commands->ResourceBarrier(1,&b);commands->CopyBufferRegion(d.poolReadback.resource.Get(),0,d.poolProbe.resource.Get(),0,d.poolProbe.bytes);
@@ -898,7 +881,7 @@ bool SideLaunch(State& s,ListState& list,Target& target,ID3D12GraphicsCommandLis
     auto& p=list.side;
     const auto set=ChosenSet(s);
     if(!p.active) {
-        if(!s.enabled || s.paused || !set || target.role!=Role::SplitFfwd ||
+        if(!s.enabled || NrFourBitPlan::Paused(s.paused) || !set || target.role!=Role::SplitFfwd ||
            (list.depth.splitBlocks!=1 && list.depth.splitBlocks!=9))return false;
         const unsigned side=list.depth.splitBlocks==9;
         const auto& record=set->sides[side];if(record.blob.empty())return false;
@@ -906,23 +889,25 @@ bool SideLaunch(State& s,ListState& list,Target& target,ID3D12GraphicsCommandLis
         const auto raw=static_cast<const unsigned char*>(launch.pParams);uint64_t input;int h,w;
         memcpy(&input,raw,8);memcpy(&h,raw+24,4);memcpy(&w,raw+28,4);
         if(!input || h<=0 || w<=0 || h%4 || w%4 || h>1024 || w>1024)throw std::runtime_error("Side4 input shape mismatch");
-        auto& d=s.devices[target.device];auto& native=d.sides[{s.passSet,side}];
-        if(!native.function || !native.weights.resource || !native.upload) {
-            const auto file=std::string("side4_")+(side?"b":"a")+"_h"+std::to_string(record.hidden)+"_s"+std::to_string(record.stages)+".cubin";
-            const auto bytes=ReadAsset(s.options.assets/"split4"/file);
-            NvCheck(s.createModule(target.device,bytes.data(),unsigned(bytes.size()),&native.module),"Side4 module");
-            NvCheck(s.createFunction(target.device,native.module,"nr_side4",&native.function),"Side4 function");
-            native.weights.bytes=(record.blob.size()+4096+255)/256*256;
-            native.weights.resource=CreateBuffer(target.device,native.weights.bytes,D3D12_HEAP_TYPE_DEFAULT,D3D12_RESOURCE_STATE_COPY_DEST);
-            native.upload=CreateBuffer(target.device,native.weights.bytes,D3D12_HEAP_TYPE_UPLOAD,D3D12_RESOURCE_STATE_GENERIC_READ);
-            void* dst=nullptr;Check(native.upload->Map(0,nullptr,&dst),"Side4 weights map");memset(dst,0,size_t(native.weights.bytes));memcpy(dst,record.blob.data(),record.blob.size());native.upload->Unmap(0,nullptr);
-            commands->CopyBufferRegion(native.weights.resource.Get(),0,native.upload.Get(),0,native.weights.bytes);
-            D3D12_RESOURCE_BARRIER b{};b.Type=D3D12_RESOURCE_BARRIER_TYPE_TRANSITION;
-            b.Transition={native.weights.resource.Get(),D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,D3D12_RESOURCE_STATE_COPY_DEST,D3D12_RESOURCE_STATE_UNORDERED_ACCESS};commands->ResourceBarrier(1,&b);
+        auto& d=s.devices[target.device];auto& native=d.sides[{NrFourBitPlan::WeightSet(s.passSet),side}];
+        if (!native.module) {
+            const auto file = std::string("side4_") + (side ? "b" : "a") + "_h" + std::to_string(record.hidden) +
+                              "_s" + std::to_string(record.stages) + ".cubin";
+            const auto bytes = ReadAsset(s.options.assets / "split4" / file);
+            NvCheck(s.createModule(target.device, bytes.data(), unsigned(bytes.size()), &native.module), "Side4 module");
         }
-        p={true,side,s.passSet,number,0,input,h,w};
+        if (!native.function)
+            NvCheck(s.createFunction(target.device, native.module, "nr_side4", &native.function), "Side4 function");
+        if (!native.weights) {
+            const auto bytes = (record.blob.size() + 4096 + 255) / 256 * 256;
+            native.weights = NrLayer::Upload(target.device, bytes, CreateBuffer, [&](void* dst) {
+                memset(dst, 0, size_t(bytes));
+                memcpy(dst, record.blob.data(), record.blob.size());
+            });
+        }
+        p={true,side,NrFourBitPlan::WeightSet(s.passSet),number,0,input,h,w};
     }
-    if(s.passSet!=p.set || number!=p.first+p.seen || launch.paramSize>kMaxParams)throw std::runtime_error("Side4 sequence mismatch after suppression");
+    if(NrFourBitPlan::WeightSet(s.passSet)!=p.set || number!=p.first+p.seen || launch.paramSize>kMaxParams)throw std::runtime_error("Side4 sequence mismatch after suppression");
     ++p.seen;
     if(p.seen!=32)return true;
     if(target.role!=Role::SplitProj || launch.paramSize!=(p.side?72u:80u))throw std::runtime_error("Side4 last launch mismatch");
@@ -936,7 +921,7 @@ bool SideLaunch(State& s,ListState& list,Target& target,ID3D12GraphicsCommandLis
     struct Params {uint64_t in,out,weights,skip,pflags,oflags,pool;int h,w,sx,sy,psx,psy,dh,dw,eh,ew;unsigned options,reserved;};
     Params args{p.input,output,native.weights.Address(),0,0,flags,pool,p.h,p.w,0,0,0,0,dh,dw,p.h,p.w,0,0};
     NVAPI_CU_KERNEL_LAUNCH_PARAMS k{};k.hFunction=native.function;k.gridDim={unsigned((p.w+7)/8),unsigned((p.h+7)/8),1};k.blockDim={32,2,1};k.pParams=&args;k.paramSize=sizeof args;
-    PoolBarrier(commands);NvCheck(s.launch(commands,&k,1),"Side4 launch");PoolBarrier(commands);
+    PoolBarrier(commands);NvCheck(Submit(s, commands,&k,1),"Side4 launch");PoolBarrier(commands);
     s.leftOut+=31;++s.sideRuns[p.side];p={};return true;
 }
 
@@ -944,7 +929,9 @@ NvAPI_Status __cdecl Launch(ID3D12GraphicsCommandList* commands, const NVAPI_CU_
     auto& s = S();
     std::lock_guard guard(s.mutex);
     Target* target = nullptr;
-    if (kernels && count == 1) {
+    if (NrFourBitPlan::current && kernels && count == 1 && !kernels->hFunction) {
+        target = NrFourBitPlan::current->net.get();
+    } else if (kernels && count == 1) {
         const auto found = s.targets.find(kernels->hFunction);
         if (found != s.targets.end()) target = &found->second;
     }
@@ -958,14 +945,14 @@ NvAPI_Status __cdecl Launch(ID3D12GraphicsCommandList* commands, const NVAPI_CU_
             list.hash = Fnv(kFnvOffset, target->name);
         } catch (...) {
         }
-        return s.launch(commands, kernels, count);
+        return Submit(s, commands, kernels, count);
     }
-    if (target && target->outside) return s.launch(commands, kernels, count);
+    if (target && target->outside) return Submit(s, commands, kernels, count);
     const auto running = s.lists.find(commands);
     ListState* list = running != s.lists.end() ? &running->second : nullptr;
     if (!target) {                              // not a kernel we saw created, or a chain: this is not an evaluation we know
         if (list) { list->launches += count ? count : 1; list->hash = Fnv(list->hash, "?"); }
-        return s.launch(commands, kernels, count);
+        return Submit(s, commands, kernels, count);
     }
     if (list) { ++list->launches; list->hash = Fnv(list->hash, target->name); }
     NVAPI_CU_KERNEL_LAUNCH_PARAMS pooled{};
@@ -977,8 +964,7 @@ NvAPI_Status __cdecl Launch(ID3D12GraphicsCommandList* commands, const NVAPI_CU_
             if (action==1) kernels=&pooled;
         } catch (const std::exception& error) {
             Notice(s,std::string("pool failure: ")+error.what());
-            // Never fall back to full-token launches after a pooled stream started.
-            if (list->pool.active) return NVAPI_ERROR;
+            return NrFourBitPlan::Reject(error.what());
         }
     }
     // The layers below never see a launch that a layer above them left out: the feed-forward layer recognises the model
@@ -987,13 +973,13 @@ NvAPI_Status __cdecl Launch(ID3D12GraphicsCommandList* commands, const NVAPI_CU_
     Act act = Act::Keep;
     NVAPI_CU_KERNEL_LAUNCH_PARAMS rewired{};
     alignas(8) unsigned char block[kMaxParams];
-    if (list && target->role != Role::None && s.enabled && !s.paused && kernels->pParams && kernels->paramSize >= 16 && kernels->paramSize <= kMaxParams) {
+    if (list && target->role != Role::None && s.enabled && !NrFourBitPlan::Paused(s.paused) && kernels->pParams && kernels->paramSize >= 16 && kernels->paramSize <= kMaxParams) {
         act = Depth(s, *list, *target, commands, *kernels, block);
         if (act == Act::Rewired) { rewired = *kernels; rewired.pParams = block; kernels = &rewired; }
         if (act == Act::Drop) ++s.leftOut;
     }
     Resolve(s, *target);
-    if (target->family < 0) return act == Act::Drop ? NVAPI_OK : s.launch(commands, kernels, count);
+    if (target->family < 0) return act == Act::Drop ? NVAPI_OK : Submit(s, commands, kernels, count);
     const unsigned f = unsigned(target->family);
     const Manifest& m = s.manifest[f];
     int number = -1;                            // the slot this launch is, when we can tell
@@ -1004,7 +990,7 @@ NvAPI_Status __cdecl Launch(ID3D12GraphicsCommandList* commands, const NVAPI_CU_
         if (list) {
             auto& run = list->family[f];
             const unsigned n = run.launches++;
-            if (n < m.slots.size() && m.slots[n].name == target->name && record) {
+            if (n < m.slots.size() && m.slots[n].name == target->name && (record || NrFourBitPlan::current)) {
                 run.records[n] = record;
                 if (s.options.byOrder && run.sequence) number = int(n);
             } else {
@@ -1019,6 +1005,7 @@ NvAPI_Status __cdecl Launch(ID3D12GraphicsCommandList* commands, const NVAPI_CU_
                     number = int(found->second.second);
             }
         }
+        if (NrFourBitPlan::current) number = target->planSlot;
         if (list) list->depth.recognised = number >= 0;
         if (list && f==Split && number>=0 && SideLaunch(s,*list,*target,commands,*kernels,unsigned(number))) {
             if(act==Act::Drop)--s.leftOut; // Side4's 31 suppressed launches are counted once, at its boundary.
@@ -1026,8 +1013,8 @@ NvAPI_Status __cdecl Launch(ID3D12GraphicsCommandList* commands, const NVAPI_CU_
         }
         if (act == Act::Drop) return NVAPI_OK;      // a block the set leaves out (its launch was counted above, as the runtime made it)
         if (number < 0) {
-            if (s.enabled && !s.paused) ++s.passed[f];
-            return s.launch(commands, kernels, count);
+            if (s.enabled && !NrFourBitPlan::Paused(s.paused)) ++s.passed[f];
+            return Submit(s, commands, kernels, count);
         }
         const Slot& slot = m.slots[number];
         const bool wanted = Wanted(s, f, unsigned(number));
@@ -1056,8 +1043,8 @@ NvAPI_Status __cdecl Launch(ID3D12GraphicsCommandList* commands, const NVAPI_CU_
         }
         if (!wanted && !forced) {
             if (list) list->family[f].state[number] = 1;
-            if (s.enabled && !s.paused) ++s.passed[f];
-            return s.launch(commands, kernels, count);
+            if (s.enabled && !NrFourBitPlan::Paused(s.paused)) ++s.passed[f];
+            return Submit(s, commands, kernels, count);
         }
         if (!RuntimeMatches(s, f)) throw std::runtime_error("no NR runtime is loaded");
         Replace(s, commands, target->device, *kernels, f, slot, word | bits);
@@ -1070,19 +1057,12 @@ NvAPI_Status __cdecl Launch(ID3D12GraphicsCommandList* commands, const NVAPI_CU_
         }
         return NVAPI_OK;
     } catch (const std::exception& error) {
-        // Nothing of ours was recorded for this launch: the runtime's own kernel runs.
-        if(list && list->side.active) { Notice(s,std::string("Side4 failed after suppression: ")+error.what());return NVAPI_ERROR; }
-        if (list && number >= 0) list->family[f].state[number] = 1;
-        Notice(s, std::string(kFamilyName[f]) + (forced ? ": a launch was left to the runtime after a kernel of ours had written its own format for it (this frame's picture is wrong): "
-                                                        : ": a launch was left to the runtime: ") + error.what());
+        Notice(s, std::string(kFamilyName[f]) + ": " + error.what());
         ++s.passed[f];
-        return s.launch(commands, kernels, count);
+        return NrFourBitPlan::Reject(error.what());
     } catch (...) {
-        if(list && list->side.active)return NVAPI_ERROR;
-        if (list && number >= 0) list->family[f].state[number] = 1;
-        Notice(s, std::string(kFamilyName[f]) + ": a launch was left to the runtime: unknown error");
         ++s.passed[f];
-        return s.launch(commands, kernels, count);
+        return NrFourBitPlan::Reject("network layer failed");
     }
 }
 
@@ -1157,6 +1137,28 @@ void Parse(const std::string& text, Options& options) {
             family.options[g] = int64_t(Number(value) & 0xffffffffull);
         }
     }
+}
+
+void BindNative(NrFourBitPlan::Operation& op, const NrFourBitPlan::Driver& driver, ID3D12Device* device,
+                const std::string& name, int planIndex) {
+    auto& s = S();
+    std::lock_guard guard(s.mutex);
+    if (!s.createModule) s.createModule = driver.createModule;
+    if (!s.createFunction) s.createFunction = driver.createFunction;
+    if (!s.destroyModule) s.destroyModule = driver.destroyModule;
+    if (!s.destroyFunction) s.destroyFunction = driver.destroyFunction;
+    auto t = std::make_shared<NativeTarget>();
+    t->device = device;
+    t->name = name;
+    t->clear = name == "cc_cb_clear";
+    t->outside = name == "cg2r_post_process_kernel";
+    t->role = RoleOf(name);
+    t->planIndex = planIndex;
+    Resolve(s, *t);
+    op.net = std::move(t);
+}
+NvAPI_Status SubmitNative(ID3D12GraphicsCommandList* list, const NVAPI_CU_KERNEL_LAUNCH_PARAMS* kernels, NvU32 count) {
+    return Launch(list, kernels, count);
 }
 
 void* WrapNvapi(unsigned id, void* original) {
@@ -1237,12 +1239,12 @@ bool SetComplete(unsigned set, std::string* missing) {
     auto& s = S();
     std::lock_guard guard(s.mutex);
     for (unsigned f = 0; f < kFamilies; ++f) {
-        if (f == PrePost || !s.options.family[f].groups) continue;
+        if (!s.options.family[f].groups) continue;
         const auto& m = s.manifest[f];
         const std::string stem = std::string(kFamilyName[f]) + "4";
-        bool complete = m.loaded;
+        bool complete = s.enabled && m.loaded;
         std::string file = stem + ".txt";
-        if (complete && set == kDefaultSet) {
+        if (complete && (set == kDefaultSet || f == PrePost)) {
             complete = !s.options.family[f].trained || !m.trained.empty() || m.trainedIsFirst;
             file = stem + "_trained.bin";
         } else if (complete) {
@@ -1256,10 +1258,18 @@ bool SetComplete(unsigned set, std::string* missing) {
     return true;
 }
 
+unsigned long long CompletedWork() {
+    auto& s = S();
+    std::lock_guard guard(s.mutex);
+    unsigned long long count = 0;
+    for (const auto replaced : s.replaced) count += replaced;
+    return count;
+}
+
 unsigned long long Faults() {
     auto& s = S();
     std::lock_guard guard(s.mutex);
-    unsigned long long faults = s.substituted;
+    unsigned long long faults = 0;
     for (const auto passed : s.passed) faults += passed;
     return faults;
 }
@@ -1305,7 +1315,7 @@ void ReleaseDevice(ID3D12Device* device) {
         s.devices.erase(found);
     }
     for (auto i = s.targets.begin(); i != s.targets.end();) i = i->second.device == device ? s.targets.erase(i) : std::next(i);
-    s.lists.clear();                        // command lists of the device go with it; their addresses may be reused
+    std::erase_if(s.lists, [device](const auto& entry) { return entry.second.device == device; });
 }
 
 void WritePoolProbe(ID3D12Device* device, const std::filesystem::path& path) {
@@ -1331,7 +1341,7 @@ std::string Status(bool counters) {
         if (!m.loaded) status += "unavailable (" + m.failure + ")";
         else if (!s.enabled) status += "off";
         else status += std::string(s.active[f] ? "active" : s.options.byOrder ? "waiting for the next evaluation" : "waiting to recognise Model A") + " (" + Groups(f, groups) + ")";
-        if (m.loaded && s.options.family[f].trained) status += m.trained.empty() && !m.trainedIsFirst ? ", trained weights not found (the first set is in use)" : ", trained weights";
+        if (m.loaded && s.options.family[f].trained) status += m.trained.empty() && !m.trainedIsFirst ? ", trained weights missing" : ", trained weights";
         if (counters && m.loaded) {
             status += " replaced " + std::to_string(s.replaced[f]) + " [";
             bool first = true;

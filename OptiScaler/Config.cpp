@@ -371,7 +371,21 @@ bool Config::Reload(std::filesystem::path iniPath)
             DlssNrInitDiscardGuard.set_from_config(readBool("DlssNr", "InitDiscardGuard"));
             DlssNrInitMaxDiscards.set_from_config(readInt("DlssNr", "InitMaxDiscards"));
             DlssNrFp8Enabled.set_from_config(readBool("DlssNr", "Fp8Enabled"));
+            DlssNrInt8Enabled.set_from_config(readBool("DlssNr", "Int8Enabled"));
+            DlssNrVulkanModelsEnabled.set_from_config(readBool("DlssNr", "VulkanModelsEnabled"));
+            DlssNrCompareOtherModel.set_from_config(readUInt("DlssNr", "CompareOtherModel"));
             DlssNrWeightsSet.set_from_config(readString("DlssNr", "WeightsSet"));
+            DlssNrWeightsSetA.set_from_config(readString("DlssNr", "WeightsSetA"));
+            DlssNrWeightsSetB.set_from_config(readString("DlssNr", "WeightsSetB"));
+            if (!DlssNrWeightsSetA.has_value() && !DlssNrWeightsSetB.has_value() && DlssNrWeightsSet.has_value())
+            {
+                const auto& oldSet = DlssNrWeightsSet.value();
+                if (!oldSet.empty() && oldSet != "auto" && oldSet != "AUTO")
+                {
+                    DlssNrWeightsSetA = oldSet;
+                    DlssNrWeightsSetB = oldSet;
+                }
+            }
             DlssNrCalibratorEnabled.set_from_config(readBool("DlssNr", "CalibratorEnabled"));
             DlssNrCalibratorSkinOpt.set_from_config(readBool("DlssNr", "CalibratorSkinOpt"));
             DlssNrAutoFreeVram.set_from_config(readBool("DlssNr", "AutoFreeVram"));
@@ -1506,7 +1520,14 @@ bool Config::SaveIni()
     ini.SetValue("DlssNr", "InitDiscardGuard", GetBoolValue(Instance()->DlssNrInitDiscardGuard.value_for_config()).c_str());
     ini.SetValue("DlssNr", "InitMaxDiscards", GetIntValue(Instance()->DlssNrInitMaxDiscards.value_for_config()).c_str());
     ini.SetValue("DlssNr", "Fp8Enabled", GetBoolValue(Instance()->DlssNrFp8Enabled.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "Int8Enabled", GetBoolValue(Instance()->DlssNrInt8Enabled.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "VulkanModelsEnabled",
+                 GetBoolValue(Instance()->DlssNrVulkanModelsEnabled.value_for_config()).c_str());
+    ini.SetValue("DlssNr", "CompareOtherModel",
+                 GetIntValue(Instance()->DlssNrCompareOtherModel.value_for_config()).c_str());
     ini.SetValue("DlssNr", "WeightsSet", Instance()->DlssNrWeightsSet.value_for_config_or("").c_str());
+    ini.SetValue("DlssNr", "WeightsSetA", Instance()->DlssNrWeightsSetA.value_for_config_or("").c_str());
+    ini.SetValue("DlssNr", "WeightsSetB", Instance()->DlssNrWeightsSetB.value_for_config_or("").c_str());
     ini.SetValue("DlssNr", "CalibratorEnabled", GetBoolValue(Instance()->DlssNrCalibratorEnabled.value_for_config()).c_str());
     ini.SetValue("DlssNr", "CalibratorSkinOpt", GetBoolValue(Instance()->DlssNrCalibratorSkinOpt.value_for_config()).c_str());
     ini.SetValue("DlssNr", "AutoFreeVram", GetBoolValue(Instance()->DlssNrAutoFreeVram.value_for_config()).c_str());

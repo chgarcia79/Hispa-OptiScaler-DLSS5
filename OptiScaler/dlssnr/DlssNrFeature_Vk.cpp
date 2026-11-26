@@ -4,6 +4,10 @@
 #include "DlssNr_DriverGate.h"
 #include "DlssNr_VkExtensions.h"
 #include "NrNvfp4.h"
+#include "NrHost_Vk.h"
+#include "NrFp8_Vk.h"
+#include "DlssNr_VkExtensions.h"
+#include "DlssNr_ModelParameters.h"
 
 #include <Config.h>
 #include <State.h>
@@ -84,6 +88,12 @@ struct VkState
     bool ngxInitialised = false;
     void* feature = nullptr;
     NVSDK_NGX_Parameter* capabilityParams = nullptr;
+    std::unique_ptr<DlssNr::VulkanHost> nativeHost;
+    uint32_t nativeHostW = 0;
+    uint32_t nativeHostH = 0;
+    int nativeHostPreset = -1;
+    unsigned int activeFp8Set = 0;
+    std::string dynamicReason;
 
     // What the model writes, the proxy it is shown, and the frame as the upscaler left it.
     OwnedImage output;
@@ -797,6 +807,11 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
         if (!g_vk.pass->IsInit())
         {
             g_vk.pass.reset();
+    g_vk.nativeHost.reset();
+    g_vk.nativeHostPreset = -1;
+    g_vk.activeFp8Set = 0;
+    if (g_vk.device != VK_NULL_HANDLE)
+        DlssNr::Fp8Vk::ReleaseDevice(g_vk.device);
             Fail("the composition pass could not be created");
             return;
         }
@@ -860,11 +875,19 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
     }
 
     const int wantPreset = (int) cfg.DlssNrPreset.value_or_default();
-    if (DlssNr::Nvfp4::IsNvfp4((unsigned int) wantPreset))
+    const bool useNativeHost = DlssNr::Nvfp4::UsesNativeHost((unsigned int) wantPreset);
+    const bool useFp8Vk = DlssNr::Nvfp4::IsFp8((unsigned int) wantPreset);
+    if ((useNativeHost || useFp8Vk) && !cfg.DlssNrVulkanModelsEnabled.value_or_default())
     {
-        DlssNr::Nvfp4::Refuse("NVFP4 requiere DirectX 12 en RTX 50");
+        DlssNr::Nvfp4::Refuse("Modelos NR en Vulkan nativo desactivados en HispaGUI");
         return;
     }
+    if (!useNativeHost && !useFp8Vk && DlssNr::Nvfp4::IsNvfp4((unsigned int) wantPreset))
+    {
+        DlssNr::Nvfp4::Refuse("Este modelo NR no está disponible en Vulkan");
+        return;
+    }
+
     const int wantStyle = (int) cfg.DlssNrStyle.value_or_default();
     const float wantIntensity = cfg.DlssNrIntensity.value_or_default();
     const float wantLocalStructure = cfg.DlssNrLocalStructure.value_or_default();
@@ -872,45 +895,106 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
     const float wantSkinStructure = cfg.DlssNrSkinStructure.value_or_default();
     const int wantAutoMask = cfg.DlssNrAutoMask.value_or_default() ? 1 : 0;
 
-    if (g_vk.feature != nullptr &&
-        (g_vk.builtPreset != wantPreset || g_vk.builtStyle != wantStyle ||
-         std::abs(g_vk.builtIntensity - wantIntensity) > 1e-4f ||
-         std::abs(g_vk.builtLocalStructure - wantLocalStructure) > 1e-4f ||
-         std::abs(g_vk.builtLocalTone - wantLocalTone) > 1e-4f ||
-         std::abs(g_vk.builtSkinStructure - wantSkinStructure) > 1e-4f || g_vk.builtAutoMask != wantAutoMask))
+    if (useNativeHost)
     {
-        if (g_vk.device != VK_NULL_HANDLE)
-            vkDeviceWaitIdle(g_vk.device);
-
-        if (g_vk.release != nullptr)
-            g_vk.release(g_vk.feature);
-
-        g_vk.feature = nullptr;
+        if (!DlssNr::VkExt::HostDeviceReady(g_vk.device))
+        {
+            Fail("Activa NR antes de crear el dispositivo Vulkan (requiere binary import y BDA)");
+            return;
+        }
+        const unsigned int resolvedPreset = DlssNr::Nvfp4::Current((unsigned int) wantPreset);
+        if (g_vk.nativeHost == nullptr || g_vk.nativeHostW != workWidth || g_vk.nativeHostH != workHeight ||
+            g_vk.nativeHostPreset != (int) resolvedPreset)
+        {
+            if (g_vk.device != VK_NULL_HANDLE)
+                vkDeviceWaitIdle(g_vk.device);
+            g_vk.nativeHost.reset();
+            try
+            {
+                g_vk.nativeHost = DlssNr::VulkanHost::Create(
+                    g_vk.physicalDevice, g_vk.device, Util::DllPath().parent_path() / L"OptiScaler" / L"nvfp4",
+                    resolvedPreset, workWidth, workHeight);
+                g_vk.nativeHostW = workWidth;
+                g_vk.nativeHostH = workHeight;
+                g_vk.nativeHostPreset = (int) resolvedPreset;
+                g_vk.reset = true;
+            }
+            catch (const std::exception& e)
+            {
+                g_vk.dynamicReason = e.what();
+                Fail(g_vk.dynamicReason.c_str());
+                return;
+            }
+        }
+        g_vk.activeFp8Set = 0;
     }
-
-    if (g_vk.feature == nullptr)
+    else
     {
-        g_vk.feature = g_vk.create((void*) cmdBuffer, g_vk.capabilityParams, workWidth, workHeight, wantPreset,
-                                   wantIntensity, wantStyle, wantLocalStructure, wantLocalTone, wantSkinStructure,
-                                   wantAutoMask, 1);
+        if (g_vk.nativeHost != nullptr)
+        {
+            if (g_vk.device != VK_NULL_HANDLE)
+                vkDeviceWaitIdle(g_vk.device);
+            g_vk.nativeHost.reset();
+            g_vk.nativeHostPreset = -1;
+        }
+
+        unsigned int fp8Set = 0;
+        if (useFp8Vk)
+        {
+            std::string why;
+            fp8Set = DlssNr::Nvfp4::Fp8Set((unsigned int) wantPreset);
+            if (!DlssNr::VkExt::HostDeviceReady(g_vk.device) ||
+                !DlssNr::Fp8Vk::Ready(g_vk.device, fp8Set,
+                                      Util::DllPath().parent_path() / L"OptiScaler" / L"nvfp4" / L"fp8", why))
+            {
+                g_vk.dynamicReason = why.empty() ? "FP8 Vulkan requiere binary import y BDA" : why;
+                Fail(g_vk.dynamicReason.c_str());
+                return;
+            }
+        }
+        g_vk.activeFp8Set = fp8Set;
+        const int carrierPreset = useFp8Vk ? 1 : wantPreset;
+
+        if (g_vk.feature != nullptr &&
+            (g_vk.builtPreset != carrierPreset || g_vk.builtStyle != wantStyle ||
+             std::abs(g_vk.builtIntensity - wantIntensity) > 1e-4f ||
+             std::abs(g_vk.builtLocalStructure - wantLocalStructure) > 1e-4f ||
+             std::abs(g_vk.builtLocalTone - wantLocalTone) > 1e-4f ||
+             std::abs(g_vk.builtSkinStructure - wantSkinStructure) > 1e-4f || g_vk.builtAutoMask != wantAutoMask))
+        {
+            if (g_vk.device != VK_NULL_HANDLE)
+                vkDeviceWaitIdle(g_vk.device);
+
+            if (g_vk.release != nullptr)
+                g_vk.release(g_vk.feature);
+
+            g_vk.feature = nullptr;
+        }
 
         if (g_vk.feature == nullptr)
         {
-            Fail("the model would not build a feature on this device");
-            return;
+            g_vk.feature = g_vk.create((void*) cmdBuffer, g_vk.capabilityParams, workWidth, workHeight, carrierPreset,
+                                       wantIntensity, wantStyle, wantLocalStructure, wantLocalTone, wantSkinStructure,
+                                       wantAutoMask, 1);
+
+            if (g_vk.feature == nullptr)
+            {
+                Fail("the model would not build a feature on this device");
+                return;
+            }
+
+            g_vk.builtPreset = carrierPreset;
+            g_vk.builtStyle = wantStyle;
+            g_vk.builtIntensity = wantIntensity;
+            g_vk.builtLocalStructure = wantLocalStructure;
+            g_vk.builtLocalTone = wantLocalTone;
+            g_vk.builtSkinStructure = wantSkinStructure;
+            g_vk.builtAutoMask = wantAutoMask;
+
+            LOG_INFO("DLSS-NR Vulkan: feature up at {}x{} (frame {}x{}, preset {}, style {})", workWidth, workHeight,
+                     width, height, carrierPreset, wantStyle);
+            g_vk.reset = true;
         }
-
-        g_vk.builtPreset = wantPreset;
-        g_vk.builtStyle = wantStyle;
-        g_vk.builtIntensity = wantIntensity;
-        g_vk.builtLocalStructure = wantLocalStructure;
-        g_vk.builtLocalTone = wantLocalTone;
-        g_vk.builtSkinStructure = wantSkinStructure;
-        g_vk.builtAutoMask = wantAutoMask;
-
-        LOG_INFO("DLSS-NR Vulkan: feature up at {}x{} (frame {}x{}, preset {}, style {})", workWidth, workHeight, width,
-                 height, wantPreset, wantStyle);
-        g_vk.reset = true;
     }
 
     // -----------------------------------------------------------------------------------------
@@ -1191,13 +1275,67 @@ void EvaluateAfterUpscaleVk(VkCommandBuffer cmdBuffer, NVSDK_NGX_Parameter* para
     mvScaleIn.outputH = height;
     const DlssNrMotionScale mvScale = DlssNrModelMotionScale(mvScaleIn);
 
-    const int evaluated = g_vk.evaluate(
-        (void*) cmdBuffer, g_vk.feature, g_vk.capabilityParams, &modelInput->ngx, depth, motion, &g_vk.output.ngx,
-        workWidth, workHeight, guideWidth, guideHeight, depthInverted ? 1 : 0, g_vk.reset ? 1 : 0,
-        cfg.DlssNrIntensity.value_or_default(), (int) cfg.DlssNrStyle.value_or_default(),
-        cfg.DlssNrLocalStructure.value_or_default(), cfg.DlssNrLocalTone.value_or_default(),
-        cfg.DlssNrSkinStructure.value_or_default(), cfg.DlssNrAutoMask.value_or_default() ? 1 : 0,
-        gameMvScaleX * mvScale.x, gameMvScaleY * mvScale.y);
+    int evaluated = 1;
+    if (useNativeHost && g_vk.nativeHost != nullptr)
+    {
+        try
+        {
+            DlssNr::ModelSettings hostSettings {};
+            hostSettings.preset = DlssNr::Nvfp4::Current((unsigned int) wantPreset);
+            hostSettings.style = (unsigned int) wantStyle;
+            hostSettings.intensity = wantIntensity;
+            hostSettings.localStructure = wantLocalStructure;
+            hostSettings.localTone = wantLocalTone;
+            hostSettings.skinStructure = wantSkinStructure;
+            hostSettings.autoMask = (wantAutoMask != 0);
+            g_vk.nativeHost->Evaluate(
+                cmdBuffer, modelInput->ngx.Resource.ImageViewInfo.ImageView,
+                motion != nullptr ? motion->Resource.ImageViewInfo.ImageView : VK_NULL_HANDLE,
+                g_vk.output.ngx.Resource.ImageViewInfo.ImageView, hostSettings, gameMvScaleX * mvScale.x,
+                gameMvScaleY * mvScale.y, g_vk.reset);
+        }
+        catch (const std::exception& e)
+        {
+            g_vk.dynamicReason = e.what();
+            Fail(g_vk.dynamicReason.c_str());
+            return;
+        }
+    }
+    else
+    {
+        if (g_vk.activeFp8Set != 0)
+        {
+            try
+            {
+                DlssNr::Fp8Vk::Begin(cmdBuffer, g_vk.device, g_vk.activeFp8Set);
+            }
+            catch (const std::exception& e)
+            {
+                g_vk.dynamicReason = e.what();
+                Fail(g_vk.dynamicReason.c_str());
+                return;
+            }
+        }
+
+        evaluated = g_vk.evaluate(
+            (void*) cmdBuffer, g_vk.feature, g_vk.capabilityParams, &modelInput->ngx, depth, motion, &g_vk.output.ngx,
+            workWidth, workHeight, guideWidth, guideHeight, depthInverted ? 1 : 0, g_vk.reset ? 1 : 0,
+            cfg.DlssNrIntensity.value_or_default(), (int) cfg.DlssNrStyle.value_or_default(),
+            cfg.DlssNrLocalStructure.value_or_default(), cfg.DlssNrLocalTone.value_or_default(),
+            cfg.DlssNrSkinStructure.value_or_default(), cfg.DlssNrAutoMask.value_or_default() ? 1 : 0,
+            gameMvScaleX * mvScale.x, gameMvScaleY * mvScale.y);
+
+        if (g_vk.activeFp8Set != 0)
+        {
+            std::string fp8Why;
+            if (!DlssNr::Fp8Vk::End(cmdBuffer, fp8Why))
+            {
+                g_vk.dynamicReason = fp8Why.empty() ? "FP8 Vulkan evaluation mismatch" : fp8Why;
+                Fail(g_vk.dynamicReason.c_str());
+                return;
+            }
+        }
+    }
 
     g_vk.reset = false;
     g_vk.frames++;
@@ -1299,6 +1437,9 @@ void ShutdownVk(bool deviceAlive)
         // OwnedImage/meter handles matters: the resize path gates on `.Valid()`, so a stale non-null
         // handle from the dead device would be reused on the NEW device and crash.
         g_vk.pass.release();
+        g_vk.nativeHost.release();
+        g_vk.nativeHostPreset = -1;
+        g_vk.activeFp8Set = 0;
         g_vk.superUp.release();
         g_vk.superDown.release();
         g_vk.nrScaler = Scaler::Count;
@@ -1351,6 +1492,11 @@ void ShutdownVk(bool deviceAlive)
     DestroyMeterReadback();
 
     g_vk.pass.reset();
+    g_vk.nativeHost.reset();
+    g_vk.nativeHostPreset = -1;
+    g_vk.activeFp8Set = 0;
+    if (g_vk.device != VK_NULL_HANDLE)
+        DlssNr::Fp8Vk::ReleaseDevice(g_vk.device);
     g_vk.superUp.reset();
     g_vk.superDown.reset();
     g_vk.nrScaler = Scaler::Count;

@@ -14,25 +14,40 @@
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #include <d3d12.h>
-#include <cstdio>
-#include <cstring>
 #include <map>
 #include <mutex>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
+#include <cstdio>
+#include <cstring>
 
+// Model weights selector. The model reads its weights when a feature is
+// created: FindResourceA(module, "WEIGHTS_...", RT_RCDATA), LoadResource, LockResource, SizeofResource. Only this
+// module's import table is patched (no global hook); when the host has selected a weight set folder, a resource
+// is answered from <folder>\<name>.<CRC32 of the stock resource, 8 hex>.bin. The CRC ties a file to the exact
+// stock data it was made from (some modified DLSS-NR DLLs keep the names but store the records in another layout), and
+// the file must be the stock size. Anything else -> the stock weights and a log line. The DLL on disk is never changed.
+// The patch is on the loaded module: in a game that loads the same nvngx_dlssnr.dll for its own Neural Rendering,
+// features the game creates after a set is chosen get the set too.
 namespace nrweights
 {
+
 std::mutex g_mutex;
-std::wstring g_setDir;
-std::string g_log;
+std::wstring g_dirA;   // Model A (WEIGHTS_HT or WEIGHTS_PL), empty = stock
+std::wstring g_dirB;   // Model B (WEIGHTS_CC_SMALL_FP8*), empty = stock
+std::string g_log;     // taken by the host (dlssnr_weights_take_log)
 std::unordered_set<HMODULE> g_patched;
 std::map<std::pair<HMODULE, std::string>, unsigned> g_stockCrc;
+// Served copies stay alive for the process: the model may keep the pointer it locked (the stock one is in the
+// image and never goes away), so a buffer is never freed under it. Keyed by file path, so a set is read once.
 std::map<std::wstring, std::vector<unsigned char>> g_files;
-std::unordered_map<HGLOBAL, const unsigned char*> g_served;
+std::unordered_map<HGLOBAL, const unsigned char*> g_served; // the model's LoadResource handle -> our copy
 unsigned g_reads = 0;
+
+using PFN_FindResourceA = HRSRC(WINAPI*)(HMODULE, LPCSTR, LPCSTR);
+using PFN_LockResource = LPVOID(WINAPI*)(HGLOBAL);
 
 void log(const std::string& line)
 {
@@ -69,8 +84,15 @@ std::string narrow(const std::wstring& w)
     return s;
 }
 
-enum class Read { Ok, Missing, WrongSize, Failed };
+enum class Read
+{
+    Ok,
+    Missing,
+    WrongSize,
+    Failed
+};
 
+// Only a file of the stock size is read and kept (a wrong one is left on disk and asked again next time).
 const std::vector<unsigned char>* readFile(const std::wstring& path, DWORD expected, Read& result, long long& onDisk)
 {
     auto found = g_files.find(path);
@@ -119,12 +141,24 @@ HRSRC WINAPI hkFindResourceA(HMODULE module, LPCSTR name, LPCSTR type)
         return resource;
 
     std::lock_guard<std::mutex> lock(g_mutex);
-    HGLOBAL handle = LoadResource(module, resource);
+    HGLOBAL handle = LoadResource(module, resource); // the same handle the model's own LoadResource gets
     g_served.erase(handle);
-    if (g_setDir.empty())
+    // The resource name exactly (a set's files are <name>.<CRC32>.bin, which is what OptiScaler lists them by)
+    // WEIGHTS_PL is Model A under that name in some modified DLSS-NR DLLs
+    const bool isA = strcmp(name, "WEIGHTS_HT") == 0 || strcmp(name, "WEIGHTS_PL") == 0;
+    const bool isB = strcmp(name, "WEIGHTS_CC_SMALL_FP8") == 0;
+    const std::wstring& setDir = isA ? g_dirA : g_dirB;
+    if (!isA && !isB) // a resource that belongs to neither model: always the DLL's own
+    {
+        if (!g_dirA.empty() || !g_dirB.empty())
+            log("read " + std::string(name) + ": stock (not a Model A or Model B weights resource)");
+        return resource;
+    }
+    if (setDir.empty()) // the DLL's own weights: nothing to say, most players never pick a set
         return resource;
     g_reads++;
-    const std::string head = "read " + std::string(name) + " #" + std::to_string(g_reads) + ": ";
+    const std::string head = std::string(isA ? "Model A" : "Model B") + " weights, read " + std::string(name) + " #" +
+                             std::to_string(g_reads) + ": ";
 
     const auto* stock = (const unsigned char*) LockResource(handle);
     const DWORD size = SizeofResource(module, resource);
@@ -133,6 +167,7 @@ HRSRC WINAPI hkFindResourceA(HMODULE module, LPCSTR name, LPCSTR type)
         log(head + "stock (the model's own resource could not be read)");
         return resource;
     }
+    // Keyed by module: the forwarder never unloads the model DLL, so a module handle names one DLL for the process
     auto key = std::make_pair(module, std::string(name));
     auto crc = g_stockCrc.find(key);
     if (crc == g_stockCrc.end())
@@ -140,7 +175,7 @@ HRSRC WINAPI hkFindResourceA(HMODULE module, LPCSTR name, LPCSTR type)
 
     char file[96];
     snprintf(file, sizeof(file), "%s.%08X.bin", name, crc->second);
-    const std::wstring path = g_setDir + L"\\" + std::wstring(file, file + strlen(file));
+    const std::wstring path = setDir + L"\\" + std::wstring(file, file + strlen(file));
     Read result = Read::Failed;
     long long onDisk = -1;
     const auto* data = readFile(path, size, result, onDisk);
@@ -150,11 +185,18 @@ HRSRC WINAPI hkFindResourceA(HMODULE module, LPCSTR name, LPCSTR type)
         log(head + "served " + narrow(path));
     }
     else if (result == Read::Missing)
+    {
         log(head + "stock (no " + narrow(path) + ")");
+    }
     else if (result == Read::WrongSize)
-        log(head + "stock (" + narrow(path) + " is " + std::to_string(onDisk) + " bytes, the model's is " + std::to_string(size) + ")");
+    {
+        log(head + "stock (" + narrow(path) + " is " + std::to_string(onDisk) + " bytes, the model's is " +
+            std::to_string(size) + ")");
+    }
     else
+    {
         log(head + "stock (" + narrow(path) + " could not be read)");
+    }
     return resource;
 }
 
@@ -173,24 +215,31 @@ bool patchImport(HMODULE module, const char* importName, void* detour)
 {
     auto* base = (unsigned char*) module;
     auto* dos = (IMAGE_DOS_HEADER*) base;
-    if (dos->e_magic != IMAGE_DOS_SIGNATURE) return false;
+    if (dos->e_magic != IMAGE_DOS_SIGNATURE)
+        return false;
     auto* nt = (IMAGE_NT_HEADERS*) (base + dos->e_lfanew);
-    if (nt->Signature != IMAGE_NT_SIGNATURE) return false;
+    if (nt->Signature != IMAGE_NT_SIGNATURE)
+        return false;
     const auto& dir = nt->OptionalHeader.DataDirectory[IMAGE_DIRECTORY_ENTRY_IMPORT];
-    if (dir.VirtualAddress == 0) return false;
+    if (dir.VirtualAddress == 0)
+        return false;
     bool patched = false;
     for (auto* desc = (IMAGE_IMPORT_DESCRIPTOR*) (base + dir.VirtualAddress); desc->Name != 0; ++desc)
     {
-        if (desc->OriginalFirstThunk == 0) continue;
+        if (desc->OriginalFirstThunk == 0)
+            continue;
         auto* names = (IMAGE_THUNK_DATA*) (base + desc->OriginalFirstThunk);
         auto* iat = (IMAGE_THUNK_DATA*) (base + desc->FirstThunk);
         for (size_t i = 0; iat[i].u1.Function != 0; ++i)
         {
-            if (names[i].u1.Ordinal & IMAGE_ORDINAL_FLAG) continue;
+            if (names[i].u1.Ordinal & IMAGE_ORDINAL_FLAG)
+                continue;
             auto* byName = (IMAGE_IMPORT_BY_NAME*) (base + names[i].u1.AddressOfData);
-            if (strcmp((const char*) byName->Name, importName) != 0) continue;
+            if (strcmp((const char*) byName->Name, importName) != 0)
+                continue;
             DWORD old = 0;
-            if (!VirtualProtect(&iat[i].u1.Function, sizeof(void*), PAGE_READWRITE, &old)) continue;
+            if (!VirtualProtect(&iat[i].u1.Function, sizeof(void*), PAGE_READWRITE, &old))
+                continue;
             iat[i].u1.Function = (ULONG_PTR) detour;
             VirtualProtect(&iat[i].u1.Function, sizeof(void*), old, &old);
             patched = true;
@@ -199,16 +248,29 @@ bool patchImport(HMODULE module, const char* importName, void* detour)
     return patched;
 }
 
+// Called right after the model DLL is loaded, before any feature is created.
 void watch(HMODULE module)
 {
-    if (module == nullptr) return;
+    if (module == nullptr)
+        return;
     std::lock_guard<std::mutex> lock(g_mutex);
-    if (!g_patched.insert(module).second) return;
+    if (!g_patched.insert(module).second)
+        return;
     const bool find = patchImport(module, "FindResourceA", (void*) &hkFindResourceA);
     const bool lockRes = patchImport(module, "LockResource", (void*) &hkLockResource);
     log(find && lockRes ? "weights selector ready on the model DLL"
                         : "weights selector NOT available: the model DLL does not import FindResourceA/LockResource");
 }
+
+// A folder as the host gives it, without a trailing separator
+std::wstring trimDir(const wchar_t* dir)
+{
+    std::wstring d = dir ? dir : L"";
+    while (!d.empty() && (d.back() == L'\\' || d.back() == L'/'))
+        d.pop_back();
+    return d;
+}
+
 } // namespace nrweights
 
 namespace {
@@ -251,6 +313,13 @@ void setResource(void *params, const char *name, ID3D12Resource *v) {
 
 using PFN_NrInitExt = int(__cdecl *)(unsigned long long, const wchar_t *, ID3D12Device *, int,
                                      const void *);
+// An explicit ControlMask takes precedence over the runtime's automatic mask.
+// We do not supply one; clear it on the reusable parameter block instead of
+// allowing another feature's stale mask/resource to silently override this toggle.
+void setAutomaticMask(void *params, int enabled) {
+    setResourcePtr(params, "DLSSNR.ControlMask", nullptr);
+    setUInt(params, "DLSSNR.UseAutoMask", enabled != 0 ? 1u : 0u);
+}
 using PFN_NrCreate = int(__cdecl *)(ID3D12GraphicsCommandList *, int, const void *, void **);
 using PFN_NrEvaluate = int(__cdecl *)(ID3D12GraphicsCommandList *, const void *, const void *, void *);
 using PFN_NrRelease = int(__cdecl *)(void *);
@@ -261,28 +330,41 @@ struct Snippet {
     PFN_NrCreate create = nullptr;
     PFN_NrEvaluate evaluate = nullptr;
     PFN_NrRelease release = nullptr;
-    bool initialised = false;
+    std::unordered_set<ID3D12Device*> initialisedDevices;
 
 };
 
-Snippet g_snip;
+std::recursive_mutex g_snippetMutex;
+std::map<std::wstring, Snippet> g_snippets;
+std::unordered_map<void*, Snippet*> g_featureOwners;
+thread_local std::string g_modelError;
 
-bool loadSnippet(const wchar_t *path) {
-    if (g_snip.module) {
-        return g_snip.create != nullptr;
+void recordModelError(Snippet* snippet, const char* fallback) {
+    auto message = snippet && snippet->module
+        ? (const char*(*)())GetProcAddress(snippet->module, "NVFP4_GetLastError") : nullptr;
+    const char* detail = message ? message() : nullptr;
+    g_modelError = detail && *detail ? detail : fallback;
+}
+
+Snippet* loadSnippet(const wchar_t *path) {
+    std::lock_guard<std::recursive_mutex> lock(g_snippetMutex);
+    if (!path || !*path) return nullptr;
+    auto& snippet = g_snippets[path];
+    if (snippet.module) {
+        return snippet.create && snippet.evaluate && snippet.release ? &snippet : nullptr;
     }
-    g_snip.module = LoadLibraryExW(path, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
-    if (!g_snip.module) {
-        return false;
+    snippet.module = LoadLibraryExW(path, nullptr, LOAD_WITH_ALTERED_SEARCH_PATH);
+    if (!snippet.module) {
+        return nullptr;
     }
-    nrweights::watch(g_snip.module);
-    g_snip.init = (PFN_NrInitExt) GetProcAddress(g_snip.module, "NVSDK_NGX_D3D12_Init_Ext");
-    g_snip.create = (PFN_NrCreate) GetProcAddress(g_snip.module, "NVSDK_NGX_D3D12_CreateFeature");
-    g_snip.evaluate = (PFN_NrEvaluate) GetProcAddress(g_snip.module, "NVSDK_NGX_D3D12_EvaluateFeature");
-    g_snip.release = (PFN_NrRelease) GetProcAddress(g_snip.module, "NVSDK_NGX_D3D12_ReleaseFeature");
+    nrweights::watch(snippet.module);
+    snippet.init = (PFN_NrInitExt) GetProcAddress(snippet.module, "NVSDK_NGX_D3D12_Init_Ext");
+    snippet.create = (PFN_NrCreate) GetProcAddress(snippet.module, "NVSDK_NGX_D3D12_CreateFeature");
+    snippet.evaluate = (PFN_NrEvaluate) GetProcAddress(snippet.module, "NVSDK_NGX_D3D12_EvaluateFeature");
+    snippet.release = (PFN_NrRelease) GetProcAddress(snippet.module, "NVSDK_NGX_D3D12_ReleaseFeature");
 
 
-    return g_snip.create != nullptr && g_snip.evaluate != nullptr;
+    return snippet.create && snippet.evaluate && snippet.release ? &snippet : nullptr;
 }
 
 
@@ -310,6 +392,7 @@ __declspec(dllexport) void dlssnr_call_probe_float(void *params, const char *nam
 // Last init and create results, so the add-on can log why a feature never appeared.
 __declspec(dllexport) int dlssnr_call_last_init = 0;
 __declspec(dllexport) int dlssnr_call_last_create = 0;
+__declspec(dllexport) const char* dlssnr_call_error() { return g_modelError.c_str(); }
 
 // ---------------------------------------------------------------------------------------------
 // Vulkan.
@@ -329,22 +412,25 @@ __declspec(dllexport) int dlssnr_call_last_create = 0;
 // parameter setter the D3D12 path uses for ID3D12Resource*.
 // ---------------------------------------------------------------------------------------------
 
-using PFN_NrVkInitExt = int(__cdecl *)(unsigned long long, const wchar_t *, void *, void *, void *,
-                                       const void *, int);
-using PFN_NrVkInitExt2 = int(__cdecl *)(unsigned long long, const wchar_t *, void *, void *, void *,
-                                        void *, void *, int, const void *);
+// nvsdk_ngx_vk.h: NVSDK_NGX_VULKAN_Init_Ext(ApplicationId, ApplicationDataPath, VkInstance, VkPhysicalDevice,
+// VkDevice, NVSDK_NGX_Version InSDKVersion, const NVSDK_NGX_FeatureCommonInfo* InFeatureInfo) -- the version comes
+// before the feature info. (It was declared the other way round here once, which handed NGX version 0 and a
+// "pointer" of 0x15.)
+using PFN_NrVkInitExt = int(__cdecl *)(unsigned long long, const wchar_t *, void *, void *, void *, int,
+                                       const void *);
 using PFN_NrVkCreate = int(__cdecl *)(void *, int, const void *, void **);
 using PFN_NrVkEvaluate = int(__cdecl *)(void *, const void *, const void *, void *);
+using PFN_NrVkShutdown1 = int(__cdecl *)(void *);
 
 struct VkSnippet {
     HMODULE module = nullptr;
     PFN_NrVkInitExt init = nullptr;
-    PFN_NrVkInitExt2 initExt2 = nullptr;
     PFN_NrVkCreate create = nullptr;
     PFN_NrVkEvaluate evaluate = nullptr;
     PFN_NrRelease release = nullptr;
-    void *device = nullptr;
-    bool initialised = false;
+    PFN_NrVkShutdown1 shutdown = nullptr;
+    // The device NGX is initialised on. A new device needs its own init; a dead one is forgotten, not shut down.
+    void *initialisedDevice = nullptr;
 };
 
 VkSnippet g_vk;
@@ -362,10 +448,10 @@ bool loadVkSnippet(const wchar_t *path) {
     nrweights::watch(g_vk.module);
 
     g_vk.init = (PFN_NrVkInitExt) GetProcAddress(g_vk.module, "NVSDK_NGX_VULKAN_Init_Ext");
-    g_vk.initExt2 = (PFN_NrVkInitExt2) GetProcAddress(g_vk.module, "NVSDK_NGX_VULKAN_Init_Ext2");
     g_vk.create = (PFN_NrVkCreate) GetProcAddress(g_vk.module, "NVSDK_NGX_VULKAN_CreateFeature");
     g_vk.evaluate = (PFN_NrVkEvaluate) GetProcAddress(g_vk.module, "NVSDK_NGX_VULKAN_EvaluateFeature");
     g_vk.release = (PFN_NrRelease) GetProcAddress(g_vk.module, "NVSDK_NGX_VULKAN_ReleaseFeature");
+    g_vk.shutdown = (PFN_NrVkShutdown1) GetProcAddress(g_vk.module, "NVSDK_NGX_VULKAN_Shutdown1");
 
     return g_vk.create != nullptr && g_vk.evaluate != nullptr;
 }
@@ -412,14 +498,15 @@ __declspec(dllexport) int dlssnr_query_scaling_ratio(const wchar_t *snippetPath,
                                                      unsigned int perfQuality, float *outRatio) {
     dlssnr_last_ratio_stage = 0;
 
-    if (!loadSnippet(snippetPath) || !capabilityParams || !outRatio) {
+    auto* snippet = loadSnippet(snippetPath);
+    if (!snippet || !capabilityParams || !outRatio) {
         return 0;
     }
 
     dlssnr_last_ratio_stage = 1;
 
     // Publishing is what puts the callback in the block. Harmless if it has already happened.
-    auto populate = (PFN_NrPopulate) GetProcAddress(g_snip.module, "NVSDK_NGX_D3D12_PopulateParameters_Impl");
+    auto populate = (PFN_NrPopulate) GetProcAddress(snippet->module, "NVSDK_NGX_D3D12_PopulateParameters_Impl");
 
     if (populate != nullptr) {
         volatile int populated = populate(capabilityParams);
@@ -670,15 +757,15 @@ __declspec(dllexport) int dlssnr_d3d11_init(const wchar_t *snippetPath, const wc
     }
 
     const bool haveCopy = loadD3D11Snippet(snippetPath);
-    const bool haveShared = loadSnippet(snippetPath);
+    auto* shared = loadSnippet(snippetPath);
 
     struct Attempt { HMODULE module; bool ext; };
 
     const Attempt attempts[4] = {
         { haveCopy ? g_d3d11.module : nullptr, true },
         { haveCopy ? g_d3d11.module : nullptr, false },
-        { haveShared ? g_snip.module : nullptr, true },
-        { haveShared ? g_snip.module : nullptr, false },
+        { shared ? shared->module : nullptr, true },
+        { shared ? shared->module : nullptr, false },
     };
 
     int last = -1;
@@ -761,7 +848,7 @@ __declspec(dllexport) void *dlssnr_d3d11_create(void *deviceContext, void *capab
     setFloat(capabilityParams, "DLSSNR.LocalStructureStrength", localStructure);
     setFloat(capabilityParams, "DLSSNR.LocalToneStrength", localTone);
     setFloat(capabilityParams, "DLSSNR.SkinStructureStrength", skinStructure);
-    setUInt(capabilityParams, "DLSSNR.UseAutoMask", (unsigned int) useAutoMask);
+    setAutomaticMask(capabilityParams, useAutoMask);
     setUInt(capabilityParams, "DLSSNR.UICorrection", (unsigned int) uiCorrection);
 
     void *feature = nullptr;
@@ -789,7 +876,7 @@ __declspec(dllexport) int dlssnr_vk_probe(const wchar_t *snippetPath) {
     loadVkSnippet(snippetPath);
 
     int bits = 0;
-    bits |= (g_vk.init != nullptr || g_vk.initExt2 != nullptr) ? 1 : 0;
+    bits |= g_vk.init != nullptr ? 1 : 0;
     bits |= g_vk.create != nullptr ? 2 : 0;
     bits |= g_vk.evaluate != nullptr ? 4 : 0;
     bits |= g_vk.release != nullptr ? 8 : 0;
@@ -804,53 +891,47 @@ __declspec(dllexport) int dlssnr_vk_init(const wchar_t *snippetPath, const wchar
         return -1;
     }
 
-    if (g_vk.initialised && g_vk.device == device) {
+    if (device != nullptr && device == g_vk.initialisedDevice) {
         return 1;
     }
 
     // Assigned rather than returned directly. A tail call becomes a jmp, and the snippet resolves its
     // caller from the return address -- so tail calling hands it whoever called this instead of this
     // module, and the caller gate rejects it before a single argument is read.
-    volatile int result = g_vk.init(0x0, dataPath, instance, physicalDevice, device, nullptr, sdkVersion);
+    volatile int result = g_vk.init(0x0, dataPath, instance, physicalDevice, device, sdkVersion, nullptr);
 
     dlssnr_vk_last_init = (int) result;
-    g_vk.initialised = result == 1;
-    if (g_vk.initialised) {
-        g_vk.device = device;
+
+    // Only a success changes what is tracked: a failed init on another device must not lose the one that is live.
+    if (result == 1) {
+        g_vk.initialisedDevice = device;
     }
 
     return (int) result;
 }
 
-__declspec(dllexport) int dlssnr_vk_init_ext2(const wchar_t *snippetPath, const wchar_t *dataPath,
-                                              void *instance, void *physicalDevice, void *device,
-                                              void *getInstanceProcAddr, void *getDeviceProcAddr,
-                                              int sdkVersion) {
-    if (!loadVkSnippet(snippetPath) || (g_vk.initExt2 == nullptr && g_vk.init == nullptr)) {
-        return -1;
+// Real teardown on a live device: NGX frees what it holds for it. The host releases the features and the parameter
+// block first. Returns NGX's result, or 0 if the model has no Shutdown1 or this device was never initialised here.
+__declspec(dllexport) int dlssnr_vk_shutdown(void *device) {
+    if (device == nullptr || device != g_vk.initialisedDevice) {
+        return 0;
     }
 
-    if (g_vk.initialised && g_vk.device == device) {
-        return 1;
+    // The device is going either way, so it stops being tracked even when there is nothing to call.
+    if (g_vk.shutdown == nullptr) {
+        g_vk.initialisedDevice = nullptr;
+        return 0;
     }
 
-    // Keep volatile assignment so the compiler never tail-calls and breaks NGX's caller module check.
-    volatile int result = -1;
-    if (g_vk.initExt2 != nullptr && getInstanceProcAddr != nullptr && getDeviceProcAddr != nullptr) {
-        result = g_vk.initExt2(0x0, dataPath, instance, physicalDevice, device, getInstanceProcAddr,
-                               getDeviceProcAddr, sdkVersion, nullptr);
-    } else if (g_vk.init != nullptr) {
-        result = g_vk.init(0x0, dataPath, instance, physicalDevice, device, nullptr, sdkVersion);
-    }
-
-    dlssnr_vk_last_init = (int) result;
-    g_vk.initialised = result == 1;
-    if (g_vk.initialised) {
-        g_vk.device = device;
-    }
+    volatile int result = g_vk.shutdown(device);
+    g_vk.initialisedDevice = nullptr;
 
     return (int) result;
 }
+
+// The device is gone (the game destroyed it): nothing may be called on it, but the next device -- which can come
+// back with the same handle value -- needs its own init.
+__declspec(dllexport) void dlssnr_vk_forget() { g_vk.initialisedDevice = nullptr; }
 
 // Creates the feature on a Vulkan command buffer. Same contract as the D3D12 one: initialisation work
 // is recorded into the buffer, so the handle has to outlive its execution.
@@ -883,7 +964,7 @@ __declspec(dllexport) void *dlssnr_vk_create(void *cmdBuffer, void *capabilityPa
     setFloat(capabilityParams, "DLSSNR.LocalStructureStrength", localStructure);
     setFloat(capabilityParams, "DLSSNR.LocalToneStrength", localTone);
     setFloat(capabilityParams, "DLSSNR.SkinStructureStrength", skinStructure);
-    setUInt(capabilityParams, "DLSSNR.UseAutoMask", (unsigned int) useAutoMask);
+    setAutomaticMask(capabilityParams, useAutoMask);
     setUInt(capabilityParams, "DLSSNR.UICorrection", (unsigned int) uiCorrection);
 
     void *feature = nullptr;
@@ -901,10 +982,13 @@ __declspec(dllexport) void *dlssnr_vk_create(void *cmdBuffer, void *capabilityPa
 //
 // Filling it here rather than in the host keeps the two APIs from drifting: a parameter added to one
 // evaluate and forgotten in the other would be a bug that only appears on one backend.
-__declspec(dllexport) int dlssnr_vk_evaluate(void *cmdBuffer, void *feature, void *capabilityParams,
+__declspec(dllexport) int dlssnr_vk_evaluate_v2(void *cmdBuffer, void *feature, void *capabilityParams,
                                              void *color, void *depth, void *motion, void *output,
                                              unsigned int width, unsigned int height,
                                              unsigned int guideWidth, unsigned int guideHeight,
+                                             unsigned int motionWidth, unsigned int motionHeight,
+                                             unsigned int depthBaseX, unsigned int depthBaseY,
+                                             unsigned int motionBaseX, unsigned int motionBaseY,
                                              int depthInverted, int reset, float intensity, int style,
                                              float localStructure, float localTone, float skinStructure,
                                              int useAutoMask, float mvScaleX, float mvScaleY) {
@@ -933,14 +1017,14 @@ __declspec(dllexport) int dlssnr_vk_evaluate(void *cmdBuffer, void *feature, voi
     setUInt(capabilityParams, "DLSSNR.OutputSubrectBaseY", 0);
     setUInt(capabilityParams, "DLSSNR.OutputSubrectWidth", width);
     setUInt(capabilityParams, "DLSSNR.OutputSubrectHeight", height);
-    setUInt(capabilityParams, "DLSSNR.DepthSubrectBaseX", 0);
-    setUInt(capabilityParams, "DLSSNR.DepthSubrectBaseY", 0);
+    setUInt(capabilityParams, "DLSSNR.DepthSubrectBaseX", depthBaseX);
+    setUInt(capabilityParams, "DLSSNR.DepthSubrectBaseY", depthBaseY);
     setUInt(capabilityParams, "DLSSNR.DepthSubrectWidth", guideWidth);
     setUInt(capabilityParams, "DLSSNR.DepthSubrectHeight", guideHeight);
-    setUInt(capabilityParams, "DLSSNR.MVecSubrectBaseX", 0);
-    setUInt(capabilityParams, "DLSSNR.MVecSubrectBaseY", 0);
-    setUInt(capabilityParams, "DLSSNR.MVecSubrectWidth", guideWidth);
-    setUInt(capabilityParams, "DLSSNR.MVecSubrectHeight", guideHeight);
+    setUInt(capabilityParams, "DLSSNR.MVecSubrectBaseX", motionBaseX);
+    setUInt(capabilityParams, "DLSSNR.MVecSubrectBaseY", motionBaseY);
+    setUInt(capabilityParams, "DLSSNR.MVecSubrectWidth", motionWidth);
+    setUInt(capabilityParams, "DLSSNR.MVecSubrectHeight", motionHeight);
 
     // The game's own encoding, passed through rather than derived. Deriving it from the resolutions
     // came out as exactly 1.0 at native, which told the model almost nothing had moved.
@@ -952,7 +1036,7 @@ __declspec(dllexport) int dlssnr_vk_evaluate(void *cmdBuffer, void *feature, voi
     setFloat(capabilityParams, "DLSSNR.LocalStructureStrength", localStructure);
     setFloat(capabilityParams, "DLSSNR.LocalToneStrength", localTone);
     setFloat(capabilityParams, "DLSSNR.SkinStructureStrength", skinStructure);
-    setUInt(capabilityParams, "DLSSNR.UseAutoMask", (unsigned int) useAutoMask);
+    setAutomaticMask(capabilityParams, useAutoMask);
 
     // Assigned rather than returned. A tail call becomes a jmp and the snippet would resolve its
     // caller past this module, which the gate rejects.
@@ -977,18 +1061,23 @@ __declspec(dllexport) void *dlssnr_call_create(const wchar_t *snippetPath, const
                                                int style, float localStructure, float localTone,
                                                float skinStructure, int useAutoMask,
                                                int uiCorrection) {
-    if (!loadSnippet(snippetPath) || !capabilityParams) {
+    std::lock_guard<std::recursive_mutex> lock(g_snippetMutex);
+    g_modelError.clear();
+    auto* snippet = loadSnippet(snippetPath);
+    if (!snippet || !capabilityParams) {
+        recordModelError(snippet, "model DLL or capability parameters unavailable");
         return nullptr;
     }
-    if (!g_snip.initialised && g_snip.init) {
+    if (!snippet->initialisedDevices.count(device) && snippet->init) {
         // OptiScaler's own generic application id, the one it already hands DLSS when a game's id is
         // not wanted. What was here before was 0x4350324B -- "CP2K" -- so every game that ever loaded
         // this announced itself to the driver as Cyberpunk 2077.
-        dlssnr_call_last_init = g_snip.init(0x24480451ull, dataPath, device, 0x0000015, capabilityParams);
-        g_snip.initialised = (dlssnr_call_last_init == 1);
-        if (!g_snip.initialised) {
+        dlssnr_call_last_init = snippet->init(0x24480451ull, dataPath, device, 0x0000015, capabilityParams);
+        if (dlssnr_call_last_init != 1) {
+            recordModelError(snippet, "model initialization failed");
             return nullptr;
         }
+        snippet->initialisedDevices.insert(device);
     }
     setUInt(capabilityParams, "DLSSNR.Enabled", 1);
     setUInt(capabilityParams, "DLSSNR.Width", width);
@@ -1008,25 +1097,35 @@ __declspec(dllexport) void *dlssnr_call_create(const wchar_t *snippetPath, const
     setFloat(capabilityParams, "DLSSNR.LocalStructureStrength", localStructure);
     setFloat(capabilityParams, "DLSSNR.LocalToneStrength", localTone);
     setFloat(capabilityParams, "DLSSNR.SkinStructureStrength", skinStructure);
-    setUInt(capabilityParams, "DLSSNR.UseAutoMask", (unsigned int) useAutoMask);
+    setAutomaticMask(capabilityParams, useAutoMask);
     setUInt(capabilityParams, "DLSSNR.UICorrection", (unsigned int) uiCorrection);
     void *handle = nullptr;
-    dlssnr_call_last_create = g_snip.create(cmd, 18, capabilityParams, &handle);
-    return handle;
+    dlssnr_call_last_create = snippet->create(cmd, 18, capabilityParams, &handle);
+    if (dlssnr_call_last_create == 1 && handle) g_featureOwners[handle] = snippet;
+    else recordModelError(snippet, "model feature creation failed");
+    // Match the DX11/Vulkan paths: a partial handle on failure is not usable.
+    return dlssnr_call_last_create == 1 ? handle : nullptr;
 }
 
 // Colour and output are display resolution; depth and motion come from the game's own DLSS evaluation and
 // may be render resolution, so each resource carries its own subrect and motion scales by the ratio.
-__declspec(dllexport) int dlssnr_call_evaluate(ID3D12GraphicsCommandList *cmd, void *feature,
+__declspec(dllexport) int dlssnr_call_evaluate_v2(ID3D12GraphicsCommandList *cmd, void *feature,
                                                void *capabilityParams, ID3D12Resource *color,
                                                ID3D12Resource *depth, ID3D12Resource *motion,
                                                ID3D12Resource *output, unsigned int width,
                                                unsigned int height, unsigned int guideWidth,
-                                               unsigned int guideHeight, int depthInverted, int reset,
+                                               unsigned int guideHeight, unsigned int motionWidth,
+                                               unsigned int motionHeight, unsigned int depthBaseX,
+                                               unsigned int depthBaseY, unsigned int motionBaseX,
+                                               unsigned int motionBaseY, int depthInverted, int reset,
                                                float intensity, int style, float localStructure,
                                                float localTone, float skinStructure, int useAutoMask,
                                                float mvScaleX, float mvScaleY) {
-    if (!feature || !capabilityParams || !g_snip.evaluate) {
+    std::lock_guard<std::recursive_mutex> lock(g_snippetMutex);
+    g_modelError.clear();
+    const auto owner = g_featureOwners.find(feature);
+    if (!feature || !capabilityParams || owner == g_featureOwners.end()) {
+        g_modelError = "invalid model feature or capability parameters";
         return 0;
     }
     setResource(capabilityParams, "DLSSNR.Color", color);
@@ -1050,14 +1149,14 @@ __declspec(dllexport) int dlssnr_call_evaluate(ID3D12GraphicsCommandList *cmd, v
     setUInt(capabilityParams, "DLSSNR.OutputSubrectBaseY", 0);
     setUInt(capabilityParams, "DLSSNR.OutputSubrectWidth", width);
     setUInt(capabilityParams, "DLSSNR.OutputSubrectHeight", height);
-    setUInt(capabilityParams, "DLSSNR.DepthSubrectBaseX", 0);
-    setUInt(capabilityParams, "DLSSNR.DepthSubrectBaseY", 0);
+    setUInt(capabilityParams, "DLSSNR.DepthSubrectBaseX", depthBaseX);
+    setUInt(capabilityParams, "DLSSNR.DepthSubrectBaseY", depthBaseY);
     setUInt(capabilityParams, "DLSSNR.DepthSubrectWidth", guideWidth);
     setUInt(capabilityParams, "DLSSNR.DepthSubrectHeight", guideHeight);
-    setUInt(capabilityParams, "DLSSNR.MVecSubrectBaseX", 0);
-    setUInt(capabilityParams, "DLSSNR.MVecSubrectBaseY", 0);
-    setUInt(capabilityParams, "DLSSNR.MVecSubrectWidth", guideWidth);
-    setUInt(capabilityParams, "DLSSNR.MVecSubrectHeight", guideHeight);
+    setUInt(capabilityParams, "DLSSNR.MVecSubrectBaseX", motionBaseX);
+    setUInt(capabilityParams, "DLSSNR.MVecSubrectBaseY", motionBaseY);
+    setUInt(capabilityParams, "DLSSNR.MVecSubrectWidth", motionWidth);
+    setUInt(capabilityParams, "DLSSNR.MVecSubrectHeight", motionHeight);
 
     // The game's own encoding, passed through. Deriving this from the resolutions was a guess, and at
     // native resolution it came out as exactly 1.0 -- so a game using normalised vectors was telling
@@ -1070,13 +1169,14 @@ __declspec(dllexport) int dlssnr_call_evaluate(ID3D12GraphicsCommandList *cmd, v
     setFloat(capabilityParams, "DLSSNR.LocalStructureStrength", localStructure);
     setFloat(capabilityParams, "DLSSNR.LocalToneStrength", localTone);
     setFloat(capabilityParams, "DLSSNR.SkinStructureStrength", skinStructure);
-    setUInt(capabilityParams, "DLSSNR.UseAutoMask", (unsigned int) useAutoMask);
+    setAutomaticMask(capabilityParams, useAutoMask);
 
     // The result must not be returned directly. `return f(...)` is a tail call, and the compiler emits a
     // jmp rather than a call, which leaves this module's frame behind: the snippet then resolves its
     // caller to whoever called us and rejects it. Keeping the value in a volatile forces a real call and
     // a return through this module, which is the whole reason this file exists.
-    volatile int result = g_snip.evaluate(cmd, feature, capabilityParams, nullptr);
+    volatile int result = owner->second->evaluate(cmd, feature, capabilityParams, nullptr);
+    if (result != 1) recordModelError(owner->second, "model evaluation failed");
     return result;
 }
 
@@ -1117,75 +1217,30 @@ __declspec(dllexport) void dlssnr_call_set_extras(void *capabilityParams, float 
 }
 
 __declspec(dllexport) void dlssnr_call_release(void *feature) {
-    if (feature && g_snip.release) {
-        volatile int result = g_snip.release(feature); // not a tail call, for the reason above
+    std::lock_guard<std::recursive_mutex> lock(g_snippetMutex);
+    const auto owner = g_featureOwners.find(feature);
+    if (feature && owner != g_featureOwners.end()) {
+        volatile int result = owner->second->release(feature); // retain this module's caller frame
         (void) result;
+        g_featureOwners.erase(owner);
     }
 }
 
-// Direct pass-through entry points for a game's own native NR (NGX feature 18) and startup Preload.
-// All calls keep a volatile return value on the stack frame so MSVC never tail-calls out of nvngx.dll_dlssnr.dll.
-__declspec(dllexport) int dlssnr_direct_preload(const wchar_t *snippetPath, const wchar_t *dataPath,
-                                                ID3D12Device *device, const void *capabilityParams) {
-    if (!loadSnippet(snippetPath) || !device || !capabilityParams) {
-        return 0;
-    }
-    if (!g_snip.initialised && g_snip.init) {
-        volatile int res = g_snip.init(0x24480451ull, dataPath, device, 0x0000015, capabilityParams);
-        dlssnr_call_last_init = res;
-        g_snip.initialised = (res == 1);
-    }
-    return g_snip.initialised ? 1 : dlssnr_call_last_init;
-}
-
-__declspec(dllexport) int dlssnr_direct_create(const wchar_t *snippetPath, const wchar_t *dataPath,
-                                               ID3D12Device *device, ID3D12GraphicsCommandList *cmd,
-                                               const void *params, void **outHandle) {
-    if (!cmd || !params || !outHandle) {
-        return (int) 0xBAD00001u;
-    }
-    *outHandle = nullptr;
-    if (!loadSnippet(snippetPath)) {
-        return (int) 0xBAD00002u;
-    }
-    if (!g_snip.initialised && g_snip.init && device) {
-        volatile int initRes = g_snip.init(0x24480451ull, dataPath, device, 0x0000015, params);
-        dlssnr_call_last_init = initRes;
-        g_snip.initialised = (initRes == 1);
-    }
-    if (!g_snip.initialised || !g_snip.create) {
-        return (int) 0xBAD00002u;
-    }
-    volatile int res = g_snip.create(cmd, 18, params, outHandle);
-    dlssnr_call_last_create = res;
-    return res;
-}
-
-__declspec(dllexport) int dlssnr_direct_evaluate(ID3D12GraphicsCommandList *cmd, const void *feature,
-                                                 const void *params) {
-    if (!cmd || !feature || !params || !g_snip.evaluate) {
-        return (int) 0xBAD00004u;
-    }
-    volatile int res = g_snip.evaluate(cmd, feature, params, nullptr);
-    return res;
-}
-
-__declspec(dllexport) int dlssnr_direct_release(void *feature) {
-    if (!feature || !g_snip.release) {
-        return (int) 0xBAD00004u;
-    }
-    volatile int res = g_snip.release(feature);
-    return res;
-}
-
-__declspec(dllexport) void dlssnr_weights_select(const wchar_t* setDir)
+// Model weights selector: the folders the next feature creates read their weights from, one per model
+// (dirA = Model A, WEIGHTS_HT or WEIGHTS_PL; dirB = Model B, WEIGHTS_CC_SMALL_FP8*; null or empty = the model DLL's
+// own). Takes effect at the next create; features already built keep what they were built with.
+__declspec(dllexport) void dlssnr_weights_select2(const wchar_t* dirA, const wchar_t* dirB)
 {
     std::lock_guard<std::mutex> lock(nrweights::g_mutex);
-    nrweights::g_setDir = setDir ? setDir : L"";
-    while (!nrweights::g_setDir.empty() && (nrweights::g_setDir.back() == L'\\' || nrweights::g_setDir.back() == L'/'))
-        nrweights::g_setDir.pop_back();
+    nrweights::g_dirA = nrweights::trimDir(dirA);
+    nrweights::g_dirB = nrweights::trimDir(dirB);
 }
 
+// The first version of the selector (older OptiScaler builds): one folder for both models.
+__declspec(dllexport) void dlssnr_weights_select(const wchar_t* setDir) { dlssnr_weights_select2(setDir, setDir); }
+
+// What the selector did since the last call (one line per weights read), copied into the host's buffer and
+// cleared. Returns the length written (the text is cut to fit and always terminated).
 __declspec(dllexport) int dlssnr_weights_take_log(char* buffer, int size)
 {
     std::lock_guard<std::mutex> lock(nrweights::g_mutex);

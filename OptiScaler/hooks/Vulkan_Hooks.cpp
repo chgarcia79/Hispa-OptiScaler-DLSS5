@@ -20,6 +20,7 @@
 #include <vulkan/vulkan.hpp>
 
 #include <dlssnr/DlssNr_VkExtensions.h>
+#include <dlssnr/NrFp8_Vk.h>
 
 #include <detours/detours.h>
 #include <misc/IdentifyGpu.h>
@@ -348,7 +349,12 @@ static VkResult hkvkCreateDevice(VkPhysicalDevice physicalDevice, const VkDevice
     }
 
     if (result == VK_SUCCESS && pDevice != nullptr)
+    {
         DlssNr::VkExt::RecordDeviceExtAddress(*pDevice, nrExtBdaActive);
+        DlssNr::VkExt::RecordHostDevice(*pDevice, nrExtBdaActive);
+        if (nrExtBdaActive && Config::Instance()->DlssNrEnabled.value_or_default())
+            DlssNr::Fp8Vk::HookDevice(physicalDevice, *pDevice, vkGetDeviceProcAddr);
+    }
 
     if (Config::Instance()->DlssNrEnabled.value_or_default())
         LOG_INFO("DLSS-NR Vulkan: vkCreateDevice returned {} with {} extensions requested", (int) result,

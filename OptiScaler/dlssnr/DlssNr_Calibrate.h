@@ -27,6 +27,10 @@ struct Report
 void Start(const std::string& goalPreset, unsigned pass, bool skin);
 void Cancel();
 Report Read();
+float GetProgress01();
+int GetCurrentStep();
+int GetTotalSteps();
+bool IsWaitingFrameSettle();
 
 // From the D3D12 NR path, on its thread, for the top-level NR instance only.
 // Tick: once per NR frame, before the frame reads its settings. Composed: the frame's picture was written.

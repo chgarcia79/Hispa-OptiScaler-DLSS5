@@ -37,6 +37,7 @@
 #include "DlssNr_MipSubresource.h"
 #include "DlssNr_DepthFade.h"
 #include "DlssNr_Nvfp4Bridge.h"
+#include "DlssNr_CompareModelBridge.h"
 #include "DlssNr_PassBorrowBridge.h"
 #include <dlssnr/DlssNr_NativeBlend.h>
 #include "precompile/DlssNr_Shader.h"
@@ -2861,21 +2862,50 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
         const unsigned int passPreset =
             pass == 0 ? (unsigned int) cfg.DlssNrPreset.value_or_default() : (unsigned int) ResolvePassPreset(cfg, pass);
         DlssNr::Nvfp4Bridge::ConfigureForPresets(&passPreset, 1);
-        DlssNr::Nvfp4::BeginEvaluation(passPreset);
+        if (!DlssNr::Nvfp4Bridge::BeginPass(passPreset, cmdList))
+        {
+            result = NVSDK_NGX_Result_Fail;
+            break;
+        }
         NrPassBorrow::BeginEvaluation(evalIdx++);
 
         MakeModelWritable(passOutput);
-        result = g_nr.evaluate(
-            cmdList, passFeature, g_nr.capabilityParams, passInput, depthIn, motionIn, passOutput,
-            workWidth, workHeight, evalGuideWidth, evalGuideHeight, g_nr.guideDepthInverted ? 1 : 0,
-            passReset ? 1 : 0, cfg.DlssNrIntensity.value_or_default(),
-            ResolvePassStyle(cfg, pass), cfg.DlssNrLocalStructure.value_or_default(),
-            passLocalTone, cfg.DlssNrSkinStructure.value_or_default(),
-            cfg.DlssNrAutoMask.value_or_default() ? 1 : 0, g_nr.guideMvScaleX * mvToWorkX,
-            g_nr.guideMvScaleY * mvToWorkY);
-
-        const auto borrowOutcome = NrPassBorrow::EndEvaluation();
-        const bool borrowed = (borrowOutcome == NrPassBorrow::Outcome::Borrowed);
+        bool borrowed = false;
+        if (DlssNr::Nvfp4::UsesNativeHost(passPreset))
+        {
+            DlssNr::Nvfp4::HostPass hostPass {};
+            hostPass.colour = passInput;
+            hostPass.motion = motionIn;
+            hostPass.output = passOutput;
+            hostPass.style = ResolvePassStyle(cfg, pass);
+            hostPass.intensity = cfg.DlssNrIntensity.value_or_default();
+            hostPass.structure = cfg.DlssNrLocalStructure.value_or_default();
+            hostPass.tone = passLocalTone;
+            hostPass.skin = cfg.DlssNrSkinStructure.value_or_default();
+            hostPass.autoMask = cfg.DlssNrAutoMask.value_or_default();
+            hostPass.mvScaleX = g_nr.guideMvScaleX * mvToWorkX;
+            hostPass.mvScaleY = g_nr.guideMvScaleY * mvToWorkY;
+            hostPass.reset = passReset;
+            result = DlssNr::Nvfp4Bridge::EvaluateNativeHostPass(pass, device, cmdList, passPreset, workWidth,
+                                                                 workHeight, hostPass)
+                         ? NVSDK_NGX_Result_Success
+                         : NVSDK_NGX_Result_Fail;
+        }
+        else
+        {
+            result = g_nr.evaluate(
+                cmdList, passFeature, g_nr.capabilityParams, passInput, depthIn, motionIn, passOutput,
+                workWidth, workHeight, evalGuideWidth, evalGuideHeight, g_nr.guideDepthInverted ? 1 : 0,
+                passReset ? 1 : 0, cfg.DlssNrIntensity.value_or_default(),
+                ResolvePassStyle(cfg, pass), cfg.DlssNrLocalStructure.value_or_default(),
+                passLocalTone, cfg.DlssNrSkinStructure.value_or_default(),
+                cfg.DlssNrAutoMask.value_or_default() ? 1 : 0, g_nr.guideMvScaleX * mvToWorkX,
+                g_nr.guideMvScaleY * mvToWorkY);
+            const auto borrowOutcome = NrPassBorrow::EndEvaluation();
+            borrowed = (borrowOutcome == NrPassBorrow::Outcome::Borrowed);
+        }
+        if (DlssNr::Nvfp4::UsesNativeHost(passPreset))
+            NrPassBorrow::EndEvaluation();
         if (!DlssNr::Nvfp4Bridge::EvaluatePass(passPreset, cmdList, borrowed))
         {
             result = NVSDK_NGX_Result_Fail;
@@ -3091,6 +3121,15 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
 
         const bool resolved = DispatchPass(cmdList, resolveParams, resolveProxy, resolveAnswer, resolveOriginal,
                                            motionIn, exposureTex, resolveTarget, nullptr, depthIn);
+
+        if (resolved && !residualAcrossRr && targetSupportsUav)
+        {
+            DlssNr::CompareBridge::ApplyOtherSideIfEnabled(
+                device, cmdList, cfg, resolveParams, modelInput, resolveProxy, resolveOriginal, motionIn, exposureTex,
+                depthIn, target, workWidth, workHeight, width, height, g_nr.guideMvScaleX * mvToWorkX,
+                g_nr.guideMvScaleY * mvToWorkY, DispatchPass, TransitionTarget,
+                D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
+        }
 
         if (residualAcrossRr)
         {
@@ -3983,6 +4022,7 @@ void Shutdown()
 
     g_nrRetired.FreeAll(FreeNrRetiredNow);
     DlssNr::PassBorrowBridge::ReleaseAll();
+    DlssNr::CompareBridge::ReleaseAll();
     DlssNr::Nvfp4Bridge::ReleaseAll();
     g_contexts.Reset();
     g_absorbedFormatFlips.store(0, std::memory_order_relaxed);

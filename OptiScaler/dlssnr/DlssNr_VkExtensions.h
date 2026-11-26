@@ -20,10 +20,29 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace DlssNr::VkExt
 {
+
+inline std::mutex g_hostDeviceMutex;
+inline std::unordered_set<VkDevice> g_hostDevices;
+
+inline void RecordHostDevice(VkDevice device, bool ready)
+{
+    std::lock_guard lock(g_hostDeviceMutex);
+    if (ready)
+        g_hostDevices.insert(device);
+    else
+        g_hostDevices.erase(device);
+}
+
+inline bool HostDeviceReady(VkDevice device)
+{
+    std::lock_guard lock(g_hostDeviceMutex);
+    return g_hostDevices.contains(device);
+}
 
 // Instance level. get_physical_device_properties2 is core from Vulkan 1.1 and every game enables it
 // anyway; it is listed because the model names it and a 1.0 instance would still need it.

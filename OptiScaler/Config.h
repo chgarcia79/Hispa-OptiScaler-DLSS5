@@ -394,7 +394,12 @@ class Config
     CustomOptional<bool> DlssNrInitDiscardGuard { true };
     CustomOptional<int> DlssNrInitMaxDiscards { 3 };
     CustomOptional<bool> DlssNrFp8Enabled { true };
+    CustomOptional<bool> DlssNrInt8Enabled { true };
+    CustomOptional<bool> DlssNrVulkanModelsEnabled { true };
+    CustomOptional<uint32_t> DlssNrCompareOtherModel { 0 };
     CustomOptional<std::string> DlssNrWeightsSet { std::string() };
+    CustomOptional<std::string> DlssNrWeightsSetA { std::string() };
+    CustomOptional<std::string> DlssNrWeightsSetB { std::string() };
     CustomOptional<bool> DlssNrCalibratorEnabled { true };
     CustomOptional<bool> DlssNrCalibratorSkinOpt { false };
     CustomOptional<bool> DlssNrAutoFreeVram { true };
