@@ -1,5 +1,8 @@
 // The Ampere set: all 152 weighted launches of Model A on kernels of ours, inside NVIDIA's runtime; see NrAmpere.h.
 // Launch counting, the fp8_set<n> records and their upload follow NrFp8.cpp; our kernels are loaded like NrNet4.cpp's.
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
 #include "NrWeightUpload.h"
 #ifndef NOMINMAX
 #define NOMINMAX
