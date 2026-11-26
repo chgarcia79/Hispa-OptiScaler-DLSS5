@@ -6,7 +6,8 @@
 #include "precompile/da_das_sharpen_Shader.h"
 #include "precompile/da_rcas_sharpen_Shader.h"
 #include "precompile/baba_neural_sharpen_Shader.h"
-#include "precompile/opti_sharpen_Shader.h"
+#include "precompile/opti_sharpen_fp32_natural_Shader.h"
+#include "precompile/opti_sharpen_fp32_crisp_Shader.h"
 
 #include <Config.h>
 #include <algorithm>
@@ -126,16 +127,19 @@ void RCAS_Dx12::SetBufferState(ID3D12GraphicsCommandList* InCommandList, D3D12_R
 bool RCAS_Dx12::EnsureNeuralPipeline(SharpenShader InShader)
 {
     const bool isOpti = InShader == SharpenShader::OptiSharpen;
-    auto& pipeline = isOpti ? _pipelineStateOpti : _pipelineStateBaba;
-    auto& failed = isOpti ? _optiPipelineFailed : _babaPipelineFailed;
+    const bool isCrisp = isOpti && Config::Instance()->OptiSharpenPreset.value_or_default() == 1;
+    auto& pipeline = isOpti ? (isCrisp ? _pipelineStateOptiCrisp : _pipelineStateOpti) : _pipelineStateBaba;
+    auto& failed = isOpti ? (isCrisp ? _optiCrispPipelineFailed : _optiPipelineFailed) : _babaPipelineFailed;
     if (pipeline != nullptr)
         return true;
     if (failed || _device == nullptr)
         return false;
 
     const bool ok =
-        isOpti ? CreateComputePipeline(_device, &pipeline, opti_sharpen_cso, sizeof(opti_sharpen_cso),
-                                       optiSharpenCode.c_str())
+        isOpti ? (isCrisp ? CreateComputePipeline(_device, &pipeline, opti_sharpen_fp32_crisp_cso,
+                                                  sizeof(opti_sharpen_fp32_crisp_cso), optiSharpenCode.c_str())
+                          : CreateComputePipeline(_device, &pipeline, opti_sharpen_fp32_natural_cso,
+                                                  sizeof(opti_sharpen_fp32_natural_cso), optiSharpenCode.c_str()))
                : CreateComputePipeline(_device, &pipeline, baba_neural_sharpen_cso, sizeof(baba_neural_sharpen_cso),
                                        babaNeuralSharpenCode.c_str());
     if (!ok)
@@ -176,7 +180,11 @@ bool RCAS_Dx12::DispatchNeural(SharpenShader InShader, ID3D12GraphicsCommandList
     ID3D12DescriptorHeap* heaps[] = { currentHeap.GetHeapCSU() };
     InCmdList->SetDescriptorHeaps(_countof(heaps), heaps);
     InCmdList->SetComputeRootSignature(_rootSignature);
-    InCmdList->SetPipelineState(InShader == SharpenShader::OptiSharpen ? _pipelineStateOpti : _pipelineStateBaba);
+    InCmdList->SetPipelineState(InShader == SharpenShader::OptiSharpen
+                                    ? (Config::Instance()->OptiSharpenPreset.value_or_default() == 1
+                                           ? _pipelineStateOptiCrisp
+                                           : _pipelineStateOpti)
+                                    : _pipelineStateBaba);
     InCmdList->SetComputeRootDescriptorTable(0, currentHeap.GetTableGPUStart());
     InCmdList->Dispatch(static_cast<UINT>((outDesc.Width + InNumThreadsX - 1) / InNumThreadsX),
                         (outDesc.Height + InNumThreadsY - 1) / InNumThreadsY, 1);
@@ -292,6 +300,7 @@ RCAS_Dx12::~RCAS_Dx12()
     SAFE_RELEASE(_pipelineStateDASDA);
     SAFE_RELEASE(_pipelineStateBaba);
     SAFE_RELEASE(_pipelineStateOpti);
+    SAFE_RELEASE(_pipelineStateOptiCrisp);
 
     for (int i = 0; i < RCAS_NUM_OF_HEAPS; i++)
     {

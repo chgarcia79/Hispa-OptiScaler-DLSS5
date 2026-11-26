@@ -14,8 +14,10 @@ class RCAS_Dx11 : public RCAS_Common, public Shader_Dx11
     ID3D11ComputeShader* _computeShaderDASDA = nullptr;
     ID3D11ComputeShader* _computeShaderBaba = nullptr;
     ID3D11ComputeShader* _computeShaderOpti = nullptr;
+    ID3D11ComputeShader* _computeShaderOptiCrisp = nullptr;
     bool _babaShaderFailed = false;
     bool _optiShaderFailed = false;
+    bool _optiCrispShaderFailed = false;
     ID3D11ShaderResourceView* _srvMotionVectors = nullptr;
     ID3D11ShaderResourceView* _srvDepth = nullptr;
 

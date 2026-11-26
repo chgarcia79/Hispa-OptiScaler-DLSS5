@@ -4,7 +4,8 @@
 #include "precompile/da_das_sharpen_Shader_Vk.h"
 #include "precompile/da_rcas_sharpen_Shader_Vk.h"
 #include "precompile/baba_neural_sharpen_Shader_Vk.h"
-#include "precompile/opti_sharpen_Shader_Vk.h"
+#include "precompile/opti_sharpen_fp32_natural_Shader_Vk.h"
+#include "precompile/opti_sharpen_fp32_crisp_Shader_Vk.h"
 #include <Config.h>
 #include <algorithm>
 #include <magic_enum.hpp>
@@ -123,9 +124,15 @@ RCAS_Vk::RCAS_Vk(std::string InName, VkDevice InDevice, VkPhysicalDevice InPhysi
     if (!CreateComputePipeline(_device, _pipelineLayout, &_pipelineBaba, shaderCodeBaba))
         LOG_WARN("Failed to create pipeline for BaBa Neural; falling back to RCAS");
 
-    std::vector<char> shaderCodeOpti(opti_sharpen_spv, opti_sharpen_spv + sizeof(opti_sharpen_spv));
+    std::vector<char> shaderCodeOpti(opti_sharpen_fp32_natural_spv,
+                                     opti_sharpen_fp32_natural_spv + sizeof(opti_sharpen_fp32_natural_spv));
     if (!CreateComputePipeline(_device, _pipelineLayout, &_pipelineOpti, shaderCodeOpti))
-        LOG_WARN("Failed to create pipeline for OptiSharpen; falling back to RCAS");
+        LOG_WARN("Failed to create pipeline for OptiSharpen Natural; falling back to RCAS");
+
+    std::vector<char> shaderCodeOptiCrisp(opti_sharpen_fp32_crisp_spv,
+                                          opti_sharpen_fp32_crisp_spv + sizeof(opti_sharpen_fp32_crisp_spv));
+    if (!CreateComputePipeline(_device, _pipelineLayout, &_pipelineOptiCrisp, shaderCodeOptiCrisp))
+        LOG_WARN("Failed to create pipeline for OptiSharpen Crisp; falling back to RCAS");
 
     _init = true;
 }
@@ -140,6 +147,8 @@ RCAS_Vk::~RCAS_Vk()
         vkDestroyPipeline(_device, _pipelineBaba, nullptr);
     if (_pipelineOpti != VK_NULL_HANDLE)
         vkDestroyPipeline(_device, _pipelineOpti, nullptr);
+    if (_pipelineOptiCrisp != VK_NULL_HANDLE)
+        vkDestroyPipeline(_device, _pipelineOptiCrisp, nullptr);
     if (_descriptorPoolDA != VK_NULL_HANDLE)
         vkDestroyDescriptorPool(_device, _descriptorPoolDA, nullptr);
     if (_descriptorSetLayoutDA != VK_NULL_HANDLE)
@@ -270,7 +279,10 @@ bool RCAS_Vk::DispatchNeural(SharpenShader InShader, VkCommandBuffer InCmdList, 
                              const VkImageInfo& InResourceInfo, const VkImageInfo& InMotionVectorsInfo,
                              const VkImageInfo& OutResourceInfo)
 {
-    VkPipeline targetPipeline = InShader == SharpenShader::OptiSharpen ? _pipelineOpti : _pipelineBaba;
+    VkPipeline targetPipeline =
+        InShader == SharpenShader::OptiSharpen
+            ? (Config::Instance()->OptiSharpenPreset.value_or_default() == 1 ? _pipelineOptiCrisp : _pipelineOpti)
+            : _pipelineBaba;
     if (targetPipeline == VK_NULL_HANDLE)
         return false;
 

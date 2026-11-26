@@ -413,6 +413,8 @@ class Config
     CustomOptional<bool> DeferredFeatureRelease { true };
     CustomOptional<bool> StreamlineDisableOta { false };
     CustomOptional<bool> StreamlineSkipNvidiaAppOverride { false };
+    CustomOptional<int> OptiSharpenPreset { 0 };
+    CustomOptional<float> OptiSharpenHdrLimiter { 1.0f };
 
     // Look for the exposure the game computed but never handed to the upscaler.
     //

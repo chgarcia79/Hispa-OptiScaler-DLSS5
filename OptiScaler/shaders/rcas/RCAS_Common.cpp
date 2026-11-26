@@ -112,6 +112,10 @@ void RCAS_Common::FillMotionConstants(InternalConstantsBaba& OutConstants, const
     {
         OutConstants.Model = Config::Instance()->OptiSharpenModel.value_or_default();
         OutConstants.ViewMode = Config::Instance()->OptiSharpenDebugView.value_or_default();
+        const float hdrLimiter =
+            std::clamp(Config::Instance()->OptiSharpenHdrLimiter.value_or_default(), 0.0f, 2.0f);
+        if (InConstants.IsHdr)
+            OutConstants.EdgeResponse = hdrLimiter;
     }
     else
     {

@@ -20,6 +20,7 @@ class RCAS_Vk : public Shader_Vk, public RCAS_Common
     VkPipeline _pipelineDASDA = VK_NULL_HANDLE;
     VkPipeline _pipelineBaba = VK_NULL_HANDLE;
     VkPipeline _pipelineOpti = VK_NULL_HANDLE;
+    VkPipeline _pipelineOptiCrisp = VK_NULL_HANDLE;
 
     void UpdateDescriptorSet(VkCommandBuffer cmdList, int setIndex, VkImageView inputView, VkImageView motionView,
                              VkImageView outputView);

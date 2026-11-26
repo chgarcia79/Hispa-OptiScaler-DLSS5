@@ -20,8 +20,10 @@ class RCAS_Dx12 : public Shader_Dx12, public RCAS_Common
     ID3D12PipelineState* _pipelineStateDASDA = nullptr;
     ID3D12PipelineState* _pipelineStateBaba = nullptr;
     ID3D12PipelineState* _pipelineStateOpti = nullptr;
+    ID3D12PipelineState* _pipelineStateOptiCrisp = nullptr;
     bool _babaPipelineFailed = false;
     bool _optiPipelineFailed = false;
+    bool _optiCrispPipelineFailed = false;
 
     uint32_t InNumThreadsX = 16;
     uint32_t InNumThreadsY = 16;

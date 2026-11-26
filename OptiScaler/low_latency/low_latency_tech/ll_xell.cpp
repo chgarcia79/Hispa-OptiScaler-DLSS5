@@ -2,9 +2,11 @@
 #include "ll_xell.h"
 
 #include <hooks/FpsLimitSync.h>
+#include <Util.h>
 #include <magic_enum.hpp>
 #include <proxies/XeLL_Proxy.h>
 #include <nvapi/fakenvapi/log.h>
+#include <wrl/client.h>
 
 void XeLL::xell_sleep(uint32_t frame_id)
 {
@@ -45,9 +47,17 @@ bool XeLL::init(IUnknown* pDevice)
     }
 
     ID3D12Device* dx12_pDevice = nullptr;
-    HRESULT hr = pDevice->QueryInterface(__uuidof(ID3D12Device), reinterpret_cast<void**>(&dx12_pDevice));
+    Microsoft::WRL::ComPtr<IUnknown> originalDevice;
+    if (reshadeModule == nullptr)
+        originalDevice.Attach(Util::GetReShadeOriginal(pDevice));
+
+    auto device = originalDevice != nullptr ? originalDevice.Get() : pDevice;
+    HRESULT hr = device->QueryInterface(__uuidof(ID3D12Device), reinterpret_cast<void**>(&dx12_pDevice));
     if (hr != S_OK)
         return false;
+
+    if (originalDevice != nullptr)
+        LOG_DEBUG("Unwrapped ReShade device: {:X} -> {:X}", (size_t) pDevice, (size_t) dx12_pDevice);
 
     auto result = o_xellD3D12CreateContext(dx12_pDevice, &xell_context) == XELL_RESULT_SUCCESS;
 

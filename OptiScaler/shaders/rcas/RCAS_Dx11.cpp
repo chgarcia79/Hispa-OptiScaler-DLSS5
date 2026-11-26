@@ -7,7 +7,8 @@
 #include "precompile/da_das_sharpen_Shader_Dx11.h"
 #include "precompile/da_rcas_sharpen_Shader_Dx11.h"
 #include "precompile/baba_neural_sharpen_Shader_Dx11.h"
-#include "precompile/opti_sharpen_Shader_Dx11.h"
+#include "precompile/opti_sharpen_fp32_natural_Shader_Dx11.h"
+#include "precompile/opti_sharpen_fp32_crisp_Shader_Dx11.h"
 
 #include <Config.h>
 #include <magic_enum.hpp>
@@ -227,18 +228,23 @@ bool RCAS_Dx11::DispatchDASDepthAdaptive(ID3D11Device* InDevice, ID3D11DeviceCon
 bool RCAS_Dx11::EnsureNeuralShader(SharpenShader InShader, ID3D11Device* InDevice)
 {
     const bool isOpti = InShader == SharpenShader::OptiSharpen;
-    auto& computeShader = isOpti ? _computeShaderOpti : _computeShaderBaba;
-    auto& failed = isOpti ? _optiShaderFailed : _babaShaderFailed;
+    const bool isCrisp = isOpti && Config::Instance()->OptiSharpenPreset.value_or_default() == 1;
+    auto& computeShader = isOpti ? (isCrisp ? _computeShaderOptiCrisp : _computeShaderOpti) : _computeShaderBaba;
+    auto& failed = isOpti ? (isCrisp ? _optiCrispShaderFailed : _optiShaderFailed) : _babaShaderFailed;
     if (computeShader != nullptr)
         return true;
     if (failed || InDevice == nullptr)
         return false;
 
-    HRESULT result = isOpti ? CreateComputeShader(InDevice, computeShader, reinterpret_cast<const void*>(opti_sharpen_cso),
-                                                  sizeof(opti_sharpen_cso), optiSharpenCode.c_str())
-                            : CreateComputeShader(InDevice, computeShader,
-                                                  reinterpret_cast<const void*>(baba_neural_sharpen_cso),
-                                                  sizeof(baba_neural_sharpen_cso), babaNeuralSharpenCode.c_str());
+    HRESULT result =
+        isOpti ? (isCrisp ? CreateComputeShader(InDevice, computeShader,
+                                                reinterpret_cast<const void*>(opti_sharpen_fp32_crisp_cso),
+                                                sizeof(opti_sharpen_fp32_crisp_cso), optiSharpenCode.c_str())
+                          : CreateComputeShader(InDevice, computeShader,
+                                                reinterpret_cast<const void*>(opti_sharpen_fp32_natural_cso),
+                                                sizeof(opti_sharpen_fp32_natural_cso), optiSharpenCode.c_str()))
+               : CreateComputeShader(InDevice, computeShader, reinterpret_cast<const void*>(baba_neural_sharpen_cso),
+                                     sizeof(baba_neural_sharpen_cso), babaNeuralSharpenCode.c_str());
     if (FAILED(result))
     {
         LOG_ERROR("[{0}] CreateComputeShader error for neural shader: {1:X}", _name, result);
@@ -279,7 +285,11 @@ bool RCAS_Dx11::DispatchNeural(SharpenShader InShader, ID3D11Device* InDevice, I
     memcpy(mappedResource.pData, &constants, sizeof(constants));
     InContext->Unmap(_constantBuffer, 0);
 
-    ID3D11ComputeShader* cs = InShader == SharpenShader::OptiSharpen ? _computeShaderOpti : _computeShaderBaba;
+    ID3D11ComputeShader* cs = InShader == SharpenShader::OptiSharpen
+                                  ? (Config::Instance()->OptiSharpenPreset.value_or_default() == 1
+                                         ? _computeShaderOptiCrisp
+                                         : _computeShaderOpti)
+                                  : _computeShaderBaba;
     InContext->CSSetShader(cs, nullptr, 0);
     InContext->CSSetConstantBuffers(0, 1, &_constantBuffer);
     ID3D11ShaderResourceView* srvs[2] = { _srvInput, _srvMotionVectors };
@@ -402,6 +412,7 @@ RCAS_Dx11::~RCAS_Dx11()
     SAFE_RELEASE(_computeShaderDASDA);
     SAFE_RELEASE(_computeShaderBaba);
     SAFE_RELEASE(_computeShaderOpti);
+    SAFE_RELEASE(_computeShaderOptiCrisp);
     SAFE_RELEASE(_srvMotionVectors);
     SAFE_RELEASE(_srvDepth);
     SAFE_RELEASE(_currentMotionVectors);

@@ -68,6 +68,7 @@ constexpr uint64_t debounceThreshold = 500;
 
 static bool hasGamepad = false;
 static bool ffxInitTried = false;
+static bool ffxVkInitTried = false;
 static bool xefgInitTried = false;
 static std::string windowTitle;
 static std::string selectedUpscalerName = "";
@@ -3267,8 +3268,21 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
     nvngxOptions[fgNvngxArtursIndex].set_disabled(!state.artursFgFileAvailable, "Missing dlss-enabler-headless.dll");
 
     auto constexpr fgNvngxFfxIndex = (uint32_t) FGNvngxReplacement::FFX;
-    nvngxOptions[fgNvngxFfxIndex].set_disabled(!FfxApiProxy::IsFGReady(false),
-                                               "Missing amd_fidelityfx_framegeneration_dx12.dll");
+    if (state.swapchainApi == API::Vulkan)
+    {
+        if (!ffxVkInitTried && !FfxApiProxy::IsFGReadyVk())
+        {
+            ffxVkInitTried = true;
+            FfxApiProxy::InitFfxVk();
+        }
+        nvngxOptions[fgNvngxFfxIndex].set_disabled(!FfxApiProxy::IsFGReadyVk(),
+                                                   "Missing amd_fidelityfx_framegeneration_vk.dll");
+    }
+    else
+    {
+        nvngxOptions[fgNvngxFfxIndex].set_disabled(!FfxApiProxy::IsFGReady(false),
+                                                   "Missing amd_fidelityfx_framegeneration_dx12.dll");
+    }
 
     auto constexpr fgNvngxComboIndex = (uint32_t) FGNvngxReplacement::Combo;
     nvngxOptions[fgNvngxComboIndex].set_disabled(

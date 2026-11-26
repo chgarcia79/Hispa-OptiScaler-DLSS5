@@ -47,6 +47,7 @@ bool XeFG_Dx12::CreateSwapchainContext(ID3D12Device* device)
     }
 
     auto createResult = false;
+    auto xellAcquired = false;
 
 #ifndef DONT_USE_XMX
     ScopedSkipSpoofingGlobal skipSpoofingGlobal {};
