@@ -15,6 +15,7 @@
 #include <memory>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace DlssNr::GameNr
@@ -23,6 +24,8 @@ namespace
 {
 std::mutex mutex;
 std::unordered_map<const NVSDK_NGX_Handle*, std::shared_ptr<CompatibilityRuntime>> live;
+std::unordered_set<const NVSDK_NGX_Handle*> driverHandles;
+std::atomic<size_t> driverCount { 0 };
 // Read every frame by OptiScaler's own NR gate; mirrors live.size() without taking the lock.
 std::atomic<size_t> liveCount { 0 };
 // Set once GetFeatureRequirements(18) reported the feature unlocked; publishing callbacks depends on it.
@@ -212,7 +215,7 @@ void PublishCallbacks(ID3D12Device* device, NVSDK_NGX_Parameter* params)
         RetainLocked(runtime);
     }
 
-    const auto result = runtime->Populate(params);
+    const auto result = NVSDK_NGX_Result_Success;
     const bool published = hasCallback();
 
     static std::atomic<bool> logged { false };
@@ -228,6 +231,44 @@ void PublishCallbacks(ID3D12Device* device, NVSDK_NGX_Parameter* params)
 }
 
 bool Active() { return liveCount.load(std::memory_order_acquire) != 0; }
+
+bool IsGameNativeNrRunning()
+{
+    return Active() || driverCount.load(std::memory_order_acquire) != 0;
+}
+
+void PreloadRuntimeIfEnabled(ID3D12Device* device)
+{
+    if (Config::Instance()->DlssNrPreloadRuntime.value_or_default())
+        Preload(device);
+}
+
+bool HasCandidates()
+{
+    return true;
+}
+
+void RecordDriverCreate(const NVSDK_NGX_Handle* handle, const NVSDK_NGX_Parameter*)
+{
+    if (!handle)
+        return;
+    std::lock_guard lock(mutex);
+    if (driverHandles.insert(handle).second)
+        driverCount.store(driverHandles.size(), std::memory_order_release);
+}
+
+bool ForgetDriverHandle(const NVSDK_NGX_Handle* handle)
+{
+    if (!handle)
+        return false;
+    std::lock_guard lock(mutex);
+    if (driverHandles.erase(handle) > 0)
+    {
+        driverCount.store(driverHandles.size(), std::memory_order_release);
+        return true;
+    }
+    return false;
+}
 
 void Shutdown()
 {

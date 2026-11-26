@@ -26,6 +26,11 @@ bool Unlocked();
 void PublishCallbacks(ID3D12Device* device, NVSDK_NGX_Parameter* params);
 // True while the game has a live NR feature; OptiScaler's own NR yields to it.
 bool Active();
+bool IsGameNativeNrRunning();
+void PreloadRuntimeIfEnabled(ID3D12Device* device);
+bool HasCandidates();
+void RecordDriverCreate(const NVSDK_NGX_Handle* handle, const NVSDK_NGX_Parameter* params);
+bool ForgetDriverHandle(const NVSDK_NGX_Handle* handle);
 // NGX shutdown: release what the game left behind and drop the retained runtimes.
 void Shutdown();
 } // namespace DlssNr::GameNr

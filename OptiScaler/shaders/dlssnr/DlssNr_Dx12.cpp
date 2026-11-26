@@ -3124,10 +3124,15 @@ void DlssNr_Dx12::Dispatch(ID3D12GraphicsCommandList* cmdList, ID3D12Resource* c
 
         if (resolved && !residualAcrossRr && targetSupportsUav)
         {
+            auto dispatchResolveLambda = [&](ID3D12GraphicsCommandList* cmd, const DlssNrConstants& k,
+                                             ID3D12Resource* px, ID3D12Resource* ans, ID3D12Resource* orig,
+                                             ID3D12Resource* mot, ID3D12Resource* exp, ID3D12Resource* tgt,
+                                             ID3D12Resource* resTgt, ID3D12Resource* dep)
+            { return DispatchPass(cmd, k, px, ans, orig, mot, exp, tgt, resTgt, dep); };
             DlssNr::CompareBridge::ApplyOtherSideIfEnabled(
                 device, cmdList, cfg, resolveParams, modelInput, resolveProxy, resolveOriginal, motionIn, exposureTex,
                 depthIn, target, workWidth, workHeight, width, height, g_nr.guideMvScaleX * mvToWorkX,
-                g_nr.guideMvScaleY * mvToWorkY, DispatchPass, TransitionTarget,
+                g_nr.guideMvScaleY * mvToWorkY, dispatchResolveLambda, TransitionTarget,
                 D3D12_RESOURCE_STATE_UNORDERED_ACCESS);
         }
 

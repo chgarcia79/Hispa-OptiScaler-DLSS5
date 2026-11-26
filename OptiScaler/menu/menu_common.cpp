@@ -7,6 +7,7 @@
 
 #include <dlssnr/DlssNr.h>
 #include <dlssnr/DlssNr_OwnNr.h>
+#include <dlssnr/NrNvfp4.h>
 #include "MenuLayout.h"
 #include "Menu_Dev10LivePacingSection.h"
 #include "Menu_NeuralSharpenSection.h"
@@ -3271,12 +3272,13 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
     auto constexpr fgNvngxFfxIndex = (uint32_t) FGNvngxReplacement::FFX;
     if (state.swapchainApi == API::Vulkan)
     {
-        if (!ffxVkInitTried && !FfxApiProxy::IsFGReadyVk())
+        static bool ffxVkReady = false;
+        if (!ffxVkInitTried)
         {
             ffxVkInitTried = true;
-            FfxApiProxy::InitFfxVk();
+            ffxVkReady = FfxApiProxy::InitFfxVk();
         }
-        nvngxOptions[fgNvngxFfxIndex].set_disabled(!FfxApiProxy::IsFGReadyVk(),
+        nvngxOptions[fgNvngxFfxIndex].set_disabled(!ffxVkReady,
                                                    "Missing amd_fidelityfx_framegeneration_vk.dll");
     }
     else

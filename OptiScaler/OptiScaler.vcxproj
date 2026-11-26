@@ -640,6 +640,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="dlssnr\DlssNr_GameNr.h" />
     <ClInclude Include="dlssnr\DlssNr_GameNrLog.h" />
     <ClInclude Include="dlssnr\DlssNr_GameNrRuntime.h" />
+    <ClInclude Include="dlssnr\DlssNr_CompatibilityRuntime.h" />
     <ClInclude Include="dlssnr\DlssNr_MenuDepthFadeSection.h" />
     <ClInclude Include="dlssnr\DlssNr_MenuStabilitySection.h" />
     <ClInclude Include="dlssnr\DlssNr_NativeBlend.h" />
@@ -975,6 +976,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClCompile Include="dlssnr\DlssNr_Presets.cpp" />
     <ClCompile Include="dlssnr\DlssNr_Calibrate.cpp" />
     <ClCompile Include="dlssnr\DlssNr_GameNrRuntime.cpp" />
+    <ClCompile Include="dlssnr\DlssNr_CompatibilityRuntime.cpp" />
     <ClCompile Include="inputs\NVNGX_DLSS_Dx12.cpp" />
     <ClCompile Include="dllmain.cpp" />
     <ClCompile Include="inputs\NVNGX_DLSS_Vk.cpp" />
