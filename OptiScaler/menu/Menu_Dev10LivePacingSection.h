@@ -4,6 +4,7 @@
 #include <cstdint>
 
 #include <Config.h>
+#include <resource.h>
 #include <framegen/xefg/XeFGPacing.h>
 #include <hooks/FG_Hooks.h>
 #include <hooks/FpsLimitSync.h>
@@ -35,7 +36,7 @@ inline void RenderSection(::Config* config, float menuResScale)
 
     ImGui::PushID("Dev10LivePacing");
     ImGui::Spacing();
-    ImGui::SeparatorText("Pacing, SwapChains y Latencia (Live v1.0.4-dev10)");
+    ImGui::SeparatorText("Pacing, SwapChains y Latencia (Live " VER_FILE_VERSION_STR ")");
 
     bool skipForeign = config->FGSkipForeignSwapChain.value_or_default();
     if (ImGui::Checkbox("Ignorar SwapChains Secundarias en FGPresent", &skipForeign))

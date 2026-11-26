@@ -11,6 +11,7 @@
 #include "DlssNr_MenuDepthFadeSection.h"
 #include "DlssNr_MenuStabilitySection.h"
 #include "DlssNr_MenuNvfp4Section.h"
+#include "DlssNr_MenuWeightsCompareSection.h"
 #include "DlssNr_MenuPresetsCalibrateSection.h"
 #include "DlssNr_MenuPassShortcutsSection.h"
 #include "DlssNr_MenuDiagnosticsSection.h"
@@ -126,6 +127,22 @@ void RenderMenu(Config* config, float menuResScale)
         }
 
         ImGui::TextDisabled("Se puede activar/desactivar con tecla en Keybinds (\"Neural Rendering\").");
+
+        if (const auto quickPresets = Presets::List(); !quickPresets.empty())
+        {
+            static int quickIdx = 0;
+            if (quickIdx >= static_cast<int>(quickPresets.size()))
+                quickIdx = 0;
+            std::vector<const char*> qNames;
+            qNames.reserve(quickPresets.size());
+            for (const auto& s : quickPresets)
+                qNames.push_back(s.c_str());
+            ImGui::SetNextItemWidth(220.0f);
+            ImGui::Combo("##QuickPresetTop", &quickIdx, qNames.data(), static_cast<int>(qNames.size()));
+            ImGui::SameLine();
+            if (ImGui::SmallButton("Cargar Preset##Top"))
+                Presets::Load(quickPresets[static_cast<size_t>(quickIdx)], *config);
+        }
 
         bool applyModel = config->DlssNrApplyModel.value_or_default();
         if (ImGui::Checkbox("Aplicar modelo de IA (Neural Model)", &applyModel))
@@ -1276,7 +1293,8 @@ void RenderMenu(Config* config, float menuResScale)
         // KeepModelOnFormatFlip, IsolateMainFeature, GpuSafeRetire).
         RenderDev9StabilitySection(config, HelpMarker);
         RenderDev10DepthFadeSection(config, HelpMarker);
-        RenderPresetsCalibrateSection(config, HelpMarker);
+        RenderWeightsCompareSection(config, HelpMarker);
+    RenderPresetsCalibrateSection(config, HelpMarker);
         RenderPassShortcutsSection(config, HelpMarker);
         RenderDiagnosticsSection(config, HelpMarker);
 

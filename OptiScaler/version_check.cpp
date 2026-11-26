@@ -229,8 +229,16 @@ void RunVersionCheck()
 
 const std::string& VersionCheck::CurrentVersionString()
 {
+#ifdef VER_DEV_RELEASE
+    static const std::string version =
+        std::format("{}.{}.{}-dev{}", VER_MAJOR_VERSION, VER_MINOR_VERSION, VER_HOTFIX_VERSION, VER_BUILD_NUMBER);
+#elif defined(VER_PRE_RELEASE)
+    static const std::string version =
+        std::format("{}.{}.{}-pre{}", VER_MAJOR_VERSION, VER_MINOR_VERSION, VER_HOTFIX_VERSION, VER_BUILD_NUMBER);
+#else
     static const std::string version =
         std::format("{}.{}.{}", VER_MAJOR_VERSION, VER_MINOR_VERSION, VER_HOTFIX_VERSION);
+#endif
     return version;
 }
 

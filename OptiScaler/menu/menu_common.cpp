@@ -10,6 +10,7 @@
 #include "MenuLayout.h"
 #include "Menu_Dev10LivePacingSection.h"
 #include "Menu_NeuralSharpenSection.h"
+#include "Menu_DlssgControlsSection.h"
 #include <inputs/XeSS_UE_Dx12.h>
 #include "Menu_GpuPrioritization.h"
 
@@ -3364,6 +3365,7 @@ void MenuCommon::RenderFrameGenerationSelection(RenderMenuContext& ctx)
         if (bool clearDlssg = config->OptiFgClearGameDlssgHooks.value_or_default();
             ImGui::Checkbox("OptiFG: Limpiar hooks DLSS-G del juego", &clearDlssg))
             config->OptiFgClearGameDlssgHooks = clearDlssg;
+        MenuDlssgControls::RenderSection(config);
         if (MenuLayout::ShowsDlssgRatioCombo(state.dlssgMfgMax, dlssgInputOrOutput))
         {
             auto maxInterpolationCount = state.dlssgMfgMax.value();

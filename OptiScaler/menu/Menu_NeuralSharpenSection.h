@@ -87,10 +87,21 @@ inline void RenderParameters(::Config* config, bool isHdr)
         }
         else
         {
+            const char* presets[] = { "Natural (Fiel)", "Crisp (Nitidez extra)" };
+            int preset = std::clamp(config->OptiSharpenPreset.value_or_default(), 0, 1);
+            if (ImGui::Combo("Perfil OptiSharpen v2", &preset, presets, IM_ARRAYSIZE(presets)))
+                config->OptiSharpenPreset = preset;
+            HelpTip("Usa pipelines precompiladas especializadas Natural o Crisp (OptiSharpen v2).");
+
             const char* models[] = { "Clean", "TAA", "TAA Wide", "TAA Wide 12", "Punch 10", "Punch 15" };
             int model = std::clamp(config->OptiSharpenModel.value_or_default(), 0, 5);
             if (ImGui::Combo("Modelo OptiSharpen", &model, models, IM_ARRAYSIZE(models)))
                 config->OptiSharpenModel = model;
+
+            float hdrLimiter = std::clamp(config->OptiSharpenHdrLimiter.value_or_default(), 0.0f, 2.0f);
+            if (ImGui::SliderFloat("Limitador Anti-Halos HDR (hm16)", &hdrLimiter, 0.0f, 2.0f, "%.2f"))
+                config->OptiSharpenHdrLimiter = hdrLimiter;
+            HelpTip("Controla la respuesta sobre luces brillantes HDR para evitar halos/contornos oscuros.");
 
             const char* views[] = { "Normal", "Sharpening map", "Change magnitude" };
             int view = std::clamp(config->OptiSharpenDebugView.value_or_default(), 0, 2);
@@ -112,7 +123,9 @@ inline void RenderParameters(::Config* config, bool isHdr)
             }
             else
             {
+                config->OptiSharpenPreset.reset();
                 config->OptiSharpenModel.reset();
+                config->OptiSharpenHdrLimiter.reset();
                 config->OptiSharpenDebugView.reset();
             }
         }

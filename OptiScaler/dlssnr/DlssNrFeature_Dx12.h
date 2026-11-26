@@ -48,6 +48,7 @@ void ResetInitDiscardCounter();
 bool IsPausedByInitDiscards();
 void ReleaseVramNow();
 bool IsVramAllocated();
+float GetAutoFreeRemainingSec();
 
 struct StabilityTelemetry
 {

@@ -5,6 +5,7 @@
 #include <dlssnr/DlssNr_Presets.h>
 #include <menu/menu_common.h>
 #include <imgui/imgui.h>
+#include <cstdio>
 #include <cstring>
 #include <string>
 #include <vector>
@@ -16,7 +17,7 @@ template <typename HelpFn> inline void RenderPresetsCalibrateSection(::Config* c
     if (!config)
         return;
 
-    if (auto ch = ScopedCollapsingHeader("Presets NR y Auto-Calibrador (DX12)"); ch.IsHeaderOpen())
+    if (auto ch = ScopedCollapsingHeader("Presets NR y Auto-Calibrador (DX12 v2)"); ch.IsHeaderOpen())
     {
         ScopedIndent indent {};
         ImGui::Spacing();
@@ -80,12 +81,20 @@ template <typename HelpFn> inline void RenderPresetsCalibrateSection(::Config* c
 
         ImGui::BeginDisabled(!calEnabled);
         bool skinOpt = config->DlssNrCalibratorSkinOpt.value_or_default();
-        if (ImGui::Checkbox("Optimizar Piel, Entorno y Highlight Guard", &skinOpt))
+        if (ImGui::Checkbox("Optimizar Piel, Entorno y Highlight Guard (Lectura Skin Mask v2)", &skinOpt))
             config->DlssNrCalibratorSkinOpt = skinOpt;
 
         const auto report = Calibrate::Read();
         if (report.active)
         {
+            const float prog = Calibrate::GetProgress01();
+            const int step = Calibrate::GetCurrentStep();
+            const int total = Calibrate::GetTotalSteps();
+            const bool settling = Calibrate::IsWaitingFrameSettle();
+            char barOverlay[160] {};
+            std::snprintf(barOverlay, sizeof(barOverlay), "Paso %d / %d (%.0f%%) - %s", step, total, prog * 100.0f,
+                          settling ? "Esperando estabilizacion de imagen..." : "Evaluando sliders...");
+            ImGui::ProgressBar(prog, ImVec2(-1.0f, 0.0f), barOverlay);
             if (ImGui::SmallButton("Detener calibracion"))
                 Calibrate::Cancel();
         }

@@ -3382,6 +3382,8 @@ void ApplyResidualAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Par
     }
 }
 
+static std::atomic<float> g_autoFreeRemainingSec { -1.0f };
+
 void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Parameter* params,
                           ID3D12CommandQueue* timingQueue, uint32_t gameFeature)
 {
@@ -3395,15 +3397,27 @@ void EvaluateAfterUpscale(ID3D12GraphicsCommandList* cmdList, NVSDK_NGX_Paramete
         if (s_offSince == std::chrono::steady_clock::time_point {})
             s_offSince = now;
 
-        if (autoFree && now - s_offSince >= std::chrono::seconds(delaySec) && IsVramAllocated())
+        if (autoFree && IsVramAllocated())
         {
-            ReleaseVramNow();
-            LOG_INFO("DLSS-NR DX12: switched off for {} s, VRAM models and surfaces parked for release", delaySec);
+            const float elapsed = std::chrono::duration<float>(now - s_offSince).count();
+            g_autoFreeRemainingSec.store(std::max(0.0f, static_cast<float>(delaySec) - elapsed),
+                                         std::memory_order_relaxed);
+            if (elapsed >= static_cast<float>(delaySec))
+            {
+                ReleaseVramNow();
+                g_autoFreeRemainingSec.store(-1.0f, std::memory_order_relaxed);
+                LOG_INFO("DLSS-NR DX12: switched off for {} s, VRAM models and surfaces parked for release", delaySec);
+            }
+        }
+        else
+        {
+            g_autoFreeRemainingSec.store(-1.0f, std::memory_order_relaxed);
         }
         TickNrRetired(State::Instance().frameCount, cfg.DlssNrGpuSafeRetire.value_or_default());
         ReportSkipOnce("it is switched off");
         return;
     }
+    g_autoFreeRemainingSec.store(-1.0f, std::memory_order_relaxed);
 
     if (cmdList == nullptr || params == nullptr)
     {
@@ -3992,6 +4006,11 @@ void ReleaseVramNow()
 bool IsVramAllocated()
 {
     return g_nr.feature != nullptr || g_nr.output != nullptr || g_nr.colorCopy != nullptr;
+}
+
+float GetAutoFreeRemainingSec()
+{
+    return g_autoFreeRemainingSec.load(std::memory_order_relaxed);
 }
 
 StabilityTelemetry GetStabilityTelemetry()

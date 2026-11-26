@@ -5,6 +5,7 @@
 #include <menu/menu_common.h>
 #include <imgui/imgui.h>
 #include <algorithm>
+#include <cstdio>
 
 namespace DlssNr
 {
@@ -13,7 +14,7 @@ template <typename HelpFn> inline void RenderDiagnosticsSection(::Config* config
     if (!config)
         return;
 
-    if (auto ch = ScopedCollapsingHeader("Guardia CommandList, VRAM y DetailReuse"); ch.IsHeaderOpen())
+    if (auto ch = ScopedCollapsingHeader("Guardia CommandList, VRAM y Blindajes (v1.0.4-dev15)"); ch.IsHeaderOpen())
     {
         ScopedIndent indent {};
         ImGui::Spacing();
@@ -48,6 +49,15 @@ template <typename HelpFn> inline void RenderDiagnosticsSection(::Config* config
         if (ImGui::SliderInt("Retardo de liberacion (s)", &delaySec, 1, 60))
             config->DlssNrAutoFreeVramDelaySec = delaySec;
 
+        const float remSec = GetAutoFreeRemainingSec();
+        if (autoFree && IsVramAllocated() && remSec >= 0.0f)
+        {
+            const float frac = std::clamp(1.0f - (remSec / static_cast<float>(delaySec)), 0.0f, 1.0f);
+            char vramOverlay[96] {};
+            std::snprintf(vramOverlay, sizeof(vramOverlay), "Liberando VRAM NR en %.1fs / %ds", remSec, delaySec);
+            ImGui::ProgressBar(frac, ImVec2(-1.0f, 0.0f), vramOverlay);
+        }
+
         if (ImGui::SmallButton("Liberar VRAM NR ahora"))
             ReleaseVramNow();
         ImGui::SameLine();
@@ -60,6 +70,33 @@ template <typename HelpFn> inline void RenderDiagnosticsSection(::Config* config
         if (ImGui::Checkbox("Anti-estelas en Reuse Detail cada 3er frame", &antiTrail))
             config->DlssNrDetailReuseAntiTrail = antiTrail;
         helpMarker("Atenua arrastres y refuerza rechazo de movimiento en la segunda reproyeccion consecutiva.");
+
+        ImGui::Separator();
+
+        bool defRel = config->DeferredFeatureRelease.value_or_default();
+        if (ImGui::Checkbox("Retiro Diferido Seguro de Features D3D12", &defRel))
+            config->DeferredFeatureRelease = defRel;
+        helpMarker("Retiene features D3D12 liberadas hasta completar los Presents en vuelo.");
+
+        bool slNative = config->DlssNrStreamlineNativeBridge.value_or_default();
+        if (ImGui::Checkbox("Puente DLSS-NR Nativo en Juegos Streamline", &slNative))
+            config->DlssNrStreamlineNativeBridge = slNative;
+        helpMarker("Publica callbacks NR para juegos Streamline (Where Winds Meet, etc.).");
+
+        bool disOta = config->StreamlineDisableOta.value_or_default();
+        if (ImGui::Checkbox("Bloquear Descargas OTA de Streamline", &disOta))
+            config->StreamlineDisableOta = disOta;
+        helpMarker("Evita que Streamline descargue plugins OTA paralelos y provoque crash 1E7 al iniciar.");
+
+        bool skipNvApp = config->StreamlineSkipNvidiaAppOverride.value_or_default();
+        if (ImGui::Checkbox("Ignorar Override de Plugins de NVIDIA App (0x10E41E06)", &skipNvApp))
+            config->StreamlineSkipNvidiaAppOverride = skipNvApp;
+        helpMarker("Responde 0 en memoria a la clave DRS 0x10E41E06 sin tocar el perfil global del driver.");
+
+        bool lockWin = config->OverlayLockPrimaryWindow.value_or_default();
+        if (ImGui::Checkbox("Anclar Overlay a Ventana Principal (Anti-Crash Pop-out)", &lockWin))
+            config->OverlayLockPrimaryWindow = lockWin;
+        helpMarker("Evita crashes y recursion WndProc cuando el juego abre ventanas secundarias (MSFS 2024).");
     }
 }
 } // namespace DlssNr
