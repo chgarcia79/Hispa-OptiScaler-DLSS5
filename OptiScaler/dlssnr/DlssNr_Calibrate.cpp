@@ -276,7 +276,6 @@ void Arrived(Config& config, capture::FrameCapture& frames)
     }
     if (run.phase == Run::Phase::Mask)
     {
-        config.DlssNrShowSkinMask = false;
         run.regions = run.mask.Fits(run.goalPicture) && run.mask.Usable();
         if (!run.mask.Fits(run.goalPicture))
             run.skinNote = "The skin mask could not be read at this NR placement, so the skin and environment sliders "
