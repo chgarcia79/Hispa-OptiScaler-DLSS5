@@ -684,6 +684,7 @@ copy NUL "$(SolutionDir)x64\Release\a\!! EXTRACT ALL FILES TO GAME FOLDER !!" /Y
     <ClInclude Include="dlssnr\NrPassBorrowTest.h" />
     <ClInclude Include="dlssnr\PassProfiles.h" />
     <ClInclude Include="dlssnr\DlssNr_ModelParameters.h" />
+    <ClInclude Include="shaders\dlssnr\DlssNr_Guides.h" />
     <ClInclude Include="dlssnr\DlssNr_MenuNvfp4Section.h" />
     <ClInclude Include="dlssnr\DlssNr_MenuWeightsCompareSection.h" />
     <ClInclude Include="dlssnr\DlssNr_MenuPresetsCalibrateSection.h" />
