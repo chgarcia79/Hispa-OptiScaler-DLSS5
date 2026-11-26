@@ -2,6 +2,8 @@
 #include "DlssNr_CompatibilityRuntime.h"
 #include "DlssNr_RuntimeImports.h"
 #include <Logger.h>
+#include <Util.h>
+#include <proxies/NVNGX_Proxy.h>
 #include <d3d12.h>
 #include <nvsdk_ngx.h>
 #include <psapi.h>
@@ -328,5 +330,28 @@ NVSDK_NGX_Result CompatibilityRuntime::Release(NVSDK_NGX_Handle* feature)
     std::lock_guard lock(module->mutex);
     CallerScope caller;
     return module->release(feature);
+}
+
+std::shared_ptr<CompatibilityRuntime> CompatibilityRuntime::TryOpen(ID3D12Device* device)
+{
+    if (!device)
+        return {};
+    auto alloc = NVNGXProxy::D3D12_AllocateParameters();
+    auto destroy = NVNGXProxy::D3D12_DestroyParameters();
+    if (!alloc || !destroy)
+        return {};
+    const std::filesystem::path candidates[] = {
+        Util::DllPath().parent_path() / L"nvngx_dlssnr.dll",
+        Util::ExePath().parent_path() / L"nvngx_dlssnr.dll",
+    };
+    for (const auto& candidate : candidates)
+    {
+        std::error_code ec;
+        if (!std::filesystem::exists(candidate, ec))
+            continue;
+        if (auto rt = Open(candidate, device, alloc, destroy))
+            return rt;
+    }
+    return {};
 }
 } // namespace DlssNr

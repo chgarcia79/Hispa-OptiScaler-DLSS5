@@ -1037,6 +1037,21 @@ void* __stdcall DetouredQueryInterface(uint32_t id)
 
 } // namespace
 
+NvAPI_Status SubmitOwned(LaunchFn submit, const char* /*name*/, ID3D12GraphicsCommandList* list,
+                         const NVAPI_CU_KERNEL_LAUNCH_PARAMS* kernels, NvU32 count)
+{
+    if (!tArmed)
+        return submit(list, kernels, count);
+    try
+    {
+        return ArmedLaunch(submit, list, kernels, count);
+    }
+    catch (...)
+    {
+        return AfterException(submit, list, kernels, count);
+    }
+}
+
 Cut ChooseCut(bool borrowTransformer, bool borrowBelow, unsigned level)
 {
     if (!borrowBelow)
