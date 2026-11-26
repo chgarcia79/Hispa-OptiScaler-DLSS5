@@ -102,14 +102,6 @@ void SetValues(Config& config, unsigned pass, const NrCalibrate::Point& values)
     config.DlssNrColourStrength = values[NrCalibrate::Colour];
     if (run.skin)
         config.DlssNrMaxRatio = values[NrCalibrate::Guard];
-    if (run.regions)
-    {
-        config.DlssNrSkinProtection = true;
-        config.DlssNrSkinDetail = values[NrCalibrate::SkinDetail];
-        config.DlssNrSkinColour = values[NrCalibrate::SkinColour];
-        config.DlssNrEnvironmentDetail = values[NrCalibrate::EnvironmentDetail];
-        config.DlssNrEnvironmentColour = values[NrCalibrate::EnvironmentColour];
-    }
 }
 
 // The same frame and a plain NR picture for both sides.
@@ -119,7 +111,6 @@ void ForceSession(Config& config)
     config.DlssNrApplyModel = true;
     config.DlssNrCompare = 0u;
     config.DlssNrDebugView = 0u;
-    config.DlssNrShowSkinMask = false;
 }
 
 void RestoreSession(Config& config)
@@ -128,7 +119,6 @@ void RestoreSession(Config& config)
     config.DlssNrApplyModel = run.apply;
     config.DlssNrCompare = run.compare;
     config.DlssNrDebugView = run.debugView;
-    config.DlssNrShowSkinMask = run.skinMask;
 }
 
 // The next picture is read `frames` NR frames from now; after a model change, pictures are read until they settle.
@@ -192,29 +182,37 @@ void Begin(Config& config, const Request& request)
     run.goalName = request.goal;
     run.pass = request.pass;
     run.skin = request.skin;
-    run.separate = config.DlssNrSkinProtection.value_or_default();
+    run.separate = false;
     run.working = Presets::Capture(config);
     run.hold = config.DlssNrHoldFrame.value_or_default();
     run.apply = config.DlssNrApplyModel.value_or_default();
     run.compare = config.DlssNrCompare.value_or_default();
     run.debugView = config.DlssNrDebugView.value_or_default();
-    run.skinMask = config.DlssNrShowSkinMask.value_or_default();
-    const auto model = Profiles::PassSettings(config, request.pass);
-    // (With the separate skin / environment controls off the four sliders have no effect: the picture is the one
-    // they give at 1.)
-    run.start = { model.intensity,
-                  model.localStructure,
-                  model.localTone,
+    float startIntensity = config.DlssNrIntensity.value_or_default();
+    float startStructure = config.DlssNrLocalStructure.value_or_default();
+    float startTone = config.DlssNrLocalTone.value_or_default();
+    if (request.pass > 0 && request.pass <= std::size(config.DlssNrPassOverrides))
+    {
+        const auto& ov = config.DlssNrPassOverrides[request.pass - 1];
+        if (ov.intensity.has_value())
+            startIntensity = ov.intensity.value();
+        if (ov.structure.has_value())
+            startStructure = ov.structure.value();
+        if (ov.tone.has_value())
+            startTone = ov.tone.value();
+    }
+    run.start = { startIntensity,
+                  startStructure,
+                  startTone,
                   config.DlssNrTransferStrength.value_or_default(),
                   config.DlssNrColourStrength.value_or_default(),
-                  run.separate ? config.DlssNrSkinDetail.value_or_default() : 1.0f,
-                  run.separate ? config.DlssNrSkinColour.value_or_default() : 1.0f,
-                  run.separate ? config.DlssNrEnvironmentDetail.value_or_default() : 1.0f,
-                  run.separate ? config.DlssNrEnvironmentColour.value_or_default() : 1.0f,
+                  1.0f,
+                  1.0f,
+                  1.0f,
+                  1.0f,
                   config.DlssNrMaxRatio.value_or_default() };
     run.applied = run.start;
-    // A picture NR hands on before the game's tone mapping has no known scale; a finished picture has.
-    run.reader.sceneLight = !config.DlssNrFinishedPicture.value_or_default();
+    run.reader.sceneLight = true;
 
     ForceSession(config);
     Presets::Apply(config, goal);
@@ -248,12 +246,9 @@ void BeginWorking(Config& config)
 // The goal is read. With the skin option the composition's own skin mask is read next, on the settings in use.
 void BeginMask(Config& config)
 {
-    Presets::Apply(config, run.working);
-    config.DlssNrSkinProtection = true;
-    config.DlssNrShowSkinMask = true;
-    run.phase = Run::Phase::Mask;
-    Await(kSettleBlend + 1, false);
-    Publish(true, "Calibrating: reading the skin mask of the held frame...");
+    run.regions = false;
+    run.skinNote = "Skin mask readback is disabled on this profile; optimizing Highlight Guard and global sliders.";
+    BeginWorking(config);
 }
 
 const NrCalibrate::Regions* RegionsOf(const NrCalibrate::Point& values)
@@ -402,7 +397,7 @@ int GetCurrentStep()
 {
     if (run.phase == Run::Phase::Idle)
         return 0;
-    const int base = run.phase == Run::Phase::Goal ? 1 : 2 + static_cast<int>(run.tried);
+    const int base = run.phase == Run::Phase::Goal ? 1 : 2 + static_cast<int>(run.measured.size());
     return std::clamp(base, 0, 18);
 }
 

@@ -239,7 +239,7 @@ bool IsGameNativeNrRunning()
 
 void PreloadRuntimeIfEnabled(ID3D12Device* device)
 {
-    if (Config::Instance()->DlssNrPreloadRuntime.value_or_default())
+    if (Config::Instance()->DlssNrPreload.value_or_default())
         Preload(device);
 }
 
