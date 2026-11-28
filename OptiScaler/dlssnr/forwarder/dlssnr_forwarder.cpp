@@ -991,6 +991,30 @@ __declspec(dllexport) int dlssnr_vk_evaluate_v2(void *cmdBuffer, void *feature, 
                                              unsigned int motionBaseX, unsigned int motionBaseY,
                                              int depthInverted, int reset, float intensity, int style,
                                              float localStructure, float localTone, float skinStructure,
+                                             int useAutoMask, float mvScaleX, float mvScaleY);
+
+__declspec(dllexport) int dlssnr_vk_evaluate(void *cmdBuffer, void *feature, void *capabilityParams,
+                                             void *color, void *depth, void *motion, void *output,
+                                             unsigned int width, unsigned int height,
+                                             unsigned int guideWidth, unsigned int guideHeight,
+                                             int depthInverted, int reset, float intensity, int style,
+                                             float localStructure, float localTone, float skinStructure,
+                                             int useAutoMask, float mvScaleX, float mvScaleY) {
+    return dlssnr_vk_evaluate_v2(cmdBuffer, feature, capabilityParams, color, depth, motion, output, width, height,
+                                 guideWidth, guideHeight, guideWidth, guideHeight, 0, 0, 0, 0, depthInverted, reset,
+                                 intensity, style, localStructure, localTone, skinStructure, useAutoMask, mvScaleX,
+                                 mvScaleY);
+}
+
+__declspec(dllexport) int dlssnr_vk_evaluate_v2(void *cmdBuffer, void *feature, void *capabilityParams,
+                                             void *color, void *depth, void *motion, void *output,
+                                             unsigned int width, unsigned int height,
+                                             unsigned int guideWidth, unsigned int guideHeight,
+                                             unsigned int motionWidth, unsigned int motionHeight,
+                                             unsigned int depthBaseX, unsigned int depthBaseY,
+                                             unsigned int motionBaseX, unsigned int motionBaseY,
+                                             int depthInverted, int reset, float intensity, int style,
+                                             float localStructure, float localTone, float skinStructure,
                                              int useAutoMask, float mvScaleX, float mvScaleY) {
     if (g_vk.evaluate == nullptr || feature == nullptr || capabilityParams == nullptr) {
         return -1;
@@ -1105,6 +1129,34 @@ __declspec(dllexport) void *dlssnr_call_create(const wchar_t *snippetPath, const
     else recordModelError(snippet, "model feature creation failed");
     // Match the DX11/Vulkan paths: a partial handle on failure is not usable.
     return dlssnr_call_last_create == 1 ? handle : nullptr;
+}
+
+__declspec(dllexport) int dlssnr_call_evaluate_v2(ID3D12GraphicsCommandList *cmd, void *feature,
+                                               void *capabilityParams, ID3D12Resource *color,
+                                               ID3D12Resource *depth, ID3D12Resource *motion,
+                                               ID3D12Resource *output, unsigned int width,
+                                               unsigned int height, unsigned int guideWidth,
+                                               unsigned int guideHeight, unsigned int motionWidth,
+                                               unsigned int motionHeight, unsigned int depthBaseX,
+                                               unsigned int depthBaseY, unsigned int motionBaseX,
+                                               unsigned int motionBaseY, int depthInverted, int reset,
+                                               float intensity, int style, float localStructure,
+                                               float localTone, float skinStructure, int useAutoMask,
+                                               float mvScaleX, float mvScaleY);
+
+__declspec(dllexport) int dlssnr_call_evaluate(ID3D12GraphicsCommandList *cmd, void *feature,
+                                               void *capabilityParams, ID3D12Resource *color,
+                                               ID3D12Resource *depth, ID3D12Resource *motion,
+                                               ID3D12Resource *output, unsigned int width,
+                                               unsigned int height, unsigned int guideWidth,
+                                               unsigned int guideHeight, int depthInverted, int reset,
+                                               float intensity, int style, float localStructure,
+                                               float localTone, float skinStructure, int useAutoMask,
+                                               float mvScaleX, float mvScaleY) {
+    return dlssnr_call_evaluate_v2(cmd, feature, capabilityParams, color, depth, motion, output, width, height,
+                                   guideWidth, guideHeight, guideWidth, guideHeight, 0, 0, 0, 0, depthInverted, reset,
+                                   intensity, style, localStructure, localTone, skinStructure, useAutoMask, mvScaleX,
+                                   mvScaleY);
 }
 
 // Colour and output are display resolution; depth and motion come from the game's own DLSS evaluation and

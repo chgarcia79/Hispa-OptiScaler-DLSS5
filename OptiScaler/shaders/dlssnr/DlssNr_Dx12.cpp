@@ -509,7 +509,7 @@ std::filesystem::path g_dllDir;
 bool EnsureForwarder()
 {
     if (g_nr.forwarder != nullptr)
-        return g_nr.create != nullptr;
+        return g_nr.create != nullptr && g_nr.evaluate != nullptr;
 
     if (g_dllDir.empty())
         g_dllDir = Util::DllPath().remove_filename();
